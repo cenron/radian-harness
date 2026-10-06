@@ -36,7 +36,18 @@ const O_NOFOLLOW_ANY = 0x20000000;
 const NOFOLLOW = O_NOFOLLOW_ANY | constants.O_NONBLOCK;
 const HELPER = path.join(path.dirname(fileURLToPath(import.meta.url)), "safe-dir-main.ts");
 
-export type SafeOp = { op: "mkdir"; name: string; mode: number } | { op: "rename"; from: string; to: string } | { op: "unlink"; name: string } | { op: "rmdir"; name: string };
+export type SafeOp =
+  | { op: "mkdir"; name: string; mode: number }
+  | { op: "rename"; from: string; to: string }
+  | { op: "unlink"; name: string }
+  | { op: "rmdir"; name: string }
+  | { op: "spawn"; file: string; argv: string[]; env: Record<string, string>; input?: string };
+
+export interface SpawnOutput {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
 
 export interface SafeDirHooks {
   /** Test seam: runs after the parent directory was validated and immediately before the helper acts on it. */
@@ -80,23 +91,34 @@ export function verifiedDirIdentity(dir: string): Outcome<{ dev: string; ino: st
   }
 }
 
-/** Perform single-name operations inside `dir` only if it is still the directory that was validated. */
-export function opsInVerifiedDir(dir: string, ops: readonly SafeOp[], hooks: SafeDirHooks = {}): Outcome<true> {
+/**
+ * Perform single-name operations (or a program run) inside `dir` only if it is
+ * still the directory that was validated — and, when `expected` is given, the
+ * exact directory identity recorded earlier (for example when it was created).
+ */
+export function opsInVerifiedDir(dir: string, ops: readonly SafeOp[], hooks: SafeDirHooks = {}, expected?: { dev: string; ino: string }): Outcome<true> {
+  const ran = runInVerifiedDir(dir, ops, hooks, expected);
+  return ran.ok ? success(true) : ran;
+}
+
+export function runInVerifiedDir(dir: string, ops: readonly SafeOp[], hooks: SafeDirHooks = {}, expected?: { dev: string; ino: string }): Outcome<SpawnOutput[]> {
   if (!confinedAccessSupported()) return refuse("CONTAINMENT_UNAVAILABLE", "safe file operations need kernel-enforced no-link path resolution (macOS O_NOFOLLOW_ANY)");
   const id = verifiedDirIdentity(dir);
   if (!id.ok) return id;
+  if (expected && (expected.dev !== id.value.dev || expected.ino !== id.value.ino)) return refuse("PATH_OUTSIDE_SCOPE", "the directory is not the one Radian created or validated earlier; nothing was changed");
   hooks.beforeMutate?.(dir, ops);
   const result = spawnSync(process.execPath, [HELPER, id.value.dev, id.value.ino, dir, JSON.stringify(ops)], { cwd: dir, env: { PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 20_000 });
   if (result.error) {
     return (result.error as NodeJS.ErrnoException).code === "ENOENT" ? refuse("PATH_OUTSIDE_SCOPE", "the directory changed before it could be used; nothing was changed") : refuse("PATH_INVALID", "the safe file helper could not start");
   }
-  let parsed: { ok?: boolean; code?: string; errno?: string } = {};
+  let parsed: { ok?: boolean; code?: string; errno?: string; outputs?: SpawnOutput[] } = {};
   try {
     parsed = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}") as typeof parsed;
   } catch {
     parsed = {};
   }
-  if (result.status === 0 && parsed.ok === true) return success(true);
+  if (result.status === 0 && parsed.ok === true) return success(parsed.outputs ?? []);
+  if (parsed.code === "spawn-failed") return refuse("GIT_FAILURE", `a controlled command failed: ${(parsed.outputs?.at(-1)?.stderr ?? "").trim().split("\n")[0] ?? ""}`.trim());
   if (parsed.code === "substituted") return refuse("PATH_OUTSIDE_SCOPE", "the directory was replaced (for example by a link) after validation; nothing was changed");
   if (parsed.code === "moved") return refuse("PATH_OUTSIDE_SCOPE", "the directory moved during the operation; created directories were removed");
   if (parsed.code === "op-failed") return errnoBlocker({ code: parsed.errno }, "file operation");

@@ -9,9 +9,17 @@
 //
 // argv: <dev> <ino> <dir-path> <json-ops>; stdout: one JSON result line.
 
+import { spawnSync } from "node:child_process";
 import { closeSync, constants, fstatSync, mkdirSync, openSync, renameSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 
-type Op = { op: "mkdir"; name: string; mode: number } | { op: "rename"; from: string; to: string } | { op: "unlink"; name: string } | { op: "rmdir"; name: string };
+type Op =
+  | { op: "mkdir"; name: string; mode: number }
+  | { op: "rename"; from: string; to: string }
+  | { op: "unlink"; name: string }
+  | { op: "rmdir"; name: string }
+  // Run a program in the verified directory: the child inherits this process's
+  // working directory (no path is re-resolved). Used for controlled Git.
+  | { op: "spawn"; file: string; argv: string[]; env: Record<string, string>; input?: string };
 
 const O_NOFOLLOW_ANY = 0x20000000;
 
@@ -37,6 +45,7 @@ if (String(here.dev) !== dev || String(here.ino) !== ino) out({ ok: false, code:
 
 const created: string[] = [];
 const done: number[] = [];
+const outputs: Array<{ status: number | null; stdout: string; stderr: string }> = [];
 for (const [index, op] of ops.entries()) {
   try {
     switch (op.op) {
@@ -57,6 +66,12 @@ for (const [index, op] of ops.entries()) {
         if (!simple(op.name)) out({ ok: false, code: "invalid-name", done }, 2);
         rmdirSync(op.name);
         break;
+      case "spawn": {
+        const result = spawnSync(op.file, op.argv, { env: op.env, input: op.input ?? "", encoding: "utf8", timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+        outputs.push({ status: result.status, stdout: (result.stdout ?? "").slice(0, 1024 * 1024), stderr: (result.stderr ?? "").slice(0, 16 * 1024) });
+        if (result.status !== 0) out({ ok: false, code: "spawn-failed", index, done, outputs }, 4);
+        break;
+      }
       default:
         out({ ok: false, code: "invalid-op", done }, 2);
     }
@@ -89,4 +104,4 @@ if (!stillThere) {
   }
   out({ ok: false, code: "moved", done }, 5);
 }
-out({ ok: true, done }, 0);
+out({ ok: true, done, outputs }, 0);

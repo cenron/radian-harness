@@ -19,6 +19,9 @@ import { readConfined } from "../util/confined-fs.ts";
 import { type Discovery, type WorkspaceInfo, discover, loadWorkspace } from "../workspace/discovery.ts";
 import { projectPaths, workspacePaths } from "../workspace/layout.ts";
 import { createActivation, releaseViewLock } from "./activation.ts";
+import { applyProjectPlan, planAddProject, planNewProject, recoverProjectOperation, renderProjectPlan } from "../workspace/projects.ts";
+import { controlledGitEnv, gitArgv, locateGit } from "../git/exec.ts";
+import { spawnSync } from "node:child_process";
 import { type DelegateTools, READ_TOOL_NAMES, type ReadScope, readToolDefinitions } from "./read-tools.ts";
 import { deliverNotice, processRuntime, takeInbox } from "./workspace-runtime.ts";
 import type { AssignmentOutcome, AssignmentPlan } from "../coordinator/orchestrator.ts";
@@ -79,6 +82,8 @@ export interface RadianController {
   command(args: string, ctx: HostContext): Promise<string>;
   projectsCommand(args: string, ctx: HostContext): Promise<string>;
   workspaceCommand(args: string, ctx: HostContext): Promise<string>;
+  newProjectCommand(args: string, ctx: HostContext): Promise<string>;
+  addProjectCommand(args: string, ctx: HostContext): Promise<string>;
 }
 
 function blockerText(b: Blocker): string {
@@ -359,6 +364,53 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
       if (!name) return projectListText(loaded.value, projectOf(v)?.binding.project);
       return selectProject(v, loaded.value, name, ctx);
     },
+    async newProjectCommand(args, ctx) {
+      const v = view;
+      const root = setupRoot(v);
+      if (!root.ok) return blockerText(root.blocker);
+      const words = args.trim().split(/\s+/).filter(Boolean);
+      if (words[0] === "--recover") {
+        const recovered = await recoverProjectOperation(root.value);
+        if (!recovered.ok) return blockerText(recovered.blocker);
+        return recovered.value ? `Recovered: ${recovered.value.name} is registered (${recovered.value.target}). Select it with /projects ${recovered.value.name}.` : "No interrupted project operation.";
+      }
+      const name = words[0];
+      const branchAt = words.indexOf("--branch");
+      const branch = branchAt >= 0 ? words[branchAt + 1] : undefined;
+      if (!name || name.startsWith("--") || (branchAt >= 0 && !branch)) return "Usage: /new-project <name> [--branch <branch>]   (or /new-project --recover)";
+      const planned = planNewProject(root.value, name, branch ? { branch } : {});
+      if (!planned.ok) return blockerText(planned.blocker);
+      const confirmed = await setupConfirm(v, ctx, "Create project", renderProjectPlan(planned.value));
+      if (!confirmed.ok) return blockerText(confirmed.blocker);
+      const applied = await applyProjectPlan(planned.value, planned.value.hash);
+      if (!applied.ok) return blockerText(applied.blocker);
+      return activateAfterSetup(v, root.value, applied.value.name, `Created ${applied.value.name} (${applied.value.target} at ${applied.value.commit?.slice(0, 12)}) and registered it.`, ctx);
+    },
+    async addProjectCommand(args, ctx) {
+      const v = view;
+      const root = setupRoot(v);
+      if (!root.ok) return blockerText(root.blocker);
+      const words = args.trim().split(/\s+/).filter(Boolean);
+      const input = words[0];
+      const targetAt = words.indexOf("--target");
+      let target = targetAt >= 0 ? words[targetAt + 1] : undefined;
+      if (!input || input.startsWith("--") || (targetAt >= 0 && !target)) return "Usage: /add-project <path> --target refs/heads/<branch>";
+      if (!target) {
+        // An existing repository needs an explicit, commit-backed protected target: ask, never assume.
+        const branches = await localBranches(path.resolve(root.value, input));
+        if (!ctx.hasUI || branches.length === 0) return blockerText({ code: "CONFIG_INVALID", message: "an explicit protected target branch is required", nextAction: "Pass --target refs/heads/<branch>; Radian never assumes main for an existing repository." });
+        const choice = await ctx.ui.select("Protected target branch for " + input, branches);
+        if (!choice) return "Cancelled; nothing was registered.";
+        target = choice;
+      }
+      const planned = await planAddProject(root.value, input, target);
+      if (!planned.ok) return blockerText(planned.blocker);
+      const confirmed = await setupConfirm(v, ctx, "Register project", renderProjectPlan(planned.value));
+      if (!confirmed.ok) return blockerText(confirmed.blocker);
+      const applied = await applyProjectPlan(planned.value, planned.value.hash);
+      if (!applied.ok) return blockerText(applied.blocker);
+      return activateAfterSetup(v, root.value, applied.value.name, `Registered ${applied.value.name} with protected target ${applied.value.target}.`, ctx);
+    },
     async workspaceCommand(_args, ctx) {
       const v = view;
       if (v.kind === "unmanaged") return "Radian is inactive here.";
@@ -368,7 +420,39 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     },
   };
 
-  /** Selecting another project replaces the conversation (W05); until then, report the target. */
+  /** Workspace-level setup commands need a valid workspace (not direct entry, not an invalid workspace). */
+  const setupRoot = (v: View): Outcome<string> => {
+    if (v.kind === "unmanaged") return refuse("WORKSPACE_BLOCKED", "Radian is inactive here");
+    if (v.kind === "project" && v.direct) return refuse("SESSION_BUSY", "project setup runs from the workspace root", "Start Pi at the workspace root.");
+    const root = workspaceRootOf(v);
+    if (!root) return refuse("WORKSPACE_BLOCKED", "no workspace is available here");
+    const loaded = loadWorkspace(root);
+    return loaded.ok ? success(root) : refuse(loaded.blocker.code, loaded.blocker.message);
+  };
+
+  /**
+   * Explicit confirmation of an exact setup plan from the user's own interface
+   * (interactive terminal or an RPC client's dialog), never from extension
+   * input. Setup is not a product approval and starts no work.
+   */
+  const setupConfirm = async (v: View, ctx: HostContext, title: string, details: string): Promise<Outcome<true>> => {
+    if (!ctx.hasUI) return refuse("NONINTERACTIVE_APPROVAL_REQUIRED", "project setup must be confirmed in Pi's interface");
+    if (lastInputSource === "extension") return refuse("APPROVAL_NOT_HUMAN", "project setup must come from your own input, not an extension");
+    const confirmed = await ctx.ui.confirm(title, details);
+    if (!current(v)) return refuse("STALE_GENERATION", "the view changed while the confirmation was open; nothing was changed");
+    return confirmed ? success(true) : refuse("APPROVAL_MISSING", "not confirmed; nothing was changed");
+  };
+
+  /** Request activation only after a successful registration; a failed activation keeps the project. */
+  const activateAfterSetup = async (v: View, root: string, name: string, done: string, ctx: HostContext): Promise<string> => {
+    const loaded = loadWorkspace(root);
+    if (!loaded.ok) return `${done} Activation was not attempted: ${loaded.blocker.message}`;
+    const result = await activation.select(v, loaded.value, name, ctx);
+    if (result === "") return "";
+    return `${done} It was not activated: ${result.replace(/^BLOCKED /, "")} Select it later with /projects ${name}.`;
+  };
+
+  /** Selecting another project replaces the conversation (W05). */
   const selectProject = async (v: View, ws: WorkspaceInfo, name: string, ctx: HostContext): Promise<string> => activation.select(v, ws, name, ctx);
   const returnToDashboard = async (v: View, ctx: HostContext): Promise<string> => activation.dashboard(v, ctx);
 
@@ -631,7 +715,15 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
 
   pi.registerToolRenderer(calmResolver(() => managed() && session()!.calm.enabled, (text) => (runtime ? new runtime.Text(text, 0, 0) : text)));
 
-  const notifyResult = (ctx: HostContext, text: string) => ctx.ui.notify(text, text.startsWith("BLOCKED") ? "warning" : "info");
+  // After a successful switch the old context is stale and the new runtime reports instead (empty text).
+  const notifyResult = (ctx: HostContext, text: string) => {
+    if (!text) return;
+    try {
+      ctx.ui.notify(text, text.startsWith("BLOCKED") ? "warning" : "info");
+    } catch {
+      // A replaced runtime's context; the replacement view already reported.
+    }
+  };
   pi.registerCommand("radian", {
     description: "Radian coordinator for the selected project: status, mode, calm, approvals, decisions, integration, pause/cancel, retrospectives",
     handler: async (args, ctx) => notifyResult(ctx, await controller.command(args, ctx)),
@@ -639,6 +731,14 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
   pi.registerCommand("projects", {
     description: "List the workspace's registered projects, or select one: /projects <name>",
     handler: async (args, ctx) => notifyResult(ctx, await controller.projectsCommand(args, ctx)),
+  });
+  pi.registerCommand("new-project", {
+    description: "Create a minimal Git + Radian project in this workspace (previewed and confirmed): /new-project <name> [--branch <branch>]",
+    handler: async (args, ctx) => notifyResult(ctx, await controller.newProjectCommand(args, ctx)),
+  });
+  pi.registerCommand("add-project", {
+    description: "Register an existing repository in this workspace with an explicit protected target: /add-project <path> --target refs/heads/<branch>",
+    handler: async (args, ctx) => notifyResult(ctx, await controller.addProjectCommand(args, ctx)),
   });
   pi.registerCommand("workspace", {
     description: "Return to the workspace dashboard (background work continues)",
@@ -664,6 +764,14 @@ async function shutdownOwners(): Promise<void> {
     else run.supervision.dropHeartbeat();
     await run.lease.release();
   }
+}
+
+/** Local branches with commits, offered as explicit protected-target choices (read-only, controlled Git). */
+async function localBranches(repoRoot: string): Promise<string[]> {
+  const gitPath = locateGit();
+  if (!gitPath) return [];
+  const out = spawnSync(gitPath, gitArgv(["for-each-ref", "--format=%(refname)", "refs/heads"]), { cwd: repoRoot, env: controlledGitEnv(), encoding: "utf8", timeout: 10_000 });
+  return out.status === 0 ? out.stdout.split("\n").filter(Boolean) : [];
 }
 
 async function capacityLine(workspaceRoot: string): Promise<string> {
