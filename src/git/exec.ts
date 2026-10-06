@@ -11,6 +11,8 @@ export interface GitContext {
   gitPath: string;
   /** Repository working directory (or Git directory for bare inspections). */
   cwd: string;
+  /** Object format of the repository; selects the matching empty tree. Defaults to sha1. */
+  objectFormat?: "sha1" | "sha256";
 }
 
 export const NEUTRALIZING_CONFIG: readonly string[] = [
@@ -27,6 +29,14 @@ export const NEUTRALIZING_CONFIG: readonly string[] = [
   "submodule.recurse=false",
   "commit.gpgSign=false",
   "tag.gpgSign=false",
+  "core.editor=false",
+  "sequence.editor=false",
+  "merge.autoStash=false",
+  "rebase.autoStash=false",
+  "core.sshCommand=false",
+  "core.gitProxy=",
+  "fetch.recurseSubmodules=false",
+  "uploadpack.packObjectsHook=",
 ];
 
 export function controlledGitEnv(extra: Record<string, string> = {}): Record<string, string> {
@@ -53,8 +63,13 @@ export function locateGit(searchPath: string | undefined = process.env.PATH): st
   return resolveExecutable("git", searchPath);
 }
 
-export function gitArgv(args: readonly string[]): string[] {
-  const argv: string[] = [];
+/** Git's well-known empty tree. Reading attributes from it disables attribute-driven
+ * helpers (filter, diff, and merge drivers, textconv) for every controlled call. */
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+export const EMPTY_TREE_SHA256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+
+export function gitArgv(args: readonly string[], objectFormat: "sha1" | "sha256" = "sha1"): string[] {
+  const argv: string[] = [`--attr-source=${objectFormat === "sha256" ? EMPTY_TREE_SHA256 : EMPTY_TREE}`];
   for (const setting of NEUTRALIZING_CONFIG) argv.push("-c", setting);
   argv.push(...args);
   return argv;
@@ -68,7 +83,7 @@ export interface GitCallOptions {
 }
 
 export async function git(ctx: GitContext, args: readonly string[], options: GitCallOptions = {}): Promise<RunResult> {
-  return run(ctx.gitPath, gitArgv(args), {
+  return run(ctx.gitPath, gitArgv(args, ctx.objectFormat), {
     cwd: ctx.cwd,
     env: controlledGitEnv(options.env),
     input: options.input,
