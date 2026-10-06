@@ -11,7 +11,7 @@
 //   proxy variables are removed from their environment.
 // There is no OS sandbox and no capability gate (isolation is deferred past the MVP).
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
@@ -139,7 +139,8 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
   const a = request.authority;
   const briefFile = path.join(a.outputDir, `brief-${request.identity.attempt}.md`);
   const resultFile = path.join(a.outputDir, "result.json");
-  if (existsSync(resultFile)) return refuse("OWNERSHIP_AMBIGUOUS", "the output directory already holds a result; a fresh attempt needs a fresh exchange directory");
+  // A retry of the same assignment: keep the previous attempt's result as evidence, never let it be read as this attempt's.
+  if (existsSync(resultFile)) renameSync(resultFile, path.join(a.outputDir, `result.superseded-before-${request.identity.attempt}.json`));
   writePrivate(briefFile, `${request.briefText}\n\n<!-- radian brief ${request.brief.hash} -->\n`);
   const sessionId = randomUUID();
   const plan = adapter.buildLaunch({ identity: request.identity, profile: request.profile, authority: a, install, systemPrompt: request.systemPrompt, briefFile, resultFile, sessionId });

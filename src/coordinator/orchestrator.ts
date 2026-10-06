@@ -757,7 +757,7 @@ export class Coordinator {
     const entry = this.handles.get(assignment)!;
     entry.finishing = true;
     const stopped = await this.stopOnce(entry);
-    const collected = await collectResult(d.store, entry.handle.authority.outputDir, { identity: entry.handle.identity, briefHash: entry.brief.hash });
+    const collected = await collectResult(d.store, entry.handle.authority.outputDir, { identity: entry.handle.identity, briefHash: entry.brief.hash }, entry.handle.authority.worktree);
     await d.store.endAttempt(assignment, entry.handle.identity.attempt, collected.ok ? "completed" : "unknown", stopped.termination);
     const a = d.store.state.assignments[assignment]!;
     d.metrics.record("assignment-ended", { task: a.task, assignment, role: a.role, outcome: collected.ok ? collected.value.result.outcome : "no-valid-result", durationMs: a.budget.consumedMs, blockedMs: a.budget.blockedMs });
@@ -1232,7 +1232,7 @@ export function renderBrief(sealed: SealedBrief, roleGuide: string): string {
     "```",
     "",
     `- \`outcome\`: \`completed\`, \`blocked\`, \`failed\`, or \`cancelled\`. \`summary\`: what you did and what remains (required, non-empty).`,
-    `- \`deliverables\`: \`{ "path": "<relative path>", "description": "<optional>" }\` for each file you produced or changed.`,
+    `- \`deliverables\`: \`{ "path": "<path relative to your worktree, e.g. scripts/main.gd>", "description": "<optional>" }\` for each file you produced or changed.`,
     `- \`checks\`: one entry per required check: \`{ "id": "<check id>", "outcome": "passed" | "failed" | "not-run" | "inconclusive", "exitCode": <number or null>, "reason": "<optional>" }\`. Use \`not-run\` with a reason if you could not run it.`,
     `- \`findings\`: \`{ "severity": "blocker" | "major" | "minor" | "note", "summary": "<text>", "location": "<optional path:line>" }\`. \`unmetCriteria\` and \`risks\`: lists of strings. \`decisionRequests\`: \`{ "question": "<text>", "options": ["<optional>"] }\`.`,
     `- \`handoff\`: \`dirty\` (true if you left uncommitted changes Radian should collect), and string lists \`incomplete\`, \`runningServices\`, \`ownedResources\` (empty when none).`,

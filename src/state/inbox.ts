@@ -40,9 +40,26 @@ export function readExchangeResult(exchangeDir: string): Outcome<unknown> {
   }
 }
 
-export async function collectResult(store: RunStore, exchangeDir: string, expected: { identity: AssignmentIdentity; briefHash: string }): Promise<Outcome<CollectedResult>> {
-  const raw = readExchangeResult(exchangeDir);
-  if (!raw.ok) return raw;
+/**
+ * Workers often report their own files by absolute path. Paths inside the
+ * worker's worktree are made relative; anything else is left unchanged, so the
+ * result validator still refuses paths outside the assignment.
+ */
+export function normalizeResultPaths(raw: unknown, worktree: string): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const prefix = worktree.endsWith("/") ? worktree : `${worktree}/`;
+  const fix = (p: unknown) => (typeof p === "string" && p.startsWith(prefix) && p.length > prefix.length ? p.slice(prefix.length) : p);
+  const out = { ...(raw as Record<string, unknown>) };
+  if (Array.isArray(out.deliverables)) out.deliverables = out.deliverables.map((d) => (d && typeof d === "object" ? { ...(d as Record<string, unknown>), path: fix((d as { path?: unknown }).path) } : d));
+  const candidate = out.candidate as { patch?: { path?: unknown } } | undefined;
+  if (candidate && typeof candidate === "object" && candidate.patch && typeof candidate.patch === "object") out.candidate = { ...candidate, patch: { ...candidate.patch, path: fix(candidate.patch.path) } };
+  return out;
+}
+
+export async function collectResult(store: RunStore, exchangeDir: string, expected: { identity: AssignmentIdentity; briefHash: string }, worktree?: string): Promise<Outcome<CollectedResult>> {
+  const read = readExchangeResult(exchangeDir);
+  if (!read.ok) return read;
+  const raw = { ...read, value: worktree ? normalizeResultPaths(read.value, worktree) : read.value };
   const hash = hashJson(raw.value);
   const duplicate = store.state.results[hash]?.accepted === true;
   const recorded = await store.recordResult(raw.value, expected);

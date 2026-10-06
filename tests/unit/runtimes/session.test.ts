@@ -62,3 +62,26 @@ test("a runtime session that exits on startup is never bound", { skip: native ? 
     removeDir(l.root);
   }
 });
+
+test("a retry archives the previous attempt's result instead of refusing to start", { skip: native ? false : "macOS process tools" }, async () => {
+  // Live run: a rejected result triggered an automatic retry, which refused with
+  // "the output directory already holds a result", stranding the assignment.
+  const { writeFileSync, readFileSync, readdirSync } = await import("node:fs");
+  const path = await import("node:path");
+  const l = layout();
+  try {
+    writeFileSync(path.join(l.output, "result.json"), '{"previous":true}');
+    const d = deps(l, fakeCodex(l, "bind-and-wait"), []);
+    const r = request(l);
+    const launched = await launchAttempt(d, { ...r });
+    assert.ok(launched.ok, launched.ok ? "" : launched.blocker.message);
+    if (!launched.ok) return;
+    assert.ok(!existsSync(path.join(l.output, "result.json")), "the new attempt starts without a stale result");
+    const archived = readdirSync(l.output).find((f) => f.startsWith("result.superseded-"));
+    assert.ok(archived && archived.includes(r.identity.attempt), `previous result kept as evidence: ${archived}`);
+    assert.equal(readFileSync(path.join(l.output, archived!), "utf8"), '{"previous":true}');
+    await stopAttempt(d, launched.value, authorityFor(l));
+  } finally {
+    removeDir(l.root);
+  }
+});
