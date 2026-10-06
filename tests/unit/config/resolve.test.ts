@@ -45,8 +45,10 @@ test("shipped default selects standard development without enabling capabilities
   assert.ok(selection.ok);
   if (selection.ok) {
     assert.equal(selection.value.profile.name, "developer-standard");
-    assert.equal(selection.value.profile.model, "gpt-6.1-sol");
-    assert.equal(selection.value.profile.runtime, "pi");
+    // The user's choice (higher Claude plan usage): Anthropic workers, through Claude Code only (0015).
+    assert.equal(selection.value.profile.model, "claude-sonnet-5-5");
+    assert.equal(selection.value.profile.runtime, "claude-code");
+    assert.equal(selection.value.profile.provider, "anthropic");
     assert.equal(selection.value.profile.effort, "medium");
   }
   assert.equal(result.value.harness.execution.unverifiedCapabilities, "deny");
@@ -57,11 +59,13 @@ test("shipped role/task rules resolve exact profiles with explicit coordinator c
   assert.ok(result.ok);
   if (!result.ok) return;
   const cases = [
-    ["scout", "scouting", "scout-fast", "gpt-6-luna", "pi", "low"],
-    ["tester", "mechanical-testing", "tester-fast", "gpt-6-luna", "pi", "low"],
-    ["tester", "test-analysis", "tester-analysis", "gpt-6.1-sol", "pi", "medium"],
+    ["scout", "scouting", "scout-fast", "claude-haiku-4-5-20251001", "claude-code", "low"],
+    ["tester", "mechanical-testing", "tester-fast", "claude-haiku-4-5-20251001", "claude-code", "low"],
+    ["tester", "test-analysis", "tester-analysis", "claude-sonnet-5-5", "claude-code", "medium"],
+    ["tester", "test-analysis", "tester-analysis-pi", "gpt-6.1-sol", "pi", "medium"],
     ["tester", "test-analysis", "tester-analysis-codex", "gpt-6.1-sol", "codex", "medium"],
-    ["developer", "development", "developer-standard", "gpt-6.1-sol", "pi", "medium"],
+    ["developer", "development", "developer-standard", "claude-sonnet-5-5", "claude-code", "medium"],
+    ["developer", "development", "developer-pi", "gpt-6.1-sol", "pi", "medium"],
     ["developer", "development", "developer-codex", "gpt-6.1-sol", "codex", "medium"],
     ["reviewer", "ordinary-review", "reviewer-standard", "claude-sonnet-5-5", "claude-code", "medium"],
     ["reviewer", "safety-review", "safety-review", "claude-opus-5-5", "claude-code", "high"],
@@ -84,7 +88,7 @@ test("shipped role/task rules resolve exact profiles with explicit coordinator c
 });
 
 test("rejected shipped selection never falls back to another model or runtime", () => {
-  const result = resolveConfig([shipped(), { layer: "project", label: "project", dispatch: { profiles: { "tester-fast": { provider: "anthropic", model: "claude-sonnet-5-5" } } } }]);
+  const result = resolveConfig([shipped(), { layer: "project", label: "project", dispatch: { profiles: { "tester-fast": { runtime: "pi" } } } }]);
   assert.ok(result.ok);
   if (!result.ok) return;
   const selected = selectProfile(result.value.dispatch, { role: "tester", rule: { id: "mechanical-testing", profile: "tester-fast", rationale: "prescribed checks" } });

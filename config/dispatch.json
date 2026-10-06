@@ -24,25 +24,32 @@
       "description": "Compatibility profile for standard Claude work through Claude Code's subscription path; never route Anthropic models through Pi or Codex."
     },
     "scout-fast": {
-      "runtime": "pi",
-      "provider": "openai",
-      "model": "gpt-6-luna",
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
       "effort": "low",
-      "description": "Bounded file discovery, interface summaries, and evidence gathering; not substantive safety analysis."
+      "description": "Bounded file discovery, interface summaries, and evidence gathering through Claude Code; not substantive safety analysis."
     },
     "tester-fast": {
-      "runtime": "pi",
-      "provider": "openai",
-      "model": "gpt-6-luna",
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
       "effort": "low",
-      "description": "Execute prescribed checks and report evidence; test design and nontrivial diagnosis use tester-analysis instead."
+      "description": "Execute prescribed checks and report evidence through Claude Code; test design and nontrivial diagnosis use tester-analysis instead."
     },
     "tester-analysis": {
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Regression design and substantive failure diagnosis through Claude Code; select before launch, not as automatic escalation."
+    },
+    "tester-analysis-pi": {
       "runtime": "pi",
       "provider": "openai",
       "model": "gpt-6.1-sol",
       "effort": "medium",
-      "description": "Regression design and substantive failure diagnosis; select before launch, not as automatic escalation."
+      "description": "Explicit OpenAI-through-Pi counterpart to tester-analysis; never an automatic fallback."
     },
     "tester-analysis-codex": {
       "runtime": "codex",
@@ -52,11 +59,18 @@
       "description": "Explicit Codex counterpart to tester-analysis; not a fallback when Pi is unavailable."
     },
     "developer-standard": {
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Routine implementation and bounded fixes through Claude Code (the default worker profile). High-risk work requires explicit plan/profile approval."
+    },
+    "developer-pi": {
       "runtime": "pi",
       "provider": "openai",
       "model": "gpt-6.1-sol",
       "effort": "medium",
-      "description": "Routine implementation and bounded fixes; default OpenAI runtime is Pi. High-risk work requires explicit plan/profile approval."
+      "description": "Explicit OpenAI-through-Pi counterpart to developer-standard; never an automatic fallback."
     },
     "developer-codex": {
       "runtime": "codex",
@@ -99,15 +113,15 @@
     {
       "id": "test-analysis",
       "roles": ["tester"],
-      "when": "Design regression tests or investigate failures. Prefer Pi; choose Codex only explicitly in the approved assignment.",
-      "use": ["tester-analysis", "tester-analysis-codex"],
+      "when": "Design regression tests or investigate failures. Prefer Claude Code; choose Pi or Codex only explicitly in the approved assignment.",
+      "use": ["tester-analysis", "tester-analysis-pi", "tester-analysis-codex"],
       "why": "Use a substantive reasoning profile for test design and diagnosis; candidates are choices, not a fallback chain."
     },
     {
       "id": "development",
       "roles": ["developer"],
-      "when": "Routine implementation or bounded fixes. Prefer Pi; choose Codex only explicitly in the approved assignment. High-risk changes require explicit plan/profile approval.",
-      "use": ["developer-standard", "developer-codex"],
+      "when": "Routine implementation or bounded fixes. Prefer Claude Code; choose Pi or Codex only explicitly in the approved assignment. High-risk changes require explicit plan/profile approval.",
+      "use": ["developer-standard", "developer-pi", "developer-codex"],
       "why": "Use the standard coding profile without blanket high-effort assignments or automatic runtime substitution."
     },
     {
@@ -115,7 +129,7 @@
       "roles": ["reviewer"],
       "when": "Ordinary correctness and maintainability review, excluding containment, authentication, approval validity, lifecycle, and integration safety.",
       "use": ["reviewer-standard"],
-      "why": "Use an independent Claude perspective without assigning Opus to every review."
+      "why": "Use Sonnet for ordinary review without assigning Opus to every review."
     },
     {
       "id": "safety-review",
