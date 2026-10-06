@@ -34,7 +34,7 @@ import type { Delivery } from "../git/delivery.ts";
 import { git } from "../git/exec.ts";
 import { type InspectRequest, inspectArgv } from "../git/inspect.ts";
 import { succeeded } from "../util/proc.ts";
-import { CAPABILITIES, CapabilityRegistry } from "../isolation/capabilities.ts";
+import { CAPABILITIES, CapabilityRegistry, requiredCapabilities } from "../isolation/capabilities.ts";
 import { HumanChannel } from "../state/approvals.ts";
 import { calmResolver } from "./calm.ts";
 import { managedEditorFactory } from "./editor.ts";
@@ -1258,5 +1258,6 @@ export function capabilityText(session: ProjectSession): string {
 export function capabilityTextFor(stateDir: string): string {
   const registry = new CapabilityRegistry(stateDir);
   const unverified = CAPABILITIES.filter((c) => registry.latest(c)?.status !== "verified");
-  return `Runtime capabilities: ${CAPABILITIES.length - unverified.length}/${CAPABILITIES.length} with recorded verification evidence (version-bound; rechecked at every launch). Worker launches stay disabled until every required capability is verified.\n${unverified.map((c) => `  unverified: ${c}`).join("\n")}`;
+  const ready = (["claude-code", "pi", "codex"] as const).filter((runtime) => requiredCapabilities(runtime, "developer").every((c) => registry.latest(c)?.status === "verified"));
+  return `Runtime capabilities: ${CAPABILITIES.length - unverified.length}/${CAPABILITIES.length} with recorded verification evidence (version-bound; rechecked at every launch). A worker launches only when every item its runtime and role need is verified for the current versions${ready.length ? `; recorded for: ${ready.join(", ")}` : ""}.\n${unverified.map((c) => `  unverified: ${c}`).join("\n")}`;
 }

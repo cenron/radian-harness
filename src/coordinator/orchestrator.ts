@@ -11,7 +11,7 @@
 // verified runtime capabilities (inside the driver). Nothing here approves work
 // or interprets worker text as consent.
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type AuthorityRequest, type Operation, resolveAuthority } from "../contracts/authority.ts";
@@ -428,6 +428,9 @@ export class Coordinator {
     if (!brief.ok) return notStarted(brief.blocker);
     const fixed = await d.store.recordAttemptBrief(assignment, attempt.id, brief.value.hash);
     if (!fixed.ok) return notStarted(fixed.blocker);
+    // Workers cannot read the project root, and planning drafts need not be committed: deliver verified copies.
+    const delivered = this.deliverApprovedArtifacts(brief.value);
+    if (!delivered.ok) return notStarted(delivered.blocker);
     const briefText = renderBrief(brief.value, d.roleGuide(a.role));
     // Exact-candidate checks are executed by the contained launcher itself; their records are the evidence.
     const checkRuns = plan.purpose === "candidate-check" ? brief.value.brief.requiredChecks.map((c) => ({ id: c.id, argv: [...c.argv] })) : undefined;
@@ -525,6 +528,26 @@ export class Coordinator {
       if (current !== bound.artifact.hash) return refuse("APPROVAL_STALE", `the approved ${bound.kind} artifact changed after the assignment was prepared`, "Ask the user to review and approve the changed artifact.");
       const valid = requireApproval(d.store.state, { task: plan.task, kind: bound.kind }, { artifactHash: current });
       if (!valid.ok) return valid;
+    }
+    return success(true);
+  }
+
+  /**
+   * Copy each approved artifact into the attempt's output directory, only if
+   * its current content still matches the approved hash. The brief lists
+   * these copies; the project's own files stay the authority.
+   */
+  private deliverApprovedArtifacts(sealed: SealedBrief): Outcome<true> {
+    const outputDir = sealed.brief.authority.outputDir;
+    for (const approval of sealed.brief.approvals) {
+      const content = this.deps.artifactContent?.(approval.artifact.path);
+      if (content === undefined || Coordinator.artifactDigest(content) !== approval.artifact.hash) {
+        return refuse("APPROVAL_STALE", `the approved ${approval.kind} artifact cannot be delivered unchanged`, "Ask the user to review and approve the current artifact.");
+      }
+      const file = approvedCopyPath(outputDir, approval);
+      mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      rmSync(file, { force: true });
+      writeFileSync(file, content, { mode: 0o444 });
     }
     return success(true);
   }
@@ -1136,6 +1159,37 @@ function sameArgv(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** Render the bounded brief the worker reads: role guidance plus the sealed contract. */
+/**
+ * A minimal valid `radian.result/1` envelope for this exact assignment and
+ * brief revision. Real workers cannot infer identity fields or nested shapes
+ * from prose (a live Claude Code run invented them and every result was
+ * rejected), so the brief carries this template verbatim.
+ */
+/** Where an attempt's copy of an approved artifact is delivered (inside its output directory). */
+export function approvedCopyPath(outputDir: string, approval: { kind: string; artifact: { path: string } }): string {
+  const ext = path.extname(approval.artifact.path) || ".md";
+  return path.join(outputDir, "approved", `${approval.kind}${/^\.[A-Za-z0-9]{1,8}$/.test(ext) ? ext : ".md"}`);
+}
+
+export function resultTemplate(identity: AssignmentIdentity, briefHash: string, checkIds: readonly string[]): Record<string, unknown> {
+  return {
+    schema: "radian.result/1",
+    identity: { workspace: identity.workspace, project: identity.project, run: identity.run, task: identity.task, assignment: identity.assignment, attempt: identity.attempt, generation: identity.generation, role: identity.role },
+    briefHash,
+    outcome: "completed",
+    summary: "Replace with what you did and what remains.",
+    deliverables: [],
+    checks: checkIds.map((id) => ({ id, outcome: "not-run", exitCode: null, reason: "Replace with the result of running this check." })),
+    findings: [],
+    unmetCriteria: [],
+    risks: [],
+    decisionRequests: [],
+    handoff: { dirty: false, incomplete: [], runningServices: [], ownedResources: [] },
+    usage: { status: "unknown" },
+    modelAttestation: "unverified",
+  };
+}
+
 export function renderBrief(sealed: SealedBrief, roleGuide: string): string {
   const b = sealed.brief;
   const lines = [
@@ -1162,6 +1216,9 @@ export function renderBrief(sealed: SealedBrief, roleGuide: string): string {
     `- Operations: ${b.authority.operations.join(", ")}`,
     `- Never: ${b.authority.prohibited.join(", ")}`,
     ``,
+    `## Approved artifacts (read these first)`,
+    ...(b.approvals.length ? [`These are the human-approved documents for this task. They are binding: follow them exactly, and report anything you cannot meet instead of reinterpreting it.`, ...b.approvals.map((a) => `- ${a.kind}: ${approvedCopyPath(b.authority.outputDir, a)} (approved content ${a.artifact.hash.replace(/^sha256:/, "").slice(0, 12)})`)] : ["- (none)"]),
+    ``,
     `## Required checks`,
     ...(b.requiredChecks.length ? b.requiredChecks.map((c) => `- ${c.id}: ${c.description} — \`${c.argv.join(" ")}\``) : ["- (none)"]),
     ``,
@@ -1172,7 +1229,18 @@ export function renderBrief(sealed: SealedBrief, roleGuide: string): string {
     ...(b.context.length ? b.context.map((c) => `- ${c.label}${c.text ? `: ${c.text}` : ""}`) : ["- (none)"]),
     ``,
     `## Result envelope`,
-    `Write \`result.json\` in your output directory with schema \`radian.result/1\`, identity exactly as above, \`briefHash\` "${sealed.hash}", outcome, summary, deliverables, checks (with candidate revision and exit codes), findings, unmet criteria, risks, decision requests, handoff state, usage ("unknown" unless reported), and modelAttestation "unverified".`,
+    `When finished, blocked, or unable to continue, write \`result.json\` in your output directory (${b.authority.outputDir}). Start from this template: keep \`schema\`, \`identity\`, \`briefHash\`, and \`modelAttestation\` exactly as given, and replace the other values. Use exactly these field names; no other fields are accepted, and a result that does not match is rejected.`,
+    "",
+    "```json",
+    JSON.stringify(resultTemplate(b.identity, sealed.hash, b.requiredChecks.map((c) => c.id)), null, 2),
+    "```",
+    "",
+    `- \`outcome\`: \`completed\`, \`blocked\`, \`failed\`, or \`cancelled\`. \`summary\`: what you did and what remains (required, non-empty).`,
+    `- \`deliverables\`: \`{ "path": "<relative path>", "description": "<optional>" }\` for each file you produced or changed.`,
+    `- \`checks\`: one entry per required check: \`{ "id": "<check id>", "outcome": "passed" | "failed" | "not-run" | "inconclusive", "exitCode": <number or null>, "reason": "<optional>" }\`. Use \`not-run\` with a reason if you could not run it.`,
+    `- \`findings\`: \`{ "severity": "blocker" | "major" | "minor" | "note", "summary": "<text>", "location": "<optional path:line>" }\`. \`unmetCriteria\` and \`risks\`: lists of strings. \`decisionRequests\`: \`{ "question": "<text>", "options": ["<optional>"] }\`.`,
+    `- \`handoff\`: \`dirty\` (true if you left uncommitted changes Radian should collect), and string lists \`incomplete\`, \`runningServices\`, \`ownedResources\` (empty when none).`,
+    `- \`usage\`: keep \`{ "status": "unknown" }\` unless your runtime reported token counts.`,
     ``,
     `## Role guidance`,
     roleGuide,

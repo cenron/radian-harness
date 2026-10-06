@@ -241,7 +241,10 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
   const beforePane = authorize();
   if (!beforePane.ok) return fail(beforePane);
   await deps.supervision.watch({ assignment: request.identity.assignment, attempt: request.identity.attempt, ownedRoots: [a.worktree, a.outputDir, a.scratchDir], projectionDirs: [projection.dir] });
-  const pane = await deps.transport.createPane({ assignment: request.identity.assignment, attempt: request.identity.attempt, parentPane: deps.parentPane, cwd: a.worktree });
+  // The pane's own shell lives outside the worker's owned roots: a Herdr pane keeps its shell until
+  // closed, and an unowned process inside an owned root would make every clean stop "unknown".
+  // The launcher sets the runtime's working directory itself (spec.cwd).
+  const pane = await deps.transport.createPane({ assignment: request.identity.assignment, attempt: request.identity.attempt, parentPane: deps.parentPane, cwd: launchDir });
   if (!pane.ok) {
     await deps.supervision.unwatch(request.identity.assignment);
     return fail(pane);
