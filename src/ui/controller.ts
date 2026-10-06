@@ -10,7 +10,17 @@ import path from "node:path";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type Operation } from "../contracts/authority.ts";
 import { ROLES, type Role } from "../contracts/identity.ts";
-import { safeRelative } from "../contracts/paths.ts";
+import { isWithin, safeRelative } from "../contracts/paths.ts";
+import { loadAndResolve } from "../config/resolve.ts";
+import { CapacityLedger } from "../state/capacity.ts";
+import { readJsonIfExists } from "../state/fsutil.ts";
+import { loadRunDir } from "../state/run-store.ts";
+import { readConfined } from "../util/confined-fs.ts";
+import { type Discovery, type WorkspaceInfo, discover, loadWorkspace } from "../workspace/discovery.ts";
+import { projectPaths, workspacePaths } from "../workspace/layout.ts";
+import { createActivation, releaseViewLock } from "./activation.ts";
+import { type DelegateTools, READ_TOOL_NAMES, type ReadScope, readToolDefinitions } from "./read-tools.ts";
+import { deliverNotice, processRuntime, takeInbox } from "./workspace-runtime.ts";
 import type { AssignmentOutcome, AssignmentPlan } from "../coordinator/orchestrator.ts";
 import { readMetrics } from "../coordinator/metrics.ts";
 import { Retrospectives } from "../coordinator/retrospective.ts";
@@ -23,7 +33,7 @@ import { HumanChannel } from "../state/approvals.ts";
 import { calmResolver } from "./calm.ts";
 import { managedEditorFactory } from "./editor.ts";
 import { guardToolCall } from "./guard.ts";
-import type { HostContext, HostRuntime, PiHost } from "./pi-host.ts";
+import type { HostBashOperations, HostContext, HostRuntime, HostToolDefinition, PiHost } from "./pi-host.ts";
 import { PLANNING_DIR, type ProjectSession, artifactHash, shortHash } from "./session.ts";
 import { writeConfined } from "../util/confined-fs.ts";
 
@@ -34,10 +44,13 @@ const INSPECT_MAX_TEXT = 64 * 1024;
 
 export interface ControllerOptions {
   loadRuntime: () => Promise<HostRuntime>;
-  openSession: (cwd: string) => Promise<Outcome<ProjectSession>>;
+  /** Open a registered project's session from its root (direct entry or a workspace selection). */
+  openSession: (projectRoot: string) => Promise<Outcome<ProjectSession>>;
   startRun: (session: ProjectSession) => Promise<Outcome<NonNullable<ProjectSession["run"]>>>;
   /** Actor label recorded on human decisions (private local state). */
   actorId?: string;
+  /** Workspace discovery (tests may inject one). */
+  discover?: (cwd: string) => Discovery;
 }
 
 const MODIFYING_OPS: Operation[] = ["read", "edit", "shell", "run-checks", "install-locked-dependencies", "deliver-changes", "write-report", "network-outbound"];
@@ -48,48 +61,102 @@ const ROLE_OPS: Record<Role, Operation[]> = {
   scout: ["read", "shell", "network-outbound", "write-report"],
 };
 
+/**
+ * What this Pi extension runtime shows and may act on. A view is fixed for
+ * the runtime's lifetime: selecting another project replaces the runtime.
+ */
+export type View =
+  | { kind: "unmanaged" }
+  | { kind: "blocked"; blocker: Blocker; workspaceRoot: string | undefined }
+  | { kind: "dashboard"; workspace: WorkspaceInfo; generation: number }
+  | { kind: "project"; project: ProjectSession; workspace: WorkspaceInfo | undefined; direct: boolean; generation: number; contextId?: string };
+
 export interface RadianController {
   readonly session: () => ProjectSession | undefined;
+  readonly view: () => View;
   readonly lastInputSource: () => string | undefined;
   toggleMode(ctx: HostContext): Promise<void>;
   command(args: string, ctx: HostContext): Promise<string>;
+  projectsCommand(args: string, ctx: HostContext): Promise<string>;
+  workspaceCommand(args: string, ctx: HostContext): Promise<string>;
 }
 
 function blockerText(b: Blocker): string {
   return `BLOCKED ${b.code}: ${b.message}${b.nextAction ? ` — ${b.nextAction}` : ""}`;
 }
 
+const NO_PROJECT = (what: string) => blockerText({ code: "NO_PROJECT_SELECTED", message: `${what} needs a selected project`, nextAction: "Select one with /projects, or create one with /new-project." });
+
+/** The project and generation a call captured when it started. */
+function projectOf(view: View): ProjectSession | undefined {
+  return view.kind === "project" ? view.project : undefined;
+}
+
+function workspaceRootOf(view: View): string | undefined {
+  if (view.kind === "dashboard") return view.workspace.root;
+  if (view.kind === "project") return view.workspace?.root ?? view.project.binding.workspaceRoot;
+  if (view.kind === "blocked") return view.workspaceRoot;
+  return undefined;
+}
+
 export function registerRadian(pi: PiHost, options: ControllerOptions): RadianController {
-  let session: ProjectSession | undefined;
+  let view: View = { kind: "unmanaged" };
   let runtime: HostRuntime | undefined;
   let lastInputSource: string | undefined;
   let toolsRegistered = false;
+  let skillRoots: string[] = [];
   const deliveries = new Map<string, Delivery>();
   const actor = options.actorId ?? "local-user";
+  const discoverAt = options.discover ?? discover;
 
-  const managed = () => session !== undefined;
+  const managed = () => view.kind === "project";
+  const session = () => projectOf(view);
+
+  /** A view is current while no other activation happened in this process since it started. */
+  const current = (v: View): boolean => v.kind !== "dashboard" && v.kind !== "project" ? true : v.generation === processRuntime().generation;
 
   const updateStatus = (ctx: HostContext): void => {
-    if (!session) return;
-    const mode = session.mode.mode.toUpperCase();
-    const live = session.run?.coordinator.liveAssignments() ?? [];
-    const calm = session.calm.enabled ? " · calm" : "";
-    ctx.ui.setStatus("radian", `${mode}${live.length ? ` · ${live.length} live worker(s)` : ""}${calm}`);
+    const v = view;
+    if (v.kind === "unmanaged") return;
+    if (v.kind === "blocked") {
+      ctx.ui.setStatus("radian", `BLOCKED · ${v.blocker.code}`);
+      ctx.ui.setWidget("radian", [`Radian workspace blocked: ${v.blocker.message}`, ...(v.blocker.nextAction ? [v.blocker.nextAction] : [])]);
+      return;
+    }
+    const wsName = v.kind === "dashboard" ? path.basename(v.workspace.root) : v.workspace ? path.basename(v.workspace.root) : undefined;
+    if (v.kind === "dashboard") {
+      ctx.ui.setStatus("radian", `WORKSPACE · no project selected${wsName ? ` · ${wsName}` : ""}`);
+      ctx.ui.setWidget("radian", [`Workspace ${wsName}: ${v.workspace.projects.length} registered project(s). /projects to list or select, /new-project to create.`]);
+      void capacityLine(v.workspace.root).then((cap) => {
+        if (view === v) ctx.ui.setStatus("radian", `WORKSPACE · no project selected${wsName ? ` · ${wsName}` : ""} · ${cap}`);
+      });
+      return;
+    }
+    const s = v.project;
+    const mode = s.mode.mode.toUpperCase();
+    const live = s.run?.coordinator.liveAssignments() ?? [];
+    const calm = s.calm.enabled ? " · calm" : "";
+    const label = v.workspace ? ` · ${projectLabel(v.workspace, s.binding.project)}` : "";
+    const base = `${mode}${label}${live.length ? ` · ${live.length} live worker(s)` : ""}${calm}`;
+    ctx.ui.setStatus("radian", base);
+    void capacityLine(s.binding.workspaceRoot).then((cap) => {
+      if (view === v) ctx.ui.setStatus("radian", `${base} · ${cap}`);
+    });
     const lines: string[] = [];
-    const state = session.run?.store.state;
+    const state = s.run?.store.state;
     if (state) {
       for (const task of Object.values(state.tasks)) lines.push(`task ${task.id}: ${task.phase}, round ${task.roundsUsed}/${task.maxRounds}`);
       for (const a of Object.values(state.assignments)) {
         if (["retired", "cancelled"].includes(a.status)) continue;
-        lines.push(`  ${a.role} ${a.id}: ${a.status}${a.status === "running" ? "" : ""}`);
+        lines.push(`  ${a.role} ${a.id}: ${a.status}`);
       }
       for (const d of Object.values(state.decisions)) if (d.status === "open") lines.push(`decision ${d.id}: ${d.prompt.slice(0, 120)}`);
     }
     ctx.ui.setWidget("radian", lines.length ? lines : undefined);
   };
 
-  /** Explicit human confirmation from an interactive terminal; never fabricated. */
-  const humanConfirm = async (ctx: HostContext, title: string, details: string, origin: string): Promise<Outcome<HumanChannel>> => {
+  /** Explicit human confirmation from an interactive terminal; never fabricated, and refused if the view changed meanwhile. */
+  const humanConfirm = async (v: View, ctx: HostContext, title: string, details: string, origin: string): Promise<Outcome<HumanChannel>> => {
     if (ctx.mode !== "tui" || !ctx.hasUI) {
       return refuse("NONINTERACTIVE_APPROVAL_REQUIRED", "this decision requires an interactive Pi terminal", "Open the project in interactive Pi and run the command there.");
     }
@@ -97,25 +164,24 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
       return refuse("APPROVAL_NOT_HUMAN", "decisions must come from interactive user input, not RPC or extension input");
     }
     const confirmed = await ctx.ui.confirm(title, details);
+    if (!current(v)) return refuse("STALE_GENERATION", "the selected project changed while the confirmation was open; nothing was recorded", "Select the project again and repeat the command.");
     if (!confirmed) return refuse("APPROVAL_MISSING", "the user declined");
     return success(HumanChannel.fromUserInput("user-ui", actor, origin));
   };
 
-  const requireRun = async (): Promise<Outcome<NonNullable<ProjectSession["run"]>>> => {
-    if (!session) return refuse("INSTALL_TARGET_INVALID", "this is not a Radian-managed project");
-    return session.run ? success(session.run) : options.startRun(session);
-  };
+  const requireRun = async (s: ProjectSession): Promise<Outcome<NonNullable<ProjectSession["run"]>>> => (s.run ? success(s.run) : options.startRun(s));
 
-  const setMode = async (ctx: HostContext, mode: "plan" | "build"): Promise<string> => {
-    if (!session) return "Radian is inactive in this project.";
-    const previous = session.mode.mode;
-    session.mode.set(mode);
+  const setMode = async (v: View, ctx: HostContext, mode: "plan" | "build"): Promise<string> => {
+    const s = projectOf(v);
+    if (!s) return NO_PROJECT("Plan/Build mode");
+    const previous = s.mode.mode;
+    s.mode.set(mode);
     let note = "";
     if (mode === "plan" && previous === "build") {
-      const live = (session.run?.coordinator.liveAssignments() ?? []).filter((a) => a.role === "developer" || a.role === "tester");
+      const live = (s.run?.coordinator.liveAssignments() ?? []).filter((a) => a.role === "developer" || a.role === "tester");
       if (live.length > 0) {
         if (ctx.mode === "tui" && ctx.hasUI && (await ctx.ui.confirm("Pause live modifying workers?", `${live.length} worker(s) are still running. Plan mode already blocks new modifying dispatch. Pausing stops them and preserves their work.`))) {
-          for (const worker of live) await session.run!.coordinator.pause(worker.assignment, "user switched to Plan");
+          for (const worker of live) await s.run!.coordinator.pause(worker.assignment, "user switched to Plan");
           note = ` Paused ${live.length} worker(s); their work is preserved.`;
         } else {
           note = ` ${live.length} modifying worker(s) are still running; Plan only blocks new dispatch.`;
@@ -123,45 +189,56 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
       }
     }
     updateStatus(ctx);
-    return `Mode: ${mode.toUpperCase()}. Mode changes never approve or start work.${note}`;
+    return `Mode: ${mode.toUpperCase()} for ${s.binding.project}. Mode changes never approve or start work.${note}`;
   };
 
   const controller: RadianController = {
-    session: () => session,
+    session,
+    view: () => view,
     lastInputSource: () => lastInputSource,
     async toggleMode(ctx) {
-      if (!session) return;
-      const message = await setMode(ctx, session.mode.mode === "plan" ? "build" : "plan");
+      const v = view;
+      const s = projectOf(v);
+      if (!s) return;
+      const message = await setMode(v, ctx, s.mode.mode === "plan" ? "build" : "plan");
       ctx.ui.notify(message, "info");
     },
     async command(args, ctx) {
-      if (!session) return "Radian is inactive: this project is not registered in a Radian workspace.";
+      const v = view;
+      if (v.kind === "unmanaged") return "Radian is inactive: this directory is not a Radian workspace or registered project.";
+      if (v.kind === "blocked") return blockerText(v.blocker);
       const words = args.trim().split(/\s+/).filter(Boolean);
       const [sub = "status", ...rest] = words;
+      const s = projectOf(v);
+      if (!s) {
+        if (sub === "status") return workspaceStatusText(v.kind === "dashboard" ? v.workspace : undefined);
+        if (sub === "capabilities") return capabilityTextFor(workspacePaths(workspaceRootOf(v)!).state);
+        return NO_PROJECT(`/radian ${sub}`);
+      }
       switch (sub) {
         case "status":
-          return statusText(session);
+          return statusText(s);
         case "mode": {
           const target = rest[0];
-          if (target !== "plan" && target !== "build") return `Mode: ${session.mode.mode.toUpperCase()} (use /radian mode plan|build or Shift+Tab)`;
-          return setMode(ctx, target);
+          if (target !== "plan" && target !== "build") return `Mode: ${s.mode.mode.toUpperCase()} (use /radian mode plan|build or Shift+Tab)`;
+          return setMode(v, ctx, target);
         }
         case "calm": {
-          const value = rest[0] === "on" ? true : rest[0] === "off" ? false : !session.calm.enabled;
-          session.calm.set(value);
+          const value = rest[0] === "on" ? true : rest[0] === "off" ? false : !s.calm.enabled;
+          s.calm.set(value);
           updateStatus(ctx);
           return `Calm ${value ? "on" : "off"}: presentation only — execution, context, approvals, and logs are unchanged.`;
         }
         case "start": {
-          const run = await requireRun();
+          const run = await requireRun(s);
           return run.ok ? `Run ${run.value.store.state.run.id} is active.` : blockerText(run.blocker);
         }
         case "task": {
           if (rest[0] !== "add" || rest.length < 2) return "Usage: /radian task add <title>";
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
           const before = new Set(Object.keys(run.value.store.state.tasks));
-          const added = await run.value.store.addTask(rest.slice(1).join(" "), session.config.harness.assignment.candidateRounds);
+          const added = await run.value.store.addTask(rest.slice(1).join(" "), s.config.harness.assignment.candidateRounds);
           if (!added.ok) return blockerText(added.blocker);
           const id = Object.keys(added.value.tasks).find((t) => !before.has(t));
           updateStatus(ctx);
@@ -172,11 +249,11 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
           const [kind, task, artifact, flag] = rest;
           if (!kind || !task || !artifact || !["spec", "brief", "plan", "integration"].includes(kind)) return `Usage: /radian ${sub} <spec|brief|plan|integration> <task> <artifact-path>`;
           if (!safeRelative(artifact)) return "BLOCKED PATH_INVALID: artifact path must be repository-relative";
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
-          const hash = artifactHash(session.repo.root, artifact);
+          const hash = artifactHash(s.repo.root, artifact);
           if (!hash) return `BLOCKED APPROVAL_MISSING: artifact ${artifact} is missing`;
-          let details = `${sub === "approve" ? "Approve" : "Reject"} ${kind} for task ${task}\nartifact ${artifact} (content ${shortHash(hash)})`;
+          let details = `${sub === "approve" ? "Approve" : "Reject"} ${kind} for task ${task} in project ${s.binding.project}\nartifact ${artifact} (content ${shortHash(hash)})`;
           let integration: { candidate: { commit: string; tree: string; base: string }; target: { ref: string; commit: string } } | undefined;
           if (kind === "integration") {
             const summary = await run.value.coordinator.integrationSummary(task, run.value.coordinator.evidence(task).requiredChecks ?? []);
@@ -185,7 +262,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
             details += `\ncandidate ${summary.value.candidate.commit.slice(0, 12)} onto ${summary.value.target.ref} at ${summary.value.target.commit.slice(0, 12)}\nchecks: ${summary.value.checks.map((c) => `${c.id}=${c.outcome}`).join(", ") || "none"}\nreview: ${summary.value.review ? `${summary.value.review.blockingFindings} blocking of ${summary.value.review.findings}` : "none"}\nrisks: ${summary.value.risks.join("; ") || "none"}\ngaps: ${summary.value.gaps.join("; ") || "none"}`;
             if (sub === "approve" && !summary.value.ready) return `BLOCKED CANDIDATE_MISMATCH: not ready for integration (${summary.value.gaps.join("; ")})`;
           }
-          const channel = await humanConfirm(ctx, `Radian ${sub} ${kind}`, details, `/radian ${sub} ${kind}`);
+          const channel = await humanConfirm(v, ctx, `Radian ${sub} ${kind}`, details, `/radian ${sub} ${kind}`);
           if (!channel.ok) return blockerText(channel.blocker);
           const recorded = await run.value.store.recordApproval(channel.value, {
             kind: kind as "spec" | "brief" | "plan" | "integration",
@@ -201,11 +278,11 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         case "decide": {
           const [decisionId, ...answer] = rest;
           if (!decisionId || answer.length === 0) return "Usage: /radian decide <decision-id> <answer>";
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
           const decision = run.value.store.state.decisions[decisionId];
           if (!decision) return "BLOCKED INVALID_TRANSITION: unknown decision";
-          const channel = await humanConfirm(ctx, "Radian decision", `${decision.prompt}\n\nAnswer: ${answer.join(" ")}`, "/radian decide");
+          const channel = await humanConfirm(v, ctx, "Radian decision", `${decision.prompt}\n\nAnswer: ${answer.join(" ")}`, "/radian decide");
           if (!channel.ok) return blockerText(channel.blocker);
           const resolved = await run.value.store.resolveDecision(channel.value, decisionId, answer.join(" "));
           updateStatus(ctx);
@@ -214,14 +291,14 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         case "integrate": {
           const [task] = rest;
           if (!task) return "Usage: /radian integrate <task>";
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
           const evidence = run.value.coordinator.evidence(task);
           const required = evidence.requiredChecks ?? [];
           if (required.length === 0) return "BLOCKED CANDIDATE_MISMATCH: no required checks were recorded for this task";
           const approval = Object.values(run.value.store.state.approvals).filter((a) => a.task === task && a.kind === "integration" && a.decision === "approved").at(-1);
           if (!approval) return "BLOCKED APPROVAL_MISSING: integration approval is required (/radian approve integration ...)";
-          const channel = await humanConfirm(ctx, "Radian integrate", `Fast-forward ${session.target?.ref ?? "target"} to the approved candidate for ${task}?`, "/radian integrate");
+          const channel = await humanConfirm(v, ctx, "Radian integrate", `Fast-forward ${s.target?.ref ?? "target"} of project ${s.binding.project} to the approved candidate for ${task}?`, "/radian integrate");
           if (!channel.ok) return blockerText(channel.blocker);
           const integrated = await run.value.coordinator.integrate(channel.value, task, required, { path: approval.artifact.path });
           updateStatus(ctx);
@@ -231,7 +308,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         case "cancel": {
           const [assignment] = rest;
           if (!assignment) return `Usage: /radian ${sub} <assignment>`;
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
           const done = sub === "pause" ? await run.value.coordinator.pause(assignment, "user request") : await run.value.coordinator.cancel(assignment);
           updateStatus(ctx);
@@ -241,37 +318,77 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         case "authorize-recovery": {
           const [target, n] = rest;
           if (!target) return `Usage: /radian ${sub} <${sub === "grant-rounds" ? "task> <n" : "assignment"}>`;
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
-          const channel = await humanConfirm(ctx, `Radian ${sub}`, sub === "grant-rounds" ? `Grant ${n ?? "1"} more candidate round(s) to ${target}?` : `Authorize one more attempt for ${target}?`, `/radian ${sub}`);
+          const channel = await humanConfirm(v, ctx, `Radian ${sub}`, sub === "grant-rounds" ? `Grant ${n ?? "1"} more candidate round(s) to ${target}?` : `Authorize one more attempt for ${target}?`, `/radian ${sub}`);
           if (!channel.ok) return blockerText(channel.blocker);
           const decisionId = `dec_${sub}-${Date.now()}`;
           const done = sub === "grant-rounds" ? await run.value.store.grantRounds(channel.value, target, Number(n ?? "1"), decisionId) : await run.value.store.authorizeRecovery(channel.value, target, decisionId);
           return done.ok ? `Recorded human decision ${decisionId}.` : blockerText(done.blocker);
         }
         case "retro": {
-          const run = await requireRun();
+          const run = await requireRun(s);
           if (!run.ok) return blockerText(run.blocker);
-          const retros = new Retrospectives(session.project.state);
+          const retros = new Retrospectives(s.project.state);
           if (rest[0] === "decide") {
             const [, id, verdict, ...note] = rest;
             if (!id || (verdict !== "approve" && verdict !== "reject")) return "Usage: /radian retro decide <id> approve|reject [note]";
-            const channel = await humanConfirm(ctx, "Radian retrospective decision", `${verdict} retrospective ${id}? Approval only schedules a separate harness task.`, "/radian retro decide");
+            const channel = await humanConfirm(v, ctx, "Radian retrospective decision", `${verdict} retrospective ${id}? Approval only schedules a separate harness task.`, "/radian retro decide");
             if (!channel.ok) return blockerText(channel.blocker);
             const decided = retros.decide(channel.value, id, verdict === "approve" ? "approved-for-separate-task" : "rejected", note.join(" ") || "no note");
             return decided.ok ? `Retrospective ${id}: ${decided.value.status}.` : blockerText(decided.blocker);
           }
-          const records = readMetrics(path.join(session.project.state, "metrics", "events.jsonl"));
+          const records = readMetrics(path.join(s.project.state, "metrics", "events.jsonl"));
           const created = retros.create(records, { problem: "On-demand review of recent runs", change: "To be written by the user from the evidence below", expectedBenefit: "n/a until specified", regressionRisk: "n/a until specified", evaluation: "Compare per-version summaries on comparable tasks", rollback: "Do not adopt; keep the current harness version" });
           return created.ok ? `Retrospective ${created.value.id} written privately (${created.value.observations.length} observation(s)); status proposed.` : blockerText(created.blocker);
         }
         case "capabilities":
-          return capabilityText(session);
+          return capabilityText(s);
         default:
-          return "Radian commands: status, mode plan|build, calm on|off, start, task add <title>, approve|reject <kind> <task> <path>, decide <id> <answer>, integrate <task>, pause|cancel <assignment>, grant-rounds <task> <n>, authorize-recovery <assignment>, retro [decide …], capabilities";
+          return "Radian commands: status, mode plan|build, calm on|off, start, task add <title>, approve|reject <kind> <task> <path>, decide <id> <answer>, integrate <task>, pause|cancel <assignment>, grant-rounds <task> <n>, authorize-recovery <assignment>, retro [decide …], capabilities. Workspace: /projects, /workspace, /new-project, /add-project.";
       }
     },
+    async projectsCommand(args, ctx) {
+      const v = view;
+      if (v.kind === "unmanaged") return "Radian is inactive here.";
+      if (v.kind === "blocked") return blockerText(v.blocker);
+      const root = workspaceRootOf(v)!;
+      const loaded = loadWorkspace(root);
+      if (!loaded.ok) return blockerText(loaded.blocker);
+      const name = args.trim();
+      if (!name) return projectListText(loaded.value, projectOf(v)?.binding.project);
+      return selectProject(v, loaded.value, name, ctx);
+    },
+    async workspaceCommand(_args, ctx) {
+      const v = view;
+      if (v.kind === "unmanaged") return "Radian is inactive here.";
+      if (v.kind === "blocked") return blockerText(v.blocker);
+      if (v.kind === "dashboard") return workspaceStatusText(v.workspace);
+      return returnToDashboard(v, ctx);
+    },
   };
+
+  /** Selecting another project replaces the conversation (W05); until then, report the target. */
+  const selectProject = async (v: View, ws: WorkspaceInfo, name: string, ctx: HostContext): Promise<string> => activation.select(v, ws, name, ctx);
+  const returnToDashboard = async (v: View, ctx: HostContext): Promise<string> => activation.dashboard(v, ctx);
+
+  const activation = createActivation({
+    pi,
+    options,
+    viewOf: () => view,
+    blockerText,
+  });
+
+  /** The read scope captured at the start of a tool call. */
+  const scopeAt = (): Outcome<ReadScope> => {
+    const v = view;
+    if (v.kind === "project") return success({ kind: "project", root: v.project.repo.root, deny: [], skillRoots });
+    if (v.kind === "dashboard") return success({ kind: "dashboard", root: v.workspace.root, deny: [path.join(v.workspace.root, ".radian")], skillRoots });
+    if (v.kind === "blocked") return refuse("WORKSPACE_BLOCKED", v.blocker.message);
+    return refuse("PROJECT_UNAVAILABLE", "Radian is inactive here");
+  };
+
+  const toolText = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
   const registerTools = (rt: HostRuntime): void => {
     if (toolsRegistered) return;
@@ -280,14 +397,18 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     pi.registerTool({
       name: "radian_status",
       label: "Radian status",
-      description: "Read Radian's run, task, assignment, decision, and capability status. Read-only.",
+      description: "Read Radian's status: the workspace and its projects when no project is selected, otherwise the selected project's run, tasks, assignments, decisions, and capabilities. Read-only.",
       parameters: T.Object({}),
-      execute: async () => ({ content: [{ type: "text", text: session ? statusText(session) : "Radian inactive." }], details: undefined }),
+      execute: async () => {
+        const v = view;
+        const s = projectOf(v);
+        return toolText(s ? statusText(s) : v.kind === "dashboard" ? workspaceStatusText(v.workspace) : v.kind === "blocked" ? blockerText(v.blocker) : "Radian inactive.");
+      },
     });
     pi.registerTool({
       name: "radian_git_inspect",
       label: "Inspect Git (read-only)",
-      description: "Read-only Git inspection of the project: status, log, diff, or show. Revisions must be exact commit ids (use log to find them); paths are repository-relative. Runs a fixed argument vector with hooks, pagers, external diff, textconv, filters, and fsmonitor disabled. There is no shell.",
+      description: "Read-only Git inspection of the selected project: status, log, diff, or show. Revisions must be exact commit ids (use log to find them); paths are repository-relative. Runs a fixed argument vector with hooks, pagers, external diff, textconv, filters, and fsmonitor disabled. There is no shell.",
       parameters: T.Object({
         op: T.Union(["status", "log", "diff", "show"].map((op) => T.Literal(op))),
         from: T.Optional(T.String({ description: "diff: exact commit id" })),
@@ -298,36 +419,38 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         max: T.Optional(T.Number({ description: "log: 1-200 entries (default 20)" })),
       }),
       execute: async (_id, params) => {
-        if (!session) throw new Error("Radian inactive");
+        const s = session();
+        if (!s) throw new Error(NO_PROJECT("radian_git_inspect"));
         const request = inspectRequest(params);
-        if (!request.ok) return { content: [{ type: "text", text: blockerText(request.blocker) }], details: undefined };
+        if (!request.ok) return toolText(blockerText(request.blocker));
         const argv = inspectArgv(request.value);
-        if (!argv.ok) return { content: [{ type: "text", text: blockerText(argv.blocker) }], details: undefined };
-        const result = await git(session.repo.ctx, argv.value, { timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 });
-        if (!succeeded(result)) return { content: [{ type: "text", text: `BLOCKED GIT_FAILURE: git ${request.value.op} did not complete (${result.timedOut ? "timed out" : result.outputLimitExceeded ? "output too large" : `exit ${result.code}`})` }], details: undefined };
+        if (!argv.ok) return toolText(blockerText(argv.blocker));
+        const result = await git(s.repo.ctx, argv.value, { timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 });
+        if (!succeeded(result)) return toolText(`BLOCKED GIT_FAILURE: git ${request.value.op} did not complete (${result.timedOut ? "timed out" : result.outputLimitExceeded ? "output too large" : `exit ${result.code}`})`);
         const text = result.stdout.toString("utf8");
-        return { content: [{ type: "text", text: text.length > INSPECT_MAX_TEXT ? `${text.slice(0, INSPECT_MAX_TEXT)}\n[truncated: narrow the paths or revisions]` : text || "(no output)" }], details: undefined };
+        return toolText(text.length > INSPECT_MAX_TEXT ? `${text.slice(0, INSPECT_MAX_TEXT)}\n[truncated: narrow the paths or revisions]` : text || "(no output)");
       },
     });
     pi.registerTool({
       name: "radian_write_artifact",
       label: "Write planning artifact",
-      description: "Write a PRD/spec, brief, or plan draft under .radian/planning/ for human review. Writing never approves it; only the user can approve with /radian approve.",
+      description: "Write a PRD/spec, brief, or plan draft under the selected project's .radian/planning/ for human review. Writing never approves it; only the user can approve with /radian approve.",
       parameters: T.Object({ path: T.String({ description: "Path relative to .radian/planning/" }), content: T.String() }),
       execute: async (_id, params) => {
-        if (!session) throw new Error("Radian inactive");
+        const s = session();
+        if (!s) throw new Error(NO_PROJECT("radian_write_artifact"));
         const relative = String(params.path ?? "");
         if (!safeRelative(relative)) throw new Error("path must be relative inside .radian/planning/");
         // Kernel-enforced: no link anywhere from the project root to the destination (src/util/confined-fs.ts).
-        const written = writeConfined(session.repo.root, `${PLANNING_DIR.split(path.sep).join("/")}/${relative}`, String(params.content ?? ""));
+        const written = writeConfined(s.repo.root, `${PLANNING_DIR.split(path.sep).join("/")}/${relative}`, String(params.content ?? ""));
         if (!written.ok) throw new Error(blockerText(written.blocker));
-        return { content: [{ type: "text", text: `Wrote ${path.join(".radian", "planning", relative)} (draft; requires the user's /radian approve).` }], details: undefined };
+        return toolText(`Wrote ${path.join(".radian", "planning", relative)} in project ${s.binding.project} (draft; requires the user's /radian approve).`);
       },
     });
     pi.registerTool({
       name: "radian_dispatch",
       label: "Dispatch a worker",
-      description: "Dispatch a registered worker assignment for an approved task. Requires Build mode for modifying roles, current approvals, healthy supervision, capacity, and verified runtime capabilities; otherwise returns a blocker. Runs in the background and reports its outcome.",
+      description: "Dispatch a registered worker assignment for an approved task in the selected project. Requires Build mode for modifying roles, current approvals, healthy supervision, capacity, and verified runtime capabilities; otherwise returns a blocker. Runs in the background and reports its outcome to that project.",
       parameters: T.Object({
         task: T.String(),
         role: T.Union(ROLES.map((r) => T.Literal(r))),
@@ -347,38 +470,94 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         profile: T.Optional(T.String()),
         rationale: T.Optional(T.String()),
       }),
-      execute: async (_id, params, _signal, _update, ctx) => {
-        const run = await requireRun();
-        if (!run.ok) return { content: [{ type: "text", text: blockerText(run.blocker) }], details: undefined };
-        const planned = toPlan(session!, params);
-        if (!planned.ok) return { content: [{ type: "text", text: blockerText(planned.blocker) }], details: undefined };
+      execute: async (_id, params) => {
+        const s = session();
+        if (!s) return toolText(NO_PROJECT("radian_dispatch"));
+        const run = await requireRun(s);
+        if (!run.ok) return toolText(blockerText(run.blocker));
+        const planned = toPlan(s, params);
+        if (!planned.ok) return toolText(blockerText(planned.blocker));
+        const owner = { workspaceRoot: s.binding.workspaceRoot, project: s.binding.project };
         void run.value.coordinator.runAssignment(planned.value).then((outcome) => {
           const text = outcomeText(outcome);
           if (outcome.state === "completed") {
             if (outcome.delivery) deliveries.set(outcome.assignment, outcome.delivery);
             if (planned.value.role === "reviewer" && planned.value.base.kind === "commit") run.value.coordinator.recordReview(planned.value.task, planned.value.base.commit, outcome.result);
           }
-          ctx.ui.notify(text, outcome.state === "completed" ? "info" : "warning");
-          pi.sendMessage({ customType: "radian-outcome", content: text, display: true }, { triggerTurn: false });
-          updateStatus(ctx);
+          deliverNotice({ ...owner, text, level: outcome.state === "completed" ? "info" : "warning" });
         });
-        return { content: [{ type: "text", text: `Dispatch requested for ${planned.value.role} on ${planned.value.task}; the outcome will be reported.` }], details: undefined };
+        return toolText(`Dispatch requested for ${planned.value.role} on ${planned.value.task} in project ${s.binding.project}; the outcome will be reported to that project.`);
       },
     });
     pi.registerTool({
       name: "radian_assemble",
       label: "Assemble candidate",
-      description: "Combine completed developer/tester deliveries for a task into one exact candidate.",
+      description: "Combine completed developer/tester deliveries for a task in the selected project into one exact candidate.",
       parameters: T.Object({ task: T.String(), assignments: T.Array(T.String()), mergeBase: T.String() }),
       execute: async (_id, params) => {
-        const run = await requireRun();
-        if (!run.ok) return { content: [{ type: "text", text: blockerText(run.blocker) }], details: undefined };
+        const s = session();
+        if (!s) return toolText(NO_PROJECT("radian_assemble"));
+        const run = await requireRun(s);
+        if (!run.ok) return toolText(blockerText(run.blocker));
         const list = (params.assignments as string[]).map((a) => deliveries.get(a));
-        if (list.some((d) => d === undefined)) return { content: [{ type: "text", text: "BLOCKED CANDIDATE_MISMATCH: unknown delivery" }], details: undefined };
+        if (list.some((d) => d === undefined)) return toolText("BLOCKED CANDIDATE_MISMATCH: unknown delivery");
         const candidate = await run.value.coordinator.assemble(String(params.task), list as Delivery[], String(params.mergeBase));
-        return { content: [{ type: "text", text: candidate.ok ? `Candidate ${candidate.value.commit} (round ${candidate.value.round}) on ${candidate.value.base.slice(0, 12)}.` : blockerText(candidate.blocker) }], details: undefined };
+        return toolText(candidate.ok ? `Candidate ${candidate.value.commit} (round ${candidate.value.round}) on ${candidate.value.base.slice(0, 12)}.` : blockerText(candidate.blocker));
       },
     });
+    const delegates: DelegateTools = {};
+    if (rt.createGrepToolDefinition) delegates.grep = rt.createGrepToolDefinition;
+    if (rt.createFindToolDefinition) delegates.find = rt.createFindToolDefinition;
+    for (const tool of readToolDefinitions(T, scopeAt, delegates)) pi.registerTool(tool as unknown as HostToolDefinition);
+  };
+
+  /** Names of read tools whose active registration is Radian's own (checked at every call). */
+  const ownedReadTools = (): ReadonlySet<string> | undefined => {
+    const all = pi.getAllTools?.();
+    if (!all) return undefined;
+    const ours = all.find((t) => t.name === "radian_status")?.sourceInfo?.path;
+    return new Set(READ_TOOL_NAMES.filter((name) => {
+      const active = all.filter((t) => t.name === name).at(-1);
+      return ours !== undefined && active?.sourceInfo?.path === ours;
+    }));
+  };
+
+  const projectContextFiles = (root: string): Array<{ path: string; content: string }> | undefined => {
+    if (!runtime?.loadProjectContextFiles || !runtime.getAgentDir) return undefined;
+    // The files Pi would load at the project root; files inside the project are re-read without following links.
+    return runtime.loadProjectContextFiles({ cwd: root, agentDir: runtime.getAgentDir() }).flatMap((file) => {
+      if (!isWithin(file.path, root)) return [file];
+      const reread = readConfined(root, path.relative(root, file.path).split(path.sep).join("/"));
+      return reread.ok ? [{ path: file.path, content: reread.value }] : [];
+    });
+  };
+
+  const install = async (ctx: HostContext): Promise<void> => {
+    const v = view;
+    if (v.kind === "unmanaged") return;
+    runtime ??= await options.loadRuntime();
+    registerTools(runtime);
+    // Declare exactly the tools this state allows; the guard still refuses anything else.
+    pi.setActiveTools?.(v.kind === "project" ? [...RADIAN_TOOLS, ...READ_TOOL_NAMES] : v.kind === "dashboard" ? ["radian_status", "read", "ls"] : []);
+    const rt = processRuntime();
+    if (v.kind === "dashboard" || v.kind === "project") {
+      const project = v.kind === "project" ? v.project.binding.project : undefined;
+      const ws = workspaceRootOf(v);
+      rt.active = {
+        workspaceRoot: ws,
+        project,
+        generation: v.generation,
+        notify: (notice) => {
+          if (view !== v) return;
+          ctx.ui.notify(notice.project === project ? notice.text : `Radian (${notice.project}): ${notice.text}`, notice.level);
+          if (notice.project === project) pi.sendMessage({ customType: "radian-outcome", content: notice.text, display: true }, { triggerTurn: false });
+          updateStatus(ctx);
+        },
+      };
+      if (project && ws) for (const notice of takeInbox(ws, project)) rt.active.notify(notice);
+    }
+    if (v.kind === "project" && ctx.mode === "tui" && ctx.hasUI) ctx.ui.setEditorComponent(managedEditorFactory(runtime, () => void controller.toggleMode(ctx)));
+    updateStatus(ctx);
   };
 
   pi.on("input", (event) => {
@@ -386,53 +565,146 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     return undefined;
   });
 
-  pi.on("session_start", async (_event, ctx) => {
-    const opened = await options.openSession(ctx.cwd);
-    if (!opened.ok) {
-      session = undefined;
-      return;
-    }
-    session = opened.value;
-    runtime ??= await options.loadRuntime();
-    registerTools(runtime);
-    if (ctx.mode === "tui" && ctx.hasUI) ctx.ui.setEditorComponent(managedEditorFactory(runtime, () => void controller.toggleMode(ctx)));
-    updateStatus(ctx);
+  pi.on("session_start", async (event, ctx) => {
+    const found = discoverAt(ctx.cwd);
+    view = await activation.resolve(found, ctx, event.reason);
+    await install(ctx);
   });
 
-  pi.on("session_shutdown", async (_event, ctx) => {
-    if (!session) return;
+  pi.on("session_shutdown", async (event, ctx) => {
+    const v = view;
+    if (v.kind === "unmanaged") return;
     if (ctx.mode === "tui" && ctx.hasUI) ctx.ui.setEditorComponent(undefined);
     ctx.ui.setStatus("radian", undefined);
     ctx.ui.setWidget("radian", undefined);
-    const run = session.run;
-    if (run) {
-      // Stop renewal and monitoring first, so nothing renews a released lease or reports a loss for an orderly exit.
-      run.safety?.stop();
-      // With live workers, leave the watcher fed by nothing: losing coordination stops owned work.
-      if (run.coordinator.liveAssignments().length === 0) run.supervision.release();
-      else run.supervision.dropHeartbeat();
-      await run.lease.release();
+    const rt = processRuntime();
+    if (rt.active && (v.kind === "dashboard" || v.kind === "project") && rt.active.generation === v.generation) rt.active = undefined;
+    view = { kind: "unmanaged" };
+    // This process no longer shows the project's conversation; its execution owner stays.
+    if (v.kind === "project") releaseViewLock(v.project.binding.workspaceRoot, v.project.binding.project);
+    // Only a real quit ends execution ownership; switching or reloading replaces the view.
+    if ((event.reason ?? "quit") === "quit") await shutdownOwners();
+  });
+
+  pi.on("before_agent_start", (event) => {
+    const v = view;
+    skillRoots = (event.systemPromptOptions.skills ?? []).map((skill) => skill.baseDir);
+    const sections = (event.systemPromptOptions.sections ??= {});
+    if (v.kind === "project") {
+      const files = projectContextFiles(v.project.repo.root);
+      if (files) event.systemPromptOptions.contextFiles = files;
+      event.systemPromptOptions.cwd = v.project.repo.root;
+      sections.radian = `Radian project: ${v.workspace ? projectLabel(v.workspace, v.project.binding.project) : v.project.binding.project} (mode ${v.project.mode.mode.toUpperCase()}). Paths are relative to this project's root. Coordinator tools act only on this project.`;
+    } else if (v.kind === "dashboard") {
+      sections.radian = "Radian workspace dashboard: no project is selected. Only workspace status and confined workspace reads are available; the user selects a project with /projects or creates one with /new-project.";
+    } else if (v.kind === "blocked") {
+      sections.radian = `This Radian workspace is blocked (${v.blocker.message}); no tool will run until the user fixes it.`;
     }
-    session = undefined;
+    return undefined;
+  });
+
+  pi.on("user_bash", () => {
+    // The user's own `!` commands stay a deliberate user control; in a selected project they run at its root.
+    const v = view;
+    if (v.kind !== "project" || v.direct || !runtime?.createLocalBashOperations) return undefined;
+    const local = runtime.createLocalBashOperations();
+    const root = v.project.repo.root;
+    return { operations: { exec: (command: string, _cwd: string, opts: Parameters<HostBashOperations["exec"]>[2]) => local.exec(command, root, opts) } };
   });
 
   pi.on("tool_call", (event, ctx) => {
-    if (!session) return undefined;
-    const decision = guardToolCall(event, { projectRoot: session.repo.root, planningRoots: session.planningRoots, radianTools: new Set(RADIAN_TOOLS) }, ctx.cwd);
+    const v = view;
+    if (v.kind === "unmanaged") return undefined;
+    const s = projectOf(v);
+    const owned = ownedReadTools();
+    const options: Parameters<typeof guardToolCall>[1] = {
+      state: v.kind === "project" ? "project" : v.kind,
+      projectRoot: s?.repo.root ?? workspaceRootOf(v) ?? ctx.cwd,
+      planningRoots: s?.planningRoots ?? [],
+      radianTools: new Set(RADIAN_TOOLS),
+    };
+    if (v.kind === "blocked") options.blockedReason = v.blocker.message;
+    if (owned) options.ownedReadTools = owned;
+    const decision = guardToolCall(event, options, ctx.cwd);
     return decision.block ? { block: true, reason: `[${decision.rule}] ${decision.reason}` } : undefined;
   });
 
-  pi.registerToolRenderer(calmResolver(() => managed() && session!.calm.enabled, (text) => (runtime ? new runtime.Text(text, 0, 0) : text)));
+  pi.registerToolRenderer(calmResolver(() => managed() && session()!.calm.enabled, (text) => (runtime ? new runtime.Text(text, 0, 0) : text)));
 
+  const notifyResult = (ctx: HostContext, text: string) => ctx.ui.notify(text, text.startsWith("BLOCKED") ? "warning" : "info");
   pi.registerCommand("radian", {
-    description: "Radian coordinator: status, mode, calm, approvals, decisions, integration, pause/cancel, retrospectives",
-    handler: async (args, ctx) => {
-      const text = await controller.command(args, ctx);
-      ctx.ui.notify(text, text.startsWith("BLOCKED") ? "warning" : "info");
-    },
+    description: "Radian coordinator for the selected project: status, mode, calm, approvals, decisions, integration, pause/cancel, retrospectives",
+    handler: async (args, ctx) => notifyResult(ctx, await controller.command(args, ctx)),
+  });
+  pi.registerCommand("projects", {
+    description: "List the workspace's registered projects, or select one: /projects <name>",
+    handler: async (args, ctx) => notifyResult(ctx, await controller.projectsCommand(args, ctx)),
+  });
+  pi.registerCommand("workspace", {
+    description: "Return to the workspace dashboard (background work continues)",
+    handler: async (args, ctx) => notifyResult(ctx, await controller.workspaceCommand(args, ctx)),
   });
 
   return controller;
+}
+
+/** Stop process-wide execution ownership on a real quit, under verified/unknown ownership rules. */
+async function shutdownOwners(): Promise<void> {
+  const rt = processRuntime();
+  const owners = [...rt.owners.values()];
+  rt.owners.clear();
+  for (const s of owners) {
+    releaseViewLock(s.binding.workspaceRoot, s.binding.project);
+    const run = s.run;
+    if (!run) continue;
+    // Stop renewal and monitoring first, so nothing renews a released lease or reports a loss for an orderly exit.
+    run.safety?.stop();
+    // With live workers, leave the watcher fed by nothing: losing coordination stops owned work.
+    if (run.coordinator.liveAssignments().length === 0) run.supervision.release();
+    else run.supervision.dropHeartbeat();
+    await run.lease.release();
+  }
+}
+
+async function capacityLine(workspaceRoot: string): Promise<string> {
+  try {
+    const reservations = await new CapacityLedger(workspacePaths(workspaceRoot).state).list();
+    let ceiling = 3;
+    const configured = loadAndResolve({ workspaceRoot });
+    if (configured.ok) ceiling = configured.value.harness.concurrency.maxActiveWorkers;
+    return `${reservations.length}/${ceiling} workers`;
+  } catch {
+    return "capacity unknown";
+  }
+}
+
+function projectLabel(ws: WorkspaceInfo, project: string): string {
+  return ws.projects.find((p) => p.project === project)?.name ?? project;
+}
+
+export function projectListText(ws: WorkspaceInfo, selected: string | undefined): string {
+  if (ws.projects.length === 0) return `Workspace ${path.basename(ws.root)} has no registered projects. Create one with /new-project <name> or register an existing repository with /add-project <path>.`;
+  const lines = [`Projects in ${path.basename(ws.root)} (explicitly registered):`];
+  for (const p of ws.projects) {
+    const run = activeRunLabel(ws.root, p.project);
+    lines.push(`${p.project === selected ? "*" : " "} ${p.name}${p.presence !== "present" ? ` [${p.presence}]` : ""}${p.target ? ` · target ${p.target}` : " · no target"}${run ? ` · ${run}` : ""}`);
+  }
+  lines.push("Select with /projects <name>; return here with /workspace.");
+  return lines.join("\n");
+}
+
+function activeRunLabel(workspaceRoot: string, project: string): string | undefined {
+  const active = readJsonIfExists(path.join(projectPaths(workspaceRoot, project).state, "active-run.json"));
+  if (active.state !== "ok") return undefined;
+  const run = loadRunDir(path.join(projectPaths(workspaceRoot, project).state, "runs", (active.value as { run: string }).run));
+  if (!run.ok) return "run state unreadable";
+  const blocked = Object.values(run.value.state.decisions).filter((d) => d.status === "open").length;
+  return `run ${run.value.state.run.status}${blocked ? `, ${blocked} open decision(s)` : ""}`;
+}
+
+export function workspaceStatusText(ws: WorkspaceInfo | undefined): string {
+  if (!ws) return "Radian workspace status unavailable.";
+  return [`Radian workspace ${path.basename(ws.root)} · no project selected`, projectListText(ws, undefined), capabilityTextFor(workspacePaths(ws.root).state).split("\n")[0]!].join("\n");
 }
 
 /** Map validated tool parameters onto a fixed inspection operation; Git options are not representable. */
@@ -531,7 +803,11 @@ export function statusText(session: ProjectSession): string {
 }
 
 export function capabilityText(session: ProjectSession): string {
-  const registry = new CapabilityRegistry(session.project.state);
+  return capabilityTextFor(session.project.state);
+}
+
+export function capabilityTextFor(stateDir: string): string {
+  const registry = new CapabilityRegistry(stateDir);
   const unverified = CAPABILITIES.filter((c) => registry.latest(c)?.status !== "verified");
   return `Runtime capabilities: ${CAPABILITIES.length - unverified.length}/${CAPABILITIES.length} with recorded verification evidence (version-bound; rechecked at every launch). Worker launches stay disabled until every required capability is verified.\n${unverified.map((c) => `  unverified: ${c}`).join("\n")}`;
 }

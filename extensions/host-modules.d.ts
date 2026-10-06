@@ -12,6 +12,10 @@ declare module "@earendil-works/pi-coding-agent" {
   export function getAgentDir(): string;
   /** The context files Pi loads for a working directory: agent directory, then ancestors down to cwd. */
   export function loadProjectContextFiles(options: { cwd: string; agentDir: string }): Array<{ path: string; content: string }>;
+  /** Pi's built-in grep/find definitions (ripgrep/fd), used only after Radian validates the search path. */
+  export function createGrepToolDefinition(cwd: string): { execute: (...args: unknown[]) => Promise<unknown> };
+  export function createFindToolDefinition(cwd: string): { execute: (...args: unknown[]) => Promise<unknown> };
+  export function createLocalBashOperations(): import("../src/ui/pi-host.ts").HostBashOperations;
 }
 
 declare module "@earendil-works/pi-tui" {

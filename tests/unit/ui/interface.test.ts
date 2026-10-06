@@ -9,6 +9,7 @@ import { CalmPreference } from "../../../src/ui/calm.ts";
 import { RADIAN_TOOLS, registerRadian } from "../../../src/ui/controller.ts";
 import { managedEditorFactory } from "../../../src/ui/editor.ts";
 import { guardToolCall } from "../../../src/ui/guard.ts";
+import { READ_TOOL_NAMES } from "../../../src/ui/read-tools.ts";
 import type { HostToolRenderers } from "../../../src/ui/pi-host.ts";
 import { openProjectSession } from "../../../src/ui/session.ts";
 import { projectPaths } from "../../../src/workspace/layout.ts";
@@ -40,7 +41,7 @@ test("managed session: starts in PLAN, Shift+Tab toggles mode, Tab and other key
     const state: FakeCtxState = { confirms: [], confirmAnswer: true, notes: [] };
     const ctx = context(w.projectDir, "tui", state);
     await host.emit("session_start", {}, ctx);
-    assert.deepEqual([...host.tools].sort(), [...RADIAN_TOOLS].sort());
+    assert.deepEqual([...host.tools].sort(), [...RADIAN_TOOLS, ...READ_TOOL_NAMES].sort(), "Radian's tools plus its confined read/ls/grep/find overrides");
     assert.ok(!host.tools.some((t) => /approv|integrat|decide|grant|recover/.test(t)), "no model-callable approval or integration writer");
     assert.equal(controller.session()?.mode.mode, "plan");
     assert.match(state.status ?? "", /^PLAN/);
@@ -55,7 +56,7 @@ test("managed session: starts in PLAN, Shift+Tab toggles mode, Tab and other key
     assert.match(state.status ?? "", /^BUILD/);
     // Reload: a second session_start re-installs without duplicate tools.
     await host.emit("session_start", {}, ctx);
-    assert.equal(host.tools.length, RADIAN_TOOLS.length);
+    assert.equal(host.tools.length, RADIAN_TOOLS.length + READ_TOOL_NAMES.length);
     await host.emit("session_shutdown", {}, ctx);
     assert.equal(state.editorFactory, undefined, "default editor restored");
     assert.equal(state.status, undefined);

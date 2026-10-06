@@ -41,6 +41,11 @@ export const fakeRuntime: HostRuntime = {
 };
 
 export class FakeHost implements PiHost {
+  /** Source label Pi would report for this host's extension's registrations. */
+  source = "radian-extension";
+  /** Tools registered by other extensions (to simulate a later override). */
+  foreignTools: Array<{ name: string; source: string }> = [];
+  thinking = "medium";
   handlers = new Map<string, Array<(event: never, ctx: HostContext) => unknown>>();
   commands = new Map<string, (args: string, ctx: HostContext) => Promise<void>>();
   tools: string[] = [];
@@ -59,8 +64,8 @@ export class FakeHost implements PiHost {
     this.definitions.set(tool.name, tool);
   }
   /** Execute a registered tool the way Pi does after the tool_call handlers allowed it. */
-  async callTool(name: string, params: Record<string, unknown>, ctx: HostContext): Promise<{ blocked?: string; text?: string; error?: string }> {
-    const results = await this.emit("tool_call", { toolName: name, input: params }, ctx);
+  async callTool(name: string, params: Record<string, unknown>, ctx: HostContext, extra: { parentToolCallId?: string } = {}): Promise<{ blocked?: string; text?: string; error?: string }> {
+    const results = await this.emit("tool_call", { toolName: name, input: params, ...extra }, ctx);
     const blocked = results.find((r): r is { block: true; reason: string } => typeof r === "object" && r !== null && (r as { block?: boolean }).block === true);
     if (blocked) return { blocked: blocked.reason };
     const tool = this.definitions.get(name);
@@ -71,6 +76,25 @@ export class FakeHost implements PiHost {
     } catch (error) {
       return { error: (error as Error).message };
     }
+  }
+  getAllTools(): Array<{ name: string; sourceInfo: { path: string } }> {
+    return [...[...this.definitions.keys()].map((name) => ({ name, sourceInfo: { path: this.source } })), ...this.foreignTools.map((t) => ({ name: t.name, sourceInfo: { path: t.source } }))];
+  }
+  active: string[] | undefined;
+  setActiveTools(names: string[]): void {
+    this.active = [...names];
+  }
+  getActiveTools(): string[] {
+    return this.active ?? [...this.definitions.keys()];
+  }
+  getThinkingLevel(): string {
+    return this.thinking;
+  }
+  setThinkingLevel(level: string): void {
+    this.thinking = level;
+  }
+  async setModel(_model: unknown): Promise<boolean> {
+    return true;
   }
   registerToolRenderer(resolver: (name: string, next: () => HostToolRenderers | undefined) => HostToolRenderers | undefined): void {
     this.resolvers.push(resolver);
@@ -93,12 +117,13 @@ export interface FakeCtxState {
   notes: string[];
 }
 
-export function context(cwd: string, mode: HostContext["mode"], state: FakeCtxState): HostContext {
+export function context(cwd: string, mode: HostContext["mode"], state: FakeCtxState, extra: Partial<HostContext> = {}): HostContext {
   return {
+    ...extra,
     mode,
     hasUI: mode === "tui" || mode === "rpc",
     cwd,
-    isIdle: () => true,
+    isIdle: extra.isIdle ?? (() => true),
     ui: {
       notify: (m) => state.notes.push(m),
       setStatus: (_k, t) => {
