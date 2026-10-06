@@ -5,9 +5,15 @@
 // its own terminal device, starts the runtime under `sandbox-exec`, and
 // registers the runtime's identity before the coordinator confirms binding.
 // Any failure refuses the launch; there is no unsandboxed fallback.
+//
+// For exact-candidate checks the launcher first runs each approved check
+// argument vector itself, under a profile with the same authority but no
+// credential access, and records its exit status in the protected supervision
+// registry. That record — not a worker's report — is the check's execution
+// evidence. Output goes to the worker-readable output directory for analysis.
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type AssignmentIdentity, assignmentIdentitySchema } from "../contracts/identity.ts";
@@ -36,6 +42,14 @@ export interface LaunchSpec {
   terminal: "assigned" | "none";
   /** Capture the runtime's JSONL stdout into protected state and render a summary in the pane. */
   events?: { file: string; runtime: "pi" | "codex" | "claude-code" };
+  /** Approved candidate checks the launcher runs (contained, no credentials) before the runtime starts. */
+  checks?: { runs: CheckRun[]; timeoutMs: number; logDir: string; env: Record<string, string> };
+}
+
+export interface CheckRun {
+  id: string;
+  /** Approved argument vector; argv[0] is resolved on the check environment's PATH by sandbox-exec. */
+  argv: string[];
 }
 
 export function specHash(spec: LaunchSpec): string {
@@ -72,6 +86,8 @@ export interface PreparedLaunch {
   spec: LaunchSpec;
   profileFile: string;
   profileHash: string;
+  /** Profile for approved checks: the same authority with the credential projection denied. */
+  checkProfileFile?: string;
   registry: SupervisionRegistry;
 }
 
@@ -94,7 +110,18 @@ export function prepareLaunch(specFile: string, expectedHash: string, terminal: 
   if (!profile.ok) return profile;
   const profileFile = path.join(path.dirname(specFile), `${spec.identity.attempt}.sb`);
   writeFileSync(profileFile, profile.value.text, { mode: 0o400, flag: "w" });
-  return success({ spec, profileFile, profileHash: profile.value.hash, registry: new SupervisionRegistry(spec.stateDir, spec.identity.assignment) });
+  const prepared: PreparedLaunch = { spec, profileFile, profileHash: profile.value.hash, registry: new SupervisionRegistry(spec.stateDir, spec.identity.assignment) };
+  if (spec.checks) {
+    if (spec.checks.runs.some((run) => !Array.isArray(run.argv) || run.argv.length === 0 || !/^[A-Za-z0-9._-]{1,128}$/.test(run.id))) return refuse("POLICY_TAMPERED", "check runs are malformed");
+    const checkEnv = assertNoProhibitedEnv(spec.checks.env);
+    if (!checkEnv.ok) return checkEnv;
+    const { credentialDir, ...rest } = profileInput;
+    const checkProfile = generateProfile({ ...rest, denyRead: [...(rest.denyRead ?? []), ...(credentialDir ? [credentialDir] : [])] });
+    if (!checkProfile.ok) return checkProfile;
+    prepared.checkProfileFile = path.join(path.dirname(specFile), `${spec.identity.attempt}-checks.sb`);
+    writeFileSync(prepared.checkProfileFile, checkProfile.value.text, { mode: 0o400, flag: "w" });
+  }
+  return success(prepared);
 }
 
 export interface LaunchResult {
@@ -112,7 +139,13 @@ export async function launchContained(
   options: { stdio?: "inherit" | "ignore"; probe?: IdentityProbe; onRegistered?: () => void; render?: (line: string) => string | undefined; write?: (text: string) => void } = {},
 ): Promise<Outcome<LaunchResult>> {
   const { spec, registry } = prepared;
-  await registry.append({ kind: "intent", attempt: spec.identity.attempt, label: "runtime" });
+  if (spec.checks && prepared.checkProfileFile) {
+    const deadline = Date.now() + spec.checks.timeoutMs;
+    for (const run of spec.checks.runs) {
+      if (!(await runContainedCheck(prepared, prepared.checkProfileFile, run, deadline, options.probe ?? psProbe))) return revokedLaunch();
+    }
+  }
+  if (!(await registry.appendIntent(spec.identity.attempt, "runtime"))) return revokedLaunch();
   const capture = spec.events !== undefined;
   const child = spawn(SANDBOX_EXEC, ["-f", prepared.profileFile, "--", ...spec.argv], {
     cwd: spec.cwd,
@@ -151,4 +184,58 @@ export async function launchContained(
   const result = await closed;
   await registry.append({ kind: "exited", attempt: spec.identity.attempt, exitCode: result.exitCode, signal: result.signal });
   return success(result);
+}
+
+/**
+ * Run one approved check under containment in its own process group, register
+ * it like any owned process, and record its exit status as execution evidence.
+ * A check that cannot be spawned or observed leaves its intent unresolved, so
+ * termination stays unknown rather than assumed.
+ */
+async function runContainedCheck(prepared: PreparedLaunch, profileFile: string, run: CheckRun, deadline: number, probe: IdentityProbe): Promise<boolean> {
+  const { spec, registry } = prepared;
+  const checks = spec.checks!;
+  const attempt = spec.identity.attempt;
+  const label = `check:${run.id}`;
+  if (!(await registry.appendIntent(attempt, label))) return false;
+  const log = openSync(path.join(checks.logDir, `check-${run.id}.log`), "w", 0o600);
+  let child;
+  try {
+    child = spawn(SANDBOX_EXEC, ["-f", profileFile, "--", ...run.argv], { cwd: spec.cwd, env: checks.env, stdio: ["ignore", log, log], detached: true });
+  } finally {
+    closeSync(log);
+  }
+  const pid = child.pid;
+  if (pid === undefined) {
+    await registry.append({ kind: "check", attempt, id: run.id, exitCode: null, signal: null, timedOut: false });
+    return true;
+  }
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.on("close", (code, signal) => resolve({ code, signal }));
+    child.on("error", () => resolve({ code: null, signal: null }));
+  });
+  const observed = probe(pid);
+  if (observed.state === "running") await registry.append({ kind: "process", attempt, label, identity: { pid, start: observed.start }, source: "launcher" });
+  let timedOut = false;
+  const killGroup = () => {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // The group is already gone.
+    }
+  };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup();
+  }, Math.max(0, deadline - Date.now()));
+  const result = await closed;
+  clearTimeout(timer);
+  // Leftover background processes from the check's group are not allowed to outlive it.
+  killGroup();
+  await registry.append({ kind: "check", attempt, id: run.id, exitCode: result.code, signal: result.signal, timedOut });
+  return true;
+}
+
+function revokedLaunch(): Outcome<LaunchResult> {
+  return refuse("OWNERSHIP_AMBIGUOUS", "the coordinator revoked this launch before it started; nothing was run", "No action needed; the attempt was stopped and reconciled.");
 }

@@ -5,7 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type Clock, iso, systemClock } from "../util/clock.ts";
 import { type IdentityProbe, type ProcessIdentity, currentIdentity, liveness, psProbe } from "../util/process-identity.ts";
 import { atomicWriteJson, readJsonIfExists, withLock } from "./fsutil.ts";
@@ -32,6 +32,8 @@ export class CoordinatorLease {
   private readonly clock: Clock;
   private readonly probe: IdentityProbe;
   private readonly ttlMs: number;
+  /** Set once released: this object never renews or writes as the owner again. */
+  private released = false;
 
   constructor(stateDir: string, record: LeaseRecord, options: LeaseOptions) {
     this.stateDir = stateDir;
@@ -88,6 +90,7 @@ export class CoordinatorLease {
 
   /** Check, without the lease lock, that this lease is still the recorded one and unexpired. */
   checkHeld(): Outcome<true> {
+    if (this.released) return refuse("LEASE_LOST", "this coordinator released its lease");
     const current = readJsonIfExists(CoordinatorLease.file(this.stateDir));
     if (current.state !== "ok") return refuse("LEASE_LOST", "coordinator lease record is missing or unreadable");
     const record = current.value as LeaseRecord;
@@ -99,11 +102,15 @@ export class CoordinatorLease {
   }
 
   async renew(): Promise<Outcome<true>> {
+    if (this.released) return refuse("LEASE_LOST", "a released lease is never renewed");
     return withLock(CoordinatorLease.lockDir(this.stateDir), "coordinator lease", () => {
+      if (this.released) return refuse("LEASE_LOST", "a released lease is never renewed");
       const current = readJsonIfExists(CoordinatorLease.file(this.stateDir));
       if (current.state !== "ok") return refuse("LEASE_LOST", "coordinator lease record is missing");
       const record = current.value as LeaseRecord;
-      if (record.token !== this.record.token) return refuse("LEASE_LOST", "this coordinator's lease was superseded");
+      if (record.token !== this.record.token || record.generation !== this.record.generation) return refuse("LEASE_LOST", "this coordinator's lease was superseded");
+      if (record.owner.pid === 0 && record.owner.start === "released") return refuse("LEASE_LOST", "the lease was released");
+      if (this.clock.now() > record.expiresAtMs) return refuse("LEASE_LOST", "the lease expired before renewal; another coordinator may take over");
       const renewed = { ...record, expiresAtMs: this.clock.now() + this.ttlMs };
       atomicWriteJson(CoordinatorLease.file(this.stateDir), renewed);
       this.record.expiresAtMs = renewed.expiresAtMs;
@@ -112,6 +119,7 @@ export class CoordinatorLease {
   }
 
   async release(): Promise<void> {
+    this.released = true;
     await withLock(CoordinatorLease.lockDir(this.stateDir), "coordinator lease", () => {
       const current = readJsonIfExists(CoordinatorLease.file(this.stateDir));
       if (current.state === "ok" && (current.value as LeaseRecord).token === this.record.token) {
@@ -120,4 +128,44 @@ export class CoordinatorLease {
       }
     }, { probe: this.probe });
   }
+}
+
+/**
+ * Renew a lease periodically and report every refusal or error (never discard
+ * them). Ticks do not overlap; after stop() nothing renews or reports, so a
+ * session shutdown cannot renew a released lease or surface a stray rejection.
+ */
+export function startLeaseRenewal(lease: Pick<CoordinatorLease, "renew">, intervalMs: number, onFailure: (blocker: Blocker) => void): { stop(): void } {
+  let stopped = false;
+  let inFlight = false;
+  const tick = (): void => {
+    if (stopped || inFlight) return;
+    inFlight = true;
+    let renewal: Promise<Outcome<true>>;
+    try {
+      renewal = lease.renew();
+    } catch {
+      renewal = Promise.resolve(refuse("LEASE_LOST", "lease renewal failed"));
+    }
+    renewal
+      .then(
+        (outcome) => {
+          if (!stopped && !outcome.ok) onFailure(outcome.blocker);
+        },
+        () => {
+          if (!stopped) onFailure({ code: "LEASE_LOST", message: "lease renewal failed" });
+        },
+      )
+      .finally(() => {
+        inFlight = false;
+      });
+  };
+  const timer = setInterval(tick, Math.max(10, intervalMs));
+  timer.unref();
+  return {
+    stop() {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
 }

@@ -1,18 +1,26 @@
-# Session handoff — implementation complete, runtime support not ready
+# Session handoff — review remediation planned, runtime support not ready
 
-## Current state
+## Current follow-up
+
+The user requested a concrete Claude Code plan/prompt to correct seven implementation-review findings. Read the [remediation plan and progress index](remediation/README.md) and [start prompt](remediation/new-session-prompt.md). The plan is prepared, not implemented; execute it only in a user-started scoped remediation session. That prompt authorizes source fixes, offline regression/full verification, and remediation checkpoint commits/pushes, not live tasks, capability enablement, target-workspace operations, or unrelated features.
+
+The review of `e28d3db` found coordinator command-helper escape, planning-write symlink escape, unchecked tested-candidate identity, launch-time approval revocation gaps, partial-launch ownership release, missing active watcher-loss response, and model-controlled round accounting. Earlier passing tests did not exercise these defects; implementation safety verification must be qualified pending correction and follow-up review.
+
+The user separately performed a local development installation/UI smoke check in a disposable project. Package/skill loading, Plan/Build, Calm/status, and the unverified-capability display were exercised. This is not runtime/authentication/containment/workflow verification. Do not modify or restart that installed session as part of remediation; local source bindings may pick up edits on later loads.
+
+## Historical implementation checkpoint
 
 All ten milestones of the [implementation plan](implementation/README.md) are **complete**, committed, and pushed to `origin/main` (milestone commits `0d401c2`, `fcee8f6`, `f868b40`, `f34b9fb`, `be6984a`, `7f8f3bc`, `5a4bcb1`, `8f8fa8a`, `fed4562`, and the milestone 10 commit that adds this record — see Git history). The [verification report](../research/implementation-verification.md) records the final offline run: type check, 114 unit tests, 5 integration compatibility tests, publication and package-archive checks, and six offline feasibility regression suites all passed. The private denylist was **not supplied**, so private-term coverage is absent.
 
-**Runtime support and release readiness: NOT READY.** No runtime capability has recorded verification evidence, so every worker launch is refused with `CAPABILITY_UNVERIFIED` before credentials are read. Live task execution, sandbox composition, credential refresh behavior, binding, cancellation, supervision loss, and Herdr pane behavior remain unverified for Pi, Codex CLI, and Claude Code. All three runtimes remain in scope. No release, tag, package publication, or target-workspace installation has been performed.
+**Runtime support and release readiness: NOT READY.** No runtime capability has recorded verification evidence, so every worker launch is refused with `CAPABILITY_UNVERIFIED` before credentials are read. Live task execution, sandbox composition, credential refresh behavior, binding, cancellation, supervision loss, and Herdr pane behavior remain unverified for Pi, Codex CLI, and Claude Code. All three runtimes remain in scope. No release, tag, or package publication has been performed. The original implementation pass did not install into target workspaces; the user's subsequent local smoke check is recorded above.
 
-The unattended implementation authorization ([proposal 0014](../proposals/0014-unattended-implementation.md)) covered milestones 01–10 only. Do not continue testing, run live probes, install into workspaces, or release without new explicit user authorization. [Proposal 0015](../proposals/0015-anthropic-runtime-policy.md) remains in force: Anthropic workers use Claude Code only; subscription OAuth only; no API-key billing, paid spillover, fallback, or effort escalation.
+The original unattended implementation authorization ([proposal 0014](../proposals/0014-unattended-implementation.md)) covered milestones 01–10. The user-started remediation prompt supplies the separate focused follow-up authority. Outside that remediation scope, do not continue testing, run live probes, install into workspaces, or release without explicit user authorization. [Proposal 0015](../proposals/0015-anthropic-runtime-policy.md) remains in force: Anthropic workers use Claude Code only; subscription OAuth only; no API-key billing, paid spillover, fallback, or effort escalation.
 
 ## Resume here after session reset
 
 1. Read AGENTS.md, this handoff, proposals 0012–0015, the [verification report](../research/implementation-verification.md), and the [user guide](../user/README.md).
 2. Check live Git status/history; preserve unrelated or unfinished work.
-3. Await user decisions on the open items: authorizing live, isolated capability verification per runtime/profile (and how evidence is recorded), supplying a private denylist, choosing a license, the long-term containment mechanism given `sandbox-exec` deprecation, and acceptance of the Pi SDK bridge's missing TUI/Herdr-detection parity.
+3. If the user has started the remediation prompt, follow R01–R08 without replaying original milestones, using offline fixtures only. Otherwise await that start instruction. After remediation, await separate user decisions on the open items: authorizing live, isolated capability verification per runtime/profile (and how evidence is recorded), supplying a private denylist, choosing a license, the long-term containment mechanism given `sandbox-exec` deprecation, and acceptance of the Pi SDK bridge's missing TUI/Herdr-detection parity.
 4. Do not mark capabilities verified from synthetic or offline evidence.
 
 ## Saved repository checkpoint
@@ -39,7 +47,9 @@ The unattended implementation authorization ([proposal 0014](../proposals/0014-u
 - [0013 — Repository layout recommendation](../proposals/0013-repository-layout.md)
 - [0014 — Unattended implementation authorization](../proposals/0014-unattended-implementation.md)
 - [0015 — Anthropic workers through Claude Code only](../proposals/0015-anthropic-runtime-policy.md)
-- [Implementation table of contents and milestone progress](implementation/README.md)
+- [Review remediation plan and progress](remediation/README.md)
+- [Claude Code remediation-session prompt](remediation/new-session-prompt.md)
+- [Historical implementation table of contents and milestone progress](implementation/README.md)
 - [Technical evidence and limitations](../research/reference-notes.md)
 - [Adversarial review](../research/adversarial-plan-review.md)
 - [Initial feasibility results](../research/feasibility-results.md)

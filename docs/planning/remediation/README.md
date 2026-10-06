@@ -1,0 +1,231 @@
+# Review remediation plan — seven safety findings
+
+**Status: R01–R07 corrected with targeted red/green regression evidence (2026-10-06); R08 aggregate verification and reporting follow in the next checkpoint. No runtime capability is enabled or verified by this work.**
+
+The user requested this plan after reviewing the implementation and completing a local installation/UI smoke check. That smoke check confirms package loading and presentation only, not worker containment, authentication, billing, or workflow correctness. The seven findings below concern implemented safety properties, not merely missing live-runtime evidence.
+
+Baseline reviewed: `e28d3db`. Check current Git history before starting; line numbers can move. Original milestones 01–10 remain historical completion records, not proof these defects are resolved. [Proposal 0015](../../proposals/0015-anthropic-runtime-policy.md) remains mandatory.
+
+Start using the [remediation-session prompt](new-session-prompt.md). This plan is separate from the original implementation milestones. Do not rerun those milestones or their old start prompt.
+
+## Scope and execution contract
+
+- Use **Claude Code / Opus 5.5 / high** through its supported claude.ai subscription path. Confirm runtime/model/effort through native session state. If unavailable or the required billing path is unverified, stop without profile/auth/effort fallback or account changes. Pi remains the product coordinator; Anthropic workers use Claude Code only.
+- Work only on the seven findings, their necessary shared contracts, regression tests, and truthful documentation. Ordinary reversible implementation choices are delegated. Workspace-only initialization, installer redesign, unrelated defects/features, runtime expansion, and a new containment architecture are not part of this pass.
+- Read `AGENTS.md`, the [handoff](../session-handoff.md), proposals 0012–0015, this entire plan, the [verification report](../../research/implementation-verification.md), and linked requirements before editing. Read installed Pi/runtime documentation and relevant examples completely, following relevant cross-references, before changing integrations. Use supported APIs; preserve licenses/attribution.
+- First reconcile branch/upstream/status/history and preserve unrelated changes. Never reset, clean, stash, rebase away work, or force-push. Work in the harness-source checkout, not an installed project.
+- For each finding, write and run a regression that exposes the original behavior before fixing it. A passing pre-fix test is not a reproduction; determine whether the baseline changed or the test misses the defect. Record the failing assertion or incorrect outcome without raw host paths/logs. Then implement the correction and run targeted tests immediately. Full offline verification follows in R08; it is not a substitute for per-fix red/green evidence.
+- Tests use synthetic credentials, fake runtimes/transport, fake clocks/identity probes, and disposable repositories. Owned synthetic processes may be used for bounded supervision regressions; executable fixture checks must use the existing fail-closed containment. No unsandboxed candidate-code execution. Missing prerequisites are explicit skips/blockers, not passes.
+- Do not launch real model tasks, live login/refresh/readiness/endpoint probes, read real credentials, mark runtime capabilities verified, interact with existing Herdr panes, install/update/remove target workspace bindings, publish releases/tags/packages, or perform host-global/elevated operations. A local binding loads source changes on later loads: do not restart or exercise the user's installed session as a test.
+- Unknown process ownership, delivery, termination, approval state, tested-tree identity, or round classification must block the affected operation. Do not conceal uncertainty with a successful result or weaken assertions to pass.
+- After targeted verification, record each finding as corrected pending aggregate verification. Publish a remediation implementation checkpoint only after staged-content/metadata review, publication scans, and whitespace checks. The user-started prompt authorizes focused remediation commits/pushes to the existing upstream; no publication is performed merely by preparing this plan. Use a focused implementation commit (or a small number of logically cohesive commits) and a final verification/report commit, not seven mandatory overlapping commits.
+- On material safety/authorization/toolchain/publication/Git-auth blockers: preserve work, mark the affected row blocked with a sanitized reason and safe next action, and stop without routine approval requests or bypass. No incomplete row becomes complete. Failed pushes retain the local commit; never rewrite history to hide the failure.
+
+## Progress and acceptance index
+
+Update this table as work proceeds. `Complete` requires implemented correction plus passing targeted regression evidence. Final readiness also requires R08. No row grants runtime support.
+
+| ID | Finding / deliverable | Priority | Status | Regression / completion record |
+| --- | --- | --- | --- | --- |
+| R01 | Coordinator command-helper escape | P1 | corrected, pending R08 | [record](#r01-record) |
+| R02 | Planning write symlink escape | P1 | corrected, pending R08 | [record](#r02-record) |
+| R03 | Exact tested candidate identity | P1 | corrected, pending R08 | [record](#r03-record) |
+| R04 | Approval revalidation at launch/recovery/resume | P1 | corrected, pending R08 | [record](#r04-record) |
+| R05 | Partial-launch reconciliation and retained ownership | P1 | corrected, pending R08 | [record](#r05-record) |
+| R06 | Active watcher/coordinator-lease loss response | P1 | corrected, pending R08 | [record](#r06-record) |
+| R07 | Durable, non-model-controlled candidate-cycle accounting | P2 | corrected, pending R08 | [record](#r07-record) |
+| R08 | Aggregate offline verification, reporting, and publication | gate | pending | not yet |
+
+Implement in table order. R05 and R06 share lifecycle/cleanup contracts; retain coherent interfaces and re-run both suites when either changes. R03 and R07 share candidate lifecycle accounting; re-run their regressions together. Each record must include tests, red/green outcome, design choice, date, residual limitations, and verification revision/tree. Git history supplies commit identities; do not embed a commit's own hash into itself.
+
+## R01 — Coordinator command-helper escape
+
+**Locations:** `src/ui/guard.ts`, `src/ui/controller.ts`, coordinator tool tests. Baseline `readOnlyCommand` accepts `rg --pre=sh pattern script.sh`, `git diff --ext-diff`, `git show --textconv`, and `file --compile magic`.
+
+**Impact:** the coordinator's uncontained shell can execute helpers or write files even though the policy advertises read-only inspection. Worker containment cannot protect an independently executed coordinator shell.
+
+**Required correction:**
+
+- Prefer dedicated read-only tool paths with validated argument vectors. Removing ambiguous coordinator shell commands is an acceptable conservative choice; update help/guidance accordingly.
+- If any shell-backed command remains, positively validate supported flags/operands and neutralize environment, executable resolution, Git config/helpers/pagers/textconv/external diff, and output-file modes. A program-name allowlist or shell-metacharacter blacklist is not sufficient.
+- Do not reuse a safe Git wrapper only in unrelated services while leaving Pi's original `bash` path authorized. The actual model-callable execution path must enforce the restriction in both Plan and Build.
+
+**Regressions:** reject the four examples, long/short/equals/helper/output variants, unsupported flags, and environment/config-influenced helper paths. Include permitted simple read operations and existing tool behavior. Use spies or inert fixture marker scripts; never execute arbitrary project hooks/helpers to establish safety.
+
+**Acceptance:** no accepted coordinator invocation can cause helper execution or mutation through the tested surfaces; unknown options fail closed. Host-global commands and arbitrary shell remain forbidden.
+
+## R02 — Planning write symlink escape
+
+**Locations:** `radian_write_artifact` in `src/ui/controller.ts`, path/filesystem utilities, UI tests.
+
+**Baseline reproduction:** a relative planning path is a symlink to a fixture production file; the planning tool overwrites that file. The registered Radian tool bypasses the normal canonical-path guard.
+
+**Required correction:**
+
+- Enforce the planning root in the tool implementation, including the root itself, existing/nonexistent parents, the destination, absolute/traversal paths, and platform path conventions.
+- Do not follow links into production or protected state. A lexical `safeRelative` check or a `realpath` check immediately followed by an ordinary path write is insufficient against link replacement.
+- Choose a supported race-resistant file operation, or conservatively refuse when stable safe ownership of the path/parents cannot be established. Temporary files and atomic rename do not alone solve linked-parent traversal. Document the actual guarantees; do not claim race resistance from a pre-check only.
+- Keep unrelated files intact and avoid partially applying a refused write. Apply the same guarantee to every newly shared planning-write path.
+
+**Regressions:** destination link; parent/root links; broken links; out-of-root traversal; missing safe parents; normal create/replace; deterministic path/parent substitution between validation and write. On refusal, the outside sentinel and protected fixture state remain unchanged.
+
+**Acceptance:** neither a linked destination nor a changed parent can redirect a planning write outside the permitted root. If the platform/API cannot enforce the required guarantee within current scope, record a blocker rather than retaining the unsafe behavior.
+
+## R03 — Exact tested candidate identity
+
+**Locations:** candidate-check authority in `src/ui/controller.ts`; `finishSettled`, `recordCheckEvidence`, and integration evidence in `src/coordinator/orchestrator.ts`; Git inspection and workflow tests.
+
+**Baseline reproduction:** a fake tester changes `src/a.ts` in its whole-tree-writable candidate-check checkout, reports `passed` against the original commit, and the coordinator accepts the evidence.
+
+**Required correction:**
+
+- Bind check execution mechanically to the coordinator-recorded exact candidate/tree, assignment, attempt, approved check, and verified termination. Treat result-reported hashes/outcomes as claims, not sufficient provenance.
+- Keep candidate source/tests/config immutable during exact-candidate checks, while allowing only explicitly controlled build/output/scratch changes. A source snapshot hash before/after execution alone misses transient edits that are reverted; prevent such writes or use an equivalent demonstrated mechanism.
+- Do not accept modifying tester delivery work as exact-candidate verification. A test-stage fix must produce a new assembled candidate, invalidate old check/review/integration evidence, and be reverified.
+- Refuse evidence from a different checkout/base, stale/unregistered attempt, unknown termination, missing required execution evidence, or failed/not-run/inconclusive checks. Coordinator inspection must not run candidate code or Git helpers.
+
+**Regressions:** modify source/tests/config; mutate then restore; report original hash from wrong checkout; spoof hash; stale attempt; unknown termination; valid immutable candidate with permitted generated outputs; repair producing a new candidate invalidates old evidence. Exercise rejection through the production orchestration/evidence path, not only a validator helper.
+
+**Acceptance:** integration cannot use checks performed on changed or unproven source as evidence for the original candidate. No unrestricted candidate-code execution or blanket writable source tree is introduced to make builds pass.
+
+## R04 — Approval revalidation at launch, recovery, and resume
+
+**Locations:** `Coordinator.prepare/runAttempt/resume/retryAfterQuota`, `RunStore.startAttempt`, approvals and artifact hashing, workflow tests.
+
+**Baseline reproduction:** prepare a developer assignment under valid approvals, then record a plan rejection; `runAttempt` still launches and completes.
+
+**Required correction:**
+
+- Recompute current required artifact hashes from coordinator-owned paths and validate the latest human decisions immediately before each actual attempt launch. Include initial launch, capacity waits, automatic recovery, human-authorized recovery, question/pause resume, and quota retry.
+- Reject missing, changed, replaced, rejected, invalidated, or mismatched approvals. Bind the real attempt brief to the still-current approved revisions. Recovery authorization does not substitute for product approvals.
+- Guard asynchronous launch boundaries: approval checks must not become stale across awaited reservations/preflight/credential/transport steps. Recheck at the last safe launch boundary, or use a revision-bound launch authorization whose invalidation prevents delayed launch. Specify how an already-sent uncertain launch is revoked/reconciled (R05).
+- Refusal before launch must not leak capacity or leave an irrecoverable launching attempt. Do not silently restore approval or approve revised artifacts.
+
+**Regressions:** rejection after prepare; artifact edit/deletion; latest rejection with unchanged content; invalidation during capacity/preflight wait; revocation before recovery/resume/quota retry; unmodified approvals succeed; cleanup/slot state after refusal. Use barriers to test the async windows, not only sequential helper checks.
+
+**Acceptance:** no new worker begins under stale/revoked product approval, and refused attempts preserve previous work without exposing credentials or abandoning reservations.
+
+## R05 — Partial-launch reconciliation and retained ownership
+
+**Locations:** `src/runtimes/session.ts`, worker-driver outcome contract, `Coordinator.runAttempt`, Herdr transport, launcher/registry, capacity/worktree cleanup tests.
+
+**Baseline trace:** `launchAttempt` may return an error after pane creation/command delivery and explicitly retains a projection because a launcher might start. The orchestrator treats every launch error as verified non-execution and releases ownership/capacity.
+
+**Required correction:**
+
+- Model pre-launch refusal, partial owned launch, uncertain delivery, and verified termination as distinct outcomes. Carry the owned identity/resources/cleanup handle even when startup fails.
+
+- Stop/reconcile possibly started work, revoke any delayed launch authorization, and establish a termination postcondition before releasing slots, worktree ownership, watcher coverage, or reusable resources. Never infer termination from an error, closed pane, or absent binding alone.
+- A delayed launcher must not start after its cleanup has been deemed complete. Registration intent and cancellation/revocation must cover that startup race; when evidence is insufficient, retain ownership and block replacement.
+- Keep credential cleanup explicit: destroy/revoke projections as part of safe cleanup, but do not present deletion as proof a process stopped. Preserve private diagnostics/worktrees/results and fail closed on unknown termination.
+- Pre-launch failures proven not to have executed should cleanly release reservations without consuming an unnecessary execution recovery. Make cleanup idempotent and generation-scoped.
+
+**Regressions:** preflight refusal; pane created then delivery failure; delivery timeout/uncertainty; command accepted with error response; delayed launcher after cancellation; interrupted registration; cleanup unknown; repeated cleanup; verified cleanup allows bounded recovery; unknown cleanup retains capacity/ownership and blocks replacement. Fake transport only; no existing panes touched.
+
+**Acceptance:** every path that can have spawned work retains accountable ownership until verified stopped, and delayed execution cannot escape the cleanup/replacement gate.
+
+## R06 — Active watcher and coordinator-lease loss response
+
+**Locations:** `src/isolation/supervision.ts`, `src/ui/session.ts`, active driver/orchestrator monitoring and lifecycle cleanup.
+
+**Baseline trace:** health is checked during preflight; the active settlement loop polls only runtime events/exits. No continuous health check/callback stops active work on watcher loss. Lease-renewal results are also discarded; integrate lease failures into the same safety response.
+
+**Required correction:**
+
+- Monitor health throughout startup/binding, active execution, and waits that leave owned work alive. Detect watcher exit, unverified identity, stale/unreadable status, lease expiry/replacement, renewal refusal/error, and heartbeat failures.
+- On loss, block new dispatch immediately and have the still-live coordinator stop its own registered work within a bounded interval. Stop all affected assignments, not only whichever loop next notices the error.
+- Preserve work and record honest terminal/blocker state. Retain ownership/capacity for unknown termination. Do not automatically start replacement workers or treat a restarted watcher as verification of old termination.
+- Ensure monitoring timers/listeners are generation-bound, cleaned up on shutdown, and cannot renew a released lease or generate unhandled pipe/renewal errors. Preserve the independent watcher path for coordinator loss.
+- State explicitly that simultaneous watcher/coordinator loss and actual-runtime descendant behavior remain unverified; do not invent a guarantee or add a new isolation architecture.
+
+**Regressions:** watcher exits/stalls/identity changes during binding and execution; lease renewal refuses/errors; expired/replaced lease; heartbeat pipe error; multiple active assignments stopped; no launch after loss; unknown stop retains slots; repeated notifications/shutdown are idempotent; healthy runs unaffected. Prefer fake clocks/probes, with bounded owned synthetic-process evidence only where needed.
+
+**Acceptance:** active owned work is stopped on detected supervision/lease loss, not merely prevented from spawning new work. No test can be satisfied solely by checking preflight refusal.
+
+## R07 — Durable candidate-cycle accounting
+
+**Locations:** dispatch parameters and `toPlan`, `RunStore.createAssignment/recordCandidate/classifyFailure`, coordinator assembly/lifecycle, state/workflow tests.
+
+**Baseline reproduction:** after three candidate cycles, another modifying developer assignment succeeds with `newCandidateRound: false`; the counter remains three.
+
+**Required correction:**
+
+- Derive cycle transitions from durable task/candidate/failure state. A model-supplied boolean may not decide whether a cycle consumes budget. Remove it or make any legacy value non-authoritative with explicit compatibility behavior.
+- Developer/tester assignments collaborating on the same candidate may share a cycle. A defect-driven repair after evaluation consumes the next cycle exactly once, including concurrent repair assignments. Do not charge infrastructure recovery of the same assignment as a new candidate cycle or reset its execution/recovery budget.
+- At the cap, refuse further defect-repair cycles unless an explicit recorded human round grant exists. Reassembly or a new assignment identifier cannot hide a fourth cycle. Ambiguous failure classification opens a human decision rather than trusting a model label.
+- Enforce transitions under durable state locking and validate stale/concurrent requests. Restart/replay must preserve both cap and cycle identity.
+
+**Regressions:** three evaluated defect cycles followed by a fourth with omitted/false/true legacy flags; concurrent developer/tester repairs increment once; same-cycle collaboration allowed; infrastructure recovery retains cycle and remaining budget; repeated/reassembled candidate cannot evade cap; restart replay; explicit human grant allows only the granted number; ambiguous classification blocks.
+
+**Acceptance:** an arbitrary number of model-requested assignments cannot produce more than the authorized candidate cycles, while legitimate parallel work in one cycle remains possible.
+
+## R08 — Aggregate verification and truthful publication checkpoint
+
+1. Re-run all seven regressions against the final assembled source, including cross-finding interactions: approval revoked during uncertain launch; watcher loss during partial cleanup; candidate mutation followed by repair-cycle accounting; linked planning artifact used for approval.
+2. Run `npm run typecheck`, `npm test`, `npm run test:integration`, and `npm run verify`. Inspect test bodies/modes first: real-auth and live-task flags remain forbidden. Native/offline tests use disposable fixtures only; record prerequisites and every skip/not-run explicitly. Fix in-scope regressions and rerun affected tests plus the aggregate suite.
+3. Update `docs/research/implementation-verification.md` with a separate remediation checkpoint: reviewed baseline, exact verified revision/index tree, per-finding red/green evidence, commands/exit codes/counts, and remaining gaps. Preserve the old run as historical, not retroactively corrected proof. Do not claim a different tree was tested after executable changes.
+4. Update this progress table, `docs/planning/session-handoff.md`, and relevant user/developer guidance. Clarify that the installation/UI smoke check is distinct from offline safety verification and live runtime support. Keep every actual runtime/capability disabled/unverified; no synthetic capability records in installed state.
+5. Before each authorized commit/push, review exact staged content and author/committer metadata; run `npm run publication-check` and staged/unstaged whitespace checks. Review the committed bytes and unpushed metadata before pushing. Scan archives/package contents through the verification runner; no release publication. Private denylist is currently absent: disclose missing private-term coverage and never store personal denylist values here.
+6. Commit the focused remediation and final report/checkpoint to the existing upstream, without force, and verify remote inclusion. Record local completed commits separately if push fails. Finish with finding statuses, exact tested tree/revision, checks passed/failed/skipped/not-run, publication coverage, commit/push results, preserved work, and unresolved runtime/release blockers.
+
+**Exit gate:** all seven required safety properties corrected and regression-tested, aggregate offline verification accurately reported, publication checks complete for their stated coverage, and independent follow-up review still required before live verification. If a required implemented property remains failing or cannot be demonstrated, mark its row and R08 blocked, not complete. Missing live evidence does not authorize enabling capabilities.
+
+## Completion records
+
+Records are written as each finding's targeted regression turns green. "Corrected, pending R08" means the correction and its targeted red/green evidence exist; aggregate verification and the verified revision/tree are recorded under R08. No record grants runtime support.
+
+### R01 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r01-coordinator-commands.test.ts` (2 tests), updated guard assertions in `tests/unit/ui/interface.test.ts`.
+- **Red (baseline `e28d3db`):** through Pi's `tool_call` handler on a managed session, the guard accepted 17 of 25 shell commands in each of Plan and Build (34 total), including all four reviewed examples (`rg --pre=sh …`, `git diff --ext-diff`, `git show --textconv`, `file --compile magic`), `rg -z`/`--search-zip`, `git log -p --ext-diff`, `file -m`, `git status` (which runs a repository-configured `core.fsmonitor`), and plain reads. The dedicated inspection path did not exist (blocked as an unknown tool).
+- **Design choice:** the conservative option. `bash` is no longer a coordinator path in either mode (`RH-COORD-SHELL` for every command). Reads use Pi's `read`/`grep`/`find`/`ls` (Pi passes patterns after `--`). Git inspection uses the new `radian_git_inspect` tool: fixed `status`/`log`/`diff`/`show` operations mapped through the existing `inspectArgv` (exact commit ids, repository-relative paths, bounded counts), executed by controlled Git (cleared environment, no global/system config, hooks/pager/fsmonitor/credential/external-diff neutralized, empty-tree attribute source, `--no-ext-diff --no-textconv`, `--ignore-submodules=all` for status), with bounded output.
+- **Green:** all 50 commands are blocked in both modes; `powershell`, `codemode`, and MCP tools stay blocked; read/grep/find/ls, `radian_status`, and `radian_git_inspect` stay available. Against a fixture repository with planted inert marker scripts for fsmonitor, external diff, core and per-command pagers, textconv, clean/smudge filters, and hooks (plus `.gitattributes`), `radian_git_inspect` status/log/diff/show succeed with no marker created, invalid operands (option-shaped revisions, symbolic revisions, traversal, oversize counts, unknown operations) are refused, and a positive control (uncontrolled `git diff --ext-diff` on the same fixture) does create its marker.
+- **Residual limitations:** Pi's built-in `grep`/`find` inherit the Pi process environment (user-controlled, not model- or project-controlled); a later-loaded third-party extension can still mutate tool input after Radian's handler (Pi does not re-validate); `radian_git_inspect` still reads repository-local Git configuration for non-helper settings and repository `info/attributes`. Guidance updated in `skills/radian-coordinator/SKILL.md` and `docs/user/README.md`.
+
+### R02 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r02-planning-write.test.ts` (3 tests), updated guard assertion in `tests/unit/ui/interface.test.ts`.
+- **Red (baseline):** the registered `radian_write_artifact` tool wrote through all six linked forms — destination link to a production fixture file, broken link into an outside directory (target created), linked parent, linked planning root, linked `.radian`, and a hard link to a production file; Pi's built-in `write` into the planning root was allowed by the guard; and approval hashing followed a planning link to a production file (observed directly: `artifactHash` computed a digest for the link).
+- **Design choice:** a kernel-enforced primitive, `src/util/confined-fs.ts`. The final open uses macOS `O_NOFOLLOW_ANY` (with `O_NONBLOCK`), so the kernel refuses with `ELOOP` if any component from the canonical project root through the destination is a link at open time; the opened file must be a regular, single-link file owned by this user before it is truncated and written, so a refused write changes nothing. A one-time self-test confirms that both a linked parent and a linked final component are refused; without it (non-macOS or failure) every confined operation is refused (`CONTAINMENT_UNAVAILABLE`) — no check-then-write fallback. Missing parents are created one level at a time (mode 0700) and verified. The tool writes only through this primitive; Pi's `write`/`edit` are blocked for the coordinator so there is one planning-write path; `artifactHash` (approval recording, dispatch hashing, and revalidation) reads through `readConfined`, so a link is never an approvable artifact.
+- **Green:** every linked/out-of-root form, traversal, absolute, empty, and file-parent path is refused with the production file and outside sentinel unchanged and no outside file created; normal create, nested create, and replace work. Deterministic substitution between validation and open (validated parent replaced by a link; destination link or hard link appearing after validation) is refused by the open itself. Linked artifacts cannot be approved (no approval recorded).
+- **Residual limitations:** if a validated parent is replaced by a link between validation and `mkdir` of a missing child directory, an empty directory can be created at the link target (the write itself is then refused; no content lands there). Replacement is in place (truncate then write), not an atomic rename. The guarantee depends on macOS `O_NOFOLLOW_ANY`; other platforms refuse.
+
+### R03 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r03-tested-candidate.test.ts` (4 tests) through the registered `radian_dispatch`/`radian_assemble` tools over a real `Coordinator` (fake driver, disposable repository), plus a native launcher test under `sandbox-exec`; the shared fixture's candidate check no longer requests a whole-tree-writable checkout.
+- **Red (baseline):** a fake tester that rewrote `src/a.ts` in its candidate-check checkout and reported `passed` against the original commit was accepted as integration evidence (later tampering cases in the same run stayed accepted because evidence persisted, so only the first is independently attributable); the candidate-check authority made every tracked path writable (`src/a.ts`, `tests/a.test.ts`, `package.json`, `docs/spec.md`, `.gitattributes`); and in a separate run a check with unknown termination was accepted, as were bare worker claims (`passed` without or with a failing exit code, a different command) because outcomes came only from the worker's report. A spoofed revision claim was already filtered at baseline.
+- **Design choice:** worker reports are claims; outcomes need execution provenance. (1) Before launch, a candidate check must target the task's current assembled candidate and carry the plan's required checks (simple ids, non-empty argument vectors; an id's argument vector cannot be redefined), and may write only declared `checkOutputRoots` holding no tracked files in the candidate tree (controlled `git ls-tree`). Source, tests, and config are outside the authority, so the containment profile denies writes to them — this prevents transient mutate-then-restore edits rather than trying to detect them. (2) The contained launcher runs each approved argument vector itself before the runtime starts, under the same authority with the credential projection denied, in its own registered process group with a deadline (the assignment's remaining budget), and records exit status in the protected supervision registry; output goes to the worker-readable output directory. (3) In `finishSettled` (the production path; the interface layer no longer records evidence), evidence is bound only after verified termination, a still-current candidate, and controlled-Git verification that the checkout's HEAD and tree are exactly the candidate with no tracked change and untracked/ignored content only in output roots. Each approved check is recorded by the coordinator with candidate, tree, assignment, attempt, and approved argument vector; the outcome is `passed` only for exactly one launcher record with exit status 0 and no timeout, `failed` otherwise, `not-run` without a record; disagreeing worker claims are noted. Integration summary and integration count only coordinator-bound evidence. Tester delivery work is never check evidence; a repair produces a new candidate whose assembly resets evidence.
+- **Green:** source/tests/config tampering, unknown termination, missing/duplicate/other-check execution records, a failed or timed-out execution under a `passed` claim, stale attempts (including the automatic recovery), and a check on the previous candidate's checkout claiming the new candidate are refused or recorded as non-passing; tracked paths are not writable under the check authority (natively, a mutate-then-restore of `src/a.ts` fails while `dist/` output succeeds); output roots containing tracked files, `""`, or traversal are refused before launch; a valid check with generated `dist/` output counts and the launch carries exactly the approved argument vector; old evidence never carries to a repaired candidate. Natively, the launcher's checks could not write source or read the credential projection (control: the runtime profile could read it), passing/failing/hanging checks were recorded as exit 0, exit 3, and timed out, every check registration resolved, and checks ran before the runtime intent.
+- **Residual limitations:** check execution happens before binding, so its time is capped by, but not charged to, the assignment's execution budget; the check environment's `PATH` comes from the runtime plan and its executables' dependencies are resolved narrowly (missing ones refuse the launch). Generated output inside declared roots can influence later checks of the same run. A process that leaves the check's process group before the group is killed is found only by working-directory discovery at stop (which then reports unknown termination). Live runtime launches remain disabled, so this path is exercised only with fake runtimes and synthetic native fixtures.
+
+### R04 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r04-approval-revalidation.test.ts` (5 tests): orchestrator paths with a fake driver and barriers, plus the production `launchAttempt` session with a fake Herdr runner that executes nothing.
+- **Red (baseline):** with approvals valid at `prepare`, recording a plan rejection (unchanged content) and then calling `runAttempt` launched the worker and committed its delivery; a plan rejection made while the capacity reservation was awaited still launched and completed; and a plan rejection recorded during the first attempt's stop still let the automatic recovery attempt launch and complete.
+- **Design choice:** one launch authorization, `Coordinator.launchAuthorization`: Build mode for modifying work, healthy supervision, the proposal 0015 pairing, and every approval bound into the sealed brief still current — the artifact re-hashed from its coordinator-recorded path through the link-refusing reader (R02), and the latest human decision for that kind still an approval of exactly that content (rejections, invalidations, edits, and deletions refuse). It runs before reservation, again after the awaited reservation/attempt/worktree/brief steps, and is passed to the driver; the production session rechecks it before projecting credentials, before creating the pane, and at the last boundary before typing the launcher command (a refusal there closes the idle owned pane and destroys the projection). Every path — initial launch, automatic and human-authorized recovery, question/pause resume, quota retry — goes through `runAttempt`, so recovery or retry authorization never substitutes for product approvals. A refusal before launch ends the attempt as `not-started` (verified), releases the reservation and worktree claim, and consumes no automatic recovery, resume decision, or retry authorization; the previous baseline leak of the reservation when `startAttempt` or the worktree claim failed is fixed in the same path.
+- **Green:** rejection (unchanged content), spec rejection, spec edit, plan deletion, and invalidation after `prepare` all block with `APPROVAL_*` and launch nothing; a rejection during the capacity wait or inside the driver's launch window starts nothing; rejection before automatic recovery, before resume, and a spec edit before a quota retry block the new attempt, and restoring approved content lets the same retry authorization proceed; unchanged approvals still recover normally; no reservation is leaked and no attempt is left launching; the session refuses before any credential read or pane, and after pane creation without delivering anything.
+- **Residual limitations:** an attempt already delivered keeps running if approvals change later (this finding covers new attempts; stopping live work on revocation is not part of this pass). The authorization reads the coordinator's cached run state, which is the single-writer store's own state under the project lease.
+
+### R05 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r05-partial-launch.test.ts` (5 tests): the production `RuntimeWorkerDriver`/session under a real `Coordinator` with a fake Herdr runner (no existing panes), synthetic credentials, the real launcher under `sandbox-exec` for the delayed-launcher case, and an orchestrator-level fake-driver case.
+- **Red (baseline):** after pane creation, a refused or error-response delivery returned a plain refusal with no owned attempt (the projection was left for a `stop()` that never came); the orchestrator then ended the attempt as verified without stopping anything, released capacity, and allowed no reconciliation (one attempt, no termination evidence); a launcher that had recorded its intent and then lost contact was reported as verified termination and released; and a launcher that started 1.5 s after the coordinator had given up still started the runtime (process and exit records appeared after release).
+- **Design choice:** three launch outcomes — `refused` (nothing delivered; any pane closed, projection destroyed; ends `not-started` with no recovery consumed), `launched`, and `uncertain` (delivery attempted but not confirmed, carrying the owned pane/projection/identity). Uncertain launches become owned work: the orchestrator stops them through the normal failure path and releases capacity, worktree ownership, and watcher coverage only on verified termination; verified cleanup permits the one bounded automatic recovery. Revocation closes the delayed-launch race: `stopAttempt` (and the independent watcher on loss) records `revoked` under the registry lock before checking termination, and the launcher records every intent (runtime and each check) only if not revoked, under the same lock — so a launcher either is visible to the termination check or never starts anything. Projection deletion remains cleanup, never evidence. Unknown termination keeps the reservation, worktree ownership, and now the handle, so a later cancel retries the stop idempotently and reports the honest result instead of a default "verified".
+- **Green:** the session reports `started: "uncertain"` with the owned pane and projection after a failed delivery; repeated `stopAttempt` is idempotent and verified when nothing started; refused and error-response deliveries were revoked, verified, and only then released, with one bounded recovery, projections destroyed, and panes closed; an interrupted registration kept capacity and ownership, left the pane open, blocked replacement even after the decision was answered, and a repeated cancel still reported unknown; delayed launchers started 1.5 s after cleanup recorded no intent and never started the runtime; preflight refusal released cleanly without using recovery.
+- **Residual limitations:** a delayed launcher process itself (harness code, outside the sandbox) can still run briefly in the pane before it reads the revocation and exits; nothing it would start runs. A `createPane` timeout may leave a pane Herdr created but Radian never recorded (no command is ever delivered to it). Actual Herdr behavior and real runtime descendants remain unverified.
+
+### R06 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r06-supervision-loss.test.ts` (5 tests) with a fake driver/health probe, the real lease, and one owned synthetic watcher process; the existing lease test's expired-renewal assertion was updated (below). R05 suites were re-run with this change (full unit suite green).
+- **Red (baseline after R05):** with supervision reported unhealthy, an assignment waiting for binding was still running 2 s later (health was checked only before launch); the coordinator had no loss response to call; the supervision client had no loss notification; and, observed directly on the baseline lease, `renew()` after `release()` succeeded and re-extended an ownerless lease, while the session discarded every renewal result (`void lease.renew()`) and never cleared its renewal timer.
+- **Design choice:** `Coordinator.supervisionLost` latches a halt (prepare and the launch authorization refuse at once), then interrupts every live attempt concurrently: waits are aborted, each attempt is stopped exactly once (memoized stop shared with the normal finish path, so an attempt is never finalized twice), ended with its honest termination, released only when verified (unknown keeps capacity, worktree ownership, and the handle), and blocked with a `supervision` decision; a loss report is written to private supervision state. Nothing restarts automatically and the latch is not cleared by a recovered or restarted watcher. While it owns live attempts the coordinator polls the composite health (watcher identity/liveness/fresh status plus `lease.checkHeld()`) every `safetyIntervalMs` (session: 250–1000 ms); the supervision client additionally pushes watcher exit and heartbeat-pipe errors (handled, never unhandled), checks that the status file names the watcher it started, and never reports an orderly release. `startLeaseRenewal` reports every renewal refusal or error, never overlaps ticks, and stops cleanly; a released lease is never renewed, and renewal after expiry is refused so expiry is a detected loss rather than silently revived (the earlier unit test asserted revival and was updated). User pause and cancel use the same interruption path; session shutdown stops renewal and monitoring first.
+- **Green:** loss during binding and during execution stopped both live assignments within the bound, released their verified slots, recorded supervision blockers, and started no replacement; repeated and concurrent loss notifications stopped each attempt once; an unknown stop kept its slot; no launch happened after loss even when probes recovered; a replaced lease (renewal refused) triggered the same stop and the stopped renewal loop reported nothing further; a throwing renewal was reported as `LEASE_LOST` with no unhandled rejection; an expired lease is not held; a released lease cannot be renewed; a real watcher's exit was pushed to listeners, a foreign identity in its status file was unhealthy, heartbeats to the dead watcher raised no unhandled error; healthy monitored runs completed normally.
+- **Residual limitations:** detection is bounded by the polling interval plus the driver's stop (grace and escalation) time; push notification covers watcher exit and pipe errors, while a stalled-but-alive watcher is detected through status staleness. Simultaneous loss of the watcher and the coordinator, and actual-runtime descendant behavior, remain unverified; no new isolation architecture was added. If the lease is lost, durable run-state writes are refused, so the attempt end and blocker may be recorded only in the supervision registry and loss report until a later coordinator reconciles.
+
+### R07 record
+
+- **Date:** 2026-10-06. **Tests:** `tests/unit/remediation/r07-cycle-accounting.test.ts` (4 tests) through the registered `radian_dispatch`/`radian_assemble` tools (legacy flags supplied by the "model") and the orchestrator; the existing state test that encoded flag-driven rounds now records a candidate per cycle. R03 suites re-run (full unit suite green).
+- **Red (baseline after R06):** after three evaluated defect cycles, a fourth developer assignment with the flag omitted or `false` launched and delivered, and testers launched with any flag value, while the counter stayed at three; two developers flagged `newCandidateRound: true` before any candidate consumed two cycles; a second, different candidate was recorded in the same cycle by reassembling deliveries; and an open ambiguous-classification decision did not block new candidate work.
+- **Design choice:** `candidateCycle` (run store) derives the cycle from durable task state only: developer/tester work toward a candidate joins the current cycle until that cycle has a candidate; the first such assignment afterwards starts the next cycle; checks and reviews stay in the current cycle; scouts are unaffected; at the cap only recorded human grants allow another cycle; an open accounting decision blocks new candidate work. `createAssignment` applies it under the run lock (so concurrent repairs start exactly one cycle) and refuses a stale projection (`expectedRound`). `recordCandidate` accepts one candidate per cycle (the same commit is idempotent). `newCandidateRound` is accepted but ignored (documented as legacy in the tool schema and contracts). Infrastructure recovery is a new attempt of the same assignment and never reaches cycle accounting. The cap and cycle identity are event-sourced, so a reopened store replays them.
+- **Green:** after three cycles, developers and testers with omitted/`false`/`true` flags are refused (`ROUNDS_EXHAUSTED`) with no launch, while a review of the existing candidate still runs; a reopened store refuses a fourth cycle; one human grant allows exactly one more cycle; same-cycle developer/developer/tester collaboration used one cycle; three concurrent repairs started exactly one new cycle; reassembling a different candidate in the same cycle is refused; infrastructure recovery kept cycle 1 and used the assignment's single recovery; an open accounting decision blocked candidate work until resolved.
+- **Residual limitations:** reassembly is refused even when the earlier candidate was never evaluated (any changed candidate needs a repair cycle); the classification that opens an accounting decision is still invoked by coordinator code, not by any model-callable tool. Guidance updated in `skills/radian-coordinator/SKILL.md` and `docs/user/README.md`.

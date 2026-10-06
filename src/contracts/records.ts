@@ -70,6 +70,10 @@ export const checkEvidenceSchema = obj({
   log: optional(artifactRefSchema),
   startedAt: optional(str({ min: 1 })),
   finishedAt: optional(str({ min: 1 })),
+  /** Set only by the coordinator when it binds verified evidence (R03); worker claims carry none of these. */
+  assignment: optional(str({ min: 1, max: 128 })),
+  attempt: optional(str({ min: 1, max: 128 })),
+  tree: optional(str({ pattern: COMMIT })),
 });
 export type CheckEvidence = Infer<typeof checkEvidenceSchema>;
 

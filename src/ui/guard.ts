@@ -1,9 +1,19 @@
 // Coordinator tool guard for managed sessions (both Plan and Build). Pi stays a
-// coordinator: it may read and search, write approved planning artifacts under
-// the planning roots, run a narrow set of read-only commands, and call Radian's
-// registered tools. Production edits, arbitrary shell, MCP/codemode, and
-// unknown tools are blocked with a stable rule and a safe alternative. This is
-// a mistake/prompt-injection guard inside the Pi process, not an OS boundary.
+// coordinator: it may read and search and call Radian's registered tools
+// (planning drafts through radian_write_artifact, Git through the fixed
+// read-only radian_git_inspect). Pi's own write/edit, every shell command,
+// MCP/codemode, and unknown tools are blocked with a stable rule and a safe
+// alternative. This is a mistake/prompt-injection guard inside the Pi process,
+// not an OS boundary.
+//
+// The coordinator's shell runs outside worker containment. Programs that look
+// read-only still accept options, repository configuration, and environment
+// that start helpers or write files (rg --pre, git --ext-diff/--textconv,
+// core.fsmonitor and pagers, file --compile, output flags), so a program-name
+// allowlist or metacharacter filter cannot make shell commands safe. Reads go
+// through Pi's read/grep/find/ls tools, whose patterns are passed after "--",
+// and Git inspection goes through radian_git_inspect, which only runs fixed,
+// validated argument vectors under controlled Git.
 
 import path from "node:path";
 import { canonicalPath, isWithin } from "../contracts/paths.ts";
@@ -16,19 +26,6 @@ export interface GuardDecision {
 }
 
 const READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
-const READ_ONLY_COMMANDS = new Set(["ls", "cat", "head", "tail", "wc", "grep", "rg", "pwd", "tree", "stat", "file"]);
-const GIT_READ_SUBCOMMANDS = new Set(["status", "log", "diff", "show", "rev-parse", "ls-files", "blame"]);
-const SHELL_META = /[;&|<>`$(){}\\\n\r*?!]/;
-
-export function readOnlyCommand(command: string): boolean {
-  const trimmed = command.trim();
-  if (trimmed === "" || SHELL_META.test(trimmed)) return false;
-  const words = trimmed.split(/\s+/);
-  const program = words[0]!;
-  if (words.some((w) => /^--?(output|exec|delete|in-place|write)/.test(w) || w === "-i" || w === "-o")) return false;
-  if (program === "git") return GIT_READ_SUBCOMMANDS.has(words[1] ?? "") && !words.includes("--output");
-  return READ_ONLY_COMMANDS.has(program);
-}
 
 export interface GuardOptions {
   projectRoot: string;
@@ -42,17 +39,20 @@ export function guardToolCall(event: HostToolCallEvent, options: GuardOptions, c
   const name = event.toolName;
   if (READ_TOOLS.has(name) || options.radianTools.has(name)) return { block: false };
   if (name === "bash") {
-    const command = typeof event.input.command === "string" ? event.input.command : "";
-    if (readOnlyCommand(command)) return { block: false };
-    return { block: true, rule: "RH-COORD-SHELL", reason: "The Radian coordinator only runs simple read-only commands. Use a scout or developer assignment for anything else." };
+    return { block: true, rule: "RH-COORD-SHELL", reason: "The Radian coordinator does not run shell commands. Use read, grep, find, or ls to inspect files, radian_git_inspect for Git status/log/diff/show, and a scout or developer assignment for anything else." };
   }
   if (name === "edit" || name === "write") {
+    // Pi's write/edit resolve links at write time, so a pre-check here cannot
+    // stop a link swapped in afterwards. Planning drafts go only through
+    // radian_write_artifact, which opens without following any link.
     const raw = typeof event.input.path === "string" ? event.input.path : typeof event.input.file_path === "string" ? event.input.file_path : "";
-    if (!raw) return { block: true, rule: "RH-COORD-PATH", reason: "Write target is missing." };
-    const resolved = canonicalPath(path.isAbsolute(raw) ? raw : path.resolve(cwd, raw));
-    if (!resolved.ok) return { block: true, rule: "RH-COORD-PATH", reason: "Write target cannot be resolved safely." };
-    if (options.planningRoots.some((root) => isWithin(resolved.value, root))) return { block: false };
-    return { block: true, rule: "RH-COORD-PRODUCTION-WRITE", reason: "The Radian coordinator does not edit production files. Write planning artifacts under the planning directory, or dispatch a developer assignment after approval." };
+    const planning = "Write planning drafts with radian_write_artifact (whole-file, link-safe).";
+    if (!raw) return { block: true, rule: "RH-COORD-PATH", reason: `Write target is missing. ${planning}` };
+    const lexical = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(cwd, raw);
+    const resolved = canonicalPath(lexical);
+    const inPlanning = [lexical, ...(resolved.ok ? [resolved.value] : [])].some((p) => options.planningRoots.some((root) => isWithin(p, root)));
+    if (inPlanning) return { block: true, rule: "RH-COORD-PATH", reason: `Pi's ${name} tool is disabled for the Radian coordinator. ${planning}` };
+    return { block: true, rule: "RH-COORD-PRODUCTION-WRITE", reason: `The Radian coordinator does not edit production files. ${planning} Dispatch a developer assignment after approval for production changes.` };
   }
   return { block: true, rule: "RH-COORD-UNKNOWN-TOOL", reason: `Tool '${name}' is not covered by Radian's coordinator guard and is disabled in managed sessions.` };
 }

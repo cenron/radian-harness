@@ -1,6 +1,8 @@
 // Fixed read-only Git inspection operations for worker tools (for example the
-// reviewer's read/report-only tool set). Workers choose an operation and
-// validated operands; they never supply Git options or argument strings.
+// reviewer's read/report-only tool set) and the coordinator's radian_git_inspect
+// tool. Callers choose an operation and validated operands; they never supply
+// Git options or argument strings. Execution goes through controlled Git
+// (src/git/exec.ts), which neutralizes hooks, pagers, helpers, and attributes.
 
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { safeRelative } from "../contracts/paths.ts";
@@ -25,7 +27,7 @@ export function inspectArgv(request: InspectRequest): Outcome<string[]> {
   };
   switch (request.op) {
     case "status":
-      return success(["status", "--porcelain=v2", "--untracked-files=all", "--no-renames"]);
+      return success(["status", "--porcelain=v2", "--untracked-files=all", "--no-renames", "--ignore-submodules=all"]);
     case "diff": {
       if (!OID.test(request.from) || (request.to !== undefined && !OID.test(request.to))) return refuse("CONFIG_INVALID", "diff endpoints must be exact commit ids");
       const p = paths(request.paths);

@@ -5,10 +5,11 @@
 // assignment; the coordinator does not resolve production semantics.
 
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { safeRelative } from "../contracts/paths.ts";
 import type { CandidateRef } from "../contracts/records.ts";
 import { succeeded } from "../util/proc.ts";
 import type { CommitIdentity, Delivery } from "./delivery.ts";
-import { git, gitText } from "./exec.ts";
+import { git, gitText, splitNul } from "./exec.ts";
 import type { Repository } from "./repository.ts";
 
 export interface AssembledCandidate extends CandidateRef {
@@ -89,4 +90,47 @@ export async function verifyCandidate(repo: Repository, candidate: CandidateRef)
   } catch {
     return refuse("CANDIDATE_MISMATCH", "candidate commit is unavailable");
   }
+}
+
+/**
+ * Output roots for an exact-candidate check must hold no tracked content in the
+ * candidate, so making them writable cannot change source, tests, or config.
+ */
+export async function validateCheckOutputRoots(repo: Repository, commit: string, roots: readonly string[]): Promise<Outcome<true>> {
+  for (const root of roots) {
+    if (!safeRelative(root) || root.split("/")[0] === ".git") return refuse("PATH_INVALID", "check output roots must be repository-relative directories");
+    const listed = await git(repo.ctx, ["ls-tree", "-r", "-z", "--name-only", commit, "--", root]);
+    if (!succeeded(listed)) return refuse("GIT_FAILURE", "candidate tree could not be listed");
+    if (listed.stdout.length > 0) return refuse("PATH_OUTSIDE_SCOPE", `check output root '${root}' contains tracked candidate files`, "Declare an untracked build/output directory instead.");
+  }
+  return success(true);
+}
+
+/**
+ * After a contained check, confirm its checkout still holds exactly the
+ * candidate: HEAD and tree match, nothing tracked changed, and untracked or
+ * ignored content exists only under the declared output roots. Uses controlled
+ * Git only (no hooks, filters, textconv, or fsmonitor); never runs candidate code.
+ */
+export async function verifyCheckout(repo: Repository, worktreePath: string, candidate: CandidateRef, outputRoots: readonly string[]): Promise<Outcome<true>> {
+  const ctx = { ...repo.ctx, cwd: worktreePath };
+  const head = await git(ctx, ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"]);
+  const tree = await git(ctx, ["rev-parse", "--verify", "--end-of-options", "HEAD^{tree}"]);
+  if (!succeeded(head) || !succeeded(tree)) return refuse("CANDIDATE_MISMATCH", "the check checkout's revision cannot be read");
+  if (head.stdout.toString("utf8").trim() !== candidate.commit || tree.stdout.toString("utf8").trim() !== candidate.tree) {
+    return refuse("CANDIDATE_MISMATCH", "the check checkout is not at the exact candidate");
+  }
+  const status = await git(ctx, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=matching", "--no-renames", "--ignore-submodules=dirty"]);
+  if (!succeeded(status)) return refuse("CANDIDATE_MISMATCH", "the check checkout's status cannot be read");
+  const inOutput = (p: string) => outputRoots.some((root) => p === root || p.startsWith(`${root}/`));
+  let changed = 0;
+  for (const record of splitNul(status.stdout)) {
+    if (record.startsWith("? ") || record.startsWith("! ")) {
+      if (!inOutput(record.slice(2).replace(/\/$/, ""))) changed += 1;
+    } else {
+      changed += 1;
+    }
+  }
+  if (changed > 0) return refuse("CANDIDATE_MISMATCH", `the check checkout changed outside its declared output roots (${changed} path(s)); its results are not evidence for the candidate`);
+  return success(true);
 }

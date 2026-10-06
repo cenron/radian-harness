@@ -101,6 +101,8 @@ export class Watcher {
     const report: LossReport = { reason, at: iso(this.clock.now()), outcomes: [] };
     for (const watched of list?.assignments ?? []) {
       const registry = new SupervisionRegistry(this.options.stateDir, watched.assignment, this.clock);
+      // No delayed launcher may start once the watcher has taken over.
+      await registry.revoke(watched.attempt);
       const outcome = await terminateOwned(this.options.ops, {
         registered: registry.processes(watched.attempt),
         ownedRoots: watched.ownedRoots,

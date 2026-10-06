@@ -1,6 +1,8 @@
 # Implementation plan — table of contents and progress
 
-**Status: authorized implementation plan. Feasibility testing is stopped.**
+**Status: original implementation milestones complete; subsequent safety review requires remediation. Feasibility testing remains stopped.**
+
+For current work, use the [seven-finding remediation plan](../remediation/README.md) and its [Claude Code start prompt](../remediation/new-session-prompt.md). This index and execution contract describe the historical implementation pass; do not replay it or use its old prompt for remediation. Existing test passes do not establish the safety properties found defective by the later review.
 
 The user authorized a new **Claude Code / Opus 5.5 / high** session to implement Radian without routine interaction, mark milestones complete as they finish, and commit and push each milestone. This plan and the preserved feasibility checkpoint are authorized for commit/push now. [Proposal 0014](../../proposals/0014-unattended-implementation.md) records this authorization and supersedes the feasibility-only work restriction, not the product's safety requirements.
 

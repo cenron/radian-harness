@@ -1,148 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { success, type Outcome } from "../../../src/contracts/blockers.ts";
 import { loadAndResolve } from "../../../src/config/resolve.ts";
 import { ModeState } from "../../../src/coordinator/mode.ts";
 import { openRepository } from "../../../src/git/repository.ts";
-import { CoordinatorLease } from "../../../src/state/lease.ts";
-import { RunStore } from "../../../src/state/run-store.ts";
 import { CalmPreference } from "../../../src/ui/calm.ts";
 import { RADIAN_TOOLS, registerRadian } from "../../../src/ui/controller.ts";
 import { managedEditorFactory } from "../../../src/ui/editor.ts";
-import { guardToolCall, readOnlyCommand } from "../../../src/ui/guard.ts";
-import type { HostContext, HostRuntime, HostToolRenderers, PiHost } from "../../../src/ui/pi-host.ts";
-import { openProjectSession, type ProjectSession } from "../../../src/ui/session.ts";
+import { guardToolCall } from "../../../src/ui/guard.ts";
+import type { HostToolRenderers } from "../../../src/ui/pi-host.ts";
+import { openProjectSession } from "../../../src/ui/session.ts";
 import { projectPaths } from "../../../src/workspace/layout.ts";
-import { makeRepo, removeDir, tempDir } from "../helpers/fixture.ts";
-
-class FakeEditor {
-  received: string[] = [];
-  constructor(_tui: unknown, _theme: unknown, _kb: unknown) {}
-  handleInput(data: string): void {
-    this.received.push(data);
-  }
-}
-
-const fakeRuntime: HostRuntime = {
-  CustomEditor: FakeEditor,
-  matchesKey: (data, key) => data === key,
-  Text: class {
-    text: string;
-    constructor(text: string) {
-      this.text = text;
-    }
-  },
-  Type: {
-    Object: (p) => ({ type: "object", p }),
-    String: () => ({ type: "string" }),
-    Number: () => ({ type: "number" }),
-    Boolean: () => ({ type: "boolean" }),
-    Array: (i) => ({ type: "array", i }),
-    Optional: (s) => s,
-    Union: (s) => ({ anyOf: s }),
-    Literal: (v) => ({ const: v }),
-  },
-};
-
-class FakeHost implements PiHost {
-  handlers = new Map<string, Array<(event: never, ctx: HostContext) => unknown>>();
-  commands = new Map<string, (args: string, ctx: HostContext) => Promise<void>>();
-  tools: string[] = [];
-  resolvers: Array<(name: string, next: () => HostToolRenderers | undefined) => HostToolRenderers | undefined> = [];
-  messages: string[] = [];
-  on(event: string, handler: (event: never, ctx: HostContext) => unknown): () => void {
-    this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]);
-    return () => {};
-  }
-  registerCommand(name: string, options: { handler: (args: string, ctx: HostContext) => Promise<void> }): void {
-    this.commands.set(name, options.handler);
-  }
-  registerTool(tool: { name: string }): void {
-    this.tools.push(tool.name);
-  }
-  registerToolRenderer(resolver: (name: string, next: () => HostToolRenderers | undefined) => HostToolRenderers | undefined): void {
-    this.resolvers.push(resolver);
-  }
-  sendMessage(message: { content: string }): void {
-    this.messages.push(message.content);
-  }
-  async emit(event: string, payload: unknown, ctx: HostContext): Promise<unknown[]> {
-    const out: unknown[] = [];
-    for (const handler of this.handlers.get(event) ?? []) out.push(await handler(payload as never, ctx));
-    return out;
-  }
-}
-
-interface FakeCtxState {
-  editorFactory?: ((tui: unknown, theme: unknown, kb: unknown) => unknown) | undefined;
-  status?: string | undefined;
-  confirms: string[];
-  confirmAnswer: boolean;
-  notes: string[];
-}
-
-function context(cwd: string, mode: HostContext["mode"], state: FakeCtxState): HostContext {
-  return {
-    mode,
-    hasUI: mode === "tui" || mode === "rpc",
-    cwd,
-    isIdle: () => true,
-    ui: {
-      notify: (m) => state.notes.push(m),
-      setStatus: (_k, t) => {
-        state.status = t;
-      },
-      setWidget: () => {},
-      confirm: async (title, message) => {
-        state.confirms.push(`${title}\n${message ?? ""}`);
-        return state.confirmAnswer;
-      },
-      select: async () => undefined,
-      setEditorComponent: (f) => {
-        state.editorFactory = f;
-      },
-      theme: { fg: (_t, s) => s, bold: (s) => s },
-    },
-  };
-}
-
-/** A registered synthetic workspace + project, with an injected run built from real state services. */
-async function managedWorld() {
-  const root = tempDir();
-  const workspace = path.join(root, "ws");
-  const projectDir = path.join(workspace, "proj");
-  mkdirSync(path.join(workspace, ".radian", "state"), { recursive: true });
-  mkdirSync(projectDir, { recursive: true });
-  const fixture = await makeRepo(projectDir);
-  fixture.write("src/a.ts", "export const a = 1;\n");
-  fixture.write(".radian/planning/spec.md", "# Spec\n");
-  await fixture.commitAll("base");
-  writeFileSync(path.join(workspace, ".radian", "workspace.json"), JSON.stringify({ schema: "radian.workspace/1", workspace: "ws_fixture1", canonicalRoot: workspace }));
-  writeFileSync(path.join(workspace, ".radian", "state", "projects.json"), JSON.stringify({ schema: "radian.workspace-registry/1", workspace: "ws_fixture1", projects: [{ project: "prj_fixture1", canonicalPath: projectDir, target: "refs/heads/main" }] }));
-  const live: Array<{ assignment: string; role: "developer" }> = [];
-  const paused: string[] = [];
-  const startRun = async (session: ProjectSession): Promise<Outcome<NonNullable<ProjectSession["run"]>>> => {
-    if (session.run) return success(session.run);
-    const lease = await CoordinatorLease.acquire(session.project.state, session.binding.project, { ttlMs: 3_600_000 });
-    if (!lease.ok) return lease;
-    const store = await RunStore.create(session.project.state, lease.value, { workspace: session.binding.workspace, project: session.binding.project, configHash: session.config.hash, harness: { version: "0.0.0-test", revision: "f".repeat(40), locallyModified: false } });
-    if (!store.ok) return store;
-    const coordinator = {
-      liveAssignments: () => live,
-      pause: async (assignment: string) => {
-        paused.push(assignment);
-        return success({ termination: "verified" as const });
-      },
-      evidence: () => ({ checks: [], risks: [] }),
-    };
-    const supervision = { release: () => {}, dropHeartbeat: () => {}, health: () => success(true as const) };
-    session.run = { store: store.value, lease: lease.value, coordinator: coordinator as never, supervision: supervision as never };
-    return success(session.run);
-  };
-  return { root, workspace, projectDir, fixture, live, paused, startRun };
-}
+import { removeDir, tempDir } from "../helpers/fixture.ts";
+import { type FakeCtxState, FakeEditor, FakeHost, context, fakeRuntime, managedWorld } from "../helpers/pi-host.ts";
 
 test("unmanaged projects leave Pi untouched: no tools, editor, guards, or blocking", async () => {
   const dir = tempDir();
@@ -282,7 +153,7 @@ test("Calm is presentation-only: collapses routine successful output, never erro
   }
 });
 
-test("coordinator guard: no production writes, narrow read-only shell, unknown tools blocked, planning artifacts allowed", async () => {
+test("coordinator guard: no production writes, no shell, unknown tools blocked, planning drafts only through radian_write_artifact", async () => {
   const w = await managedWorld();
   try {
     const repo = await openRepository(w.projectDir);
@@ -293,18 +164,19 @@ test("coordinator guard: no production writes, narrow read-only shell, unknown t
     const decide = (toolName: string, input: Record<string, unknown>) => guardToolCall({ toolName, input }, options, repo.value.root);
     assert.equal(decide("write", { path: "src/a.ts" }).rule, "RH-COORD-PRODUCTION-WRITE");
     assert.equal(decide("edit", { path: path.join(repo.value.root, "src", "a.ts") }).rule, "RH-COORD-PRODUCTION-WRITE");
-    assert.equal(decide("write", { path: ".radian/planning/plan.md" }).block, false);
+    assert.equal(decide("write", { path: ".radian/planning/plan.md" }).rule, "RH-COORD-PATH", "planning drafts go through radian_write_artifact (R02)");
+    assert.equal(decide("radian_write_artifact", { path: "plan.md", content: "x" }).block, false);
     assert.equal(decide("write", { path: ".radian/planning/../../src/a.ts" }).rule, "RH-COORD-PRODUCTION-WRITE");
     assert.equal(decide("read", { path: "src/a.ts" }).block, false);
     assert.equal(decide("radian_status", {}).block, false);
-    assert.equal(decide("bash", { command: "git status" }).block, false);
+    assert.equal(decide("bash", { command: "git status" }).rule, "RH-COORD-SHELL", "shell is not a coordinator path (R01); use radian_git_inspect");
+    assert.equal(decide("radian_git_inspect", { op: "status" }).block, false);
     assert.equal(decide("bash", { command: "rm -rf src" }).rule, "RH-COORD-SHELL");
     assert.equal(decide("bash", { command: "cat a > b" }).rule, "RH-COORD-SHELL");
     assert.equal(decide("codemode", { code: "x" }).rule, "RH-COORD-UNKNOWN-TOOL");
     assert.equal(decide("mcp_tool", {}).rule, "RH-COORD-UNKNOWN-TOOL");
-    assert.equal(readOnlyCommand("git log --oneline -5"), true);
-    assert.equal(readOnlyCommand("git commit -m x"), false);
-    assert.equal(readOnlyCommand("ls $(whoami)"), false);
+    assert.equal(decide("bash", { command: "git log --oneline -5" }).rule, "RH-COORD-SHELL");
+    assert.equal(decide("bash", { command: "ls $(whoami)" }).rule, "RH-COORD-SHELL");
   } finally {
     removeDir(w.root);
   }

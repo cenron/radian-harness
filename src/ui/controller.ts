@@ -6,7 +6,6 @@
 // and require an interactive terminal plus an explicit confirmation of the
 // exact artifact/candidate. Without an interactive UI they are refused.
 
-import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type Operation } from "../contracts/authority.ts";
@@ -16,15 +15,22 @@ import type { AssignmentOutcome, AssignmentPlan } from "../coordinator/orchestra
 import { readMetrics } from "../coordinator/metrics.ts";
 import { Retrospectives } from "../coordinator/retrospective.ts";
 import type { Delivery } from "../git/delivery.ts";
+import { git } from "../git/exec.ts";
+import { type InspectRequest, inspectArgv } from "../git/inspect.ts";
+import { succeeded } from "../util/proc.ts";
 import { CAPABILITIES, CapabilityRegistry } from "../isolation/capabilities.ts";
 import { HumanChannel } from "../state/approvals.ts";
 import { calmResolver } from "./calm.ts";
 import { managedEditorFactory } from "./editor.ts";
 import { guardToolCall } from "./guard.ts";
 import type { HostContext, HostRuntime, PiHost } from "./pi-host.ts";
-import { type ProjectSession, artifactHash, shortHash } from "./session.ts";
+import { PLANNING_DIR, type ProjectSession, artifactHash, shortHash } from "./session.ts";
+import { writeConfined } from "../util/confined-fs.ts";
 
-export const RADIAN_TOOLS = ["radian_status", "radian_write_artifact", "radian_dispatch", "radian_assemble"] as const;
+export const RADIAN_TOOLS = ["radian_status", "radian_git_inspect", "radian_write_artifact", "radian_dispatch", "radian_assemble"] as const;
+
+/** Bounded model-facing output for Git inspection. */
+const INSPECT_MAX_TEXT = 64 * 1024;
 
 export interface ControllerOptions {
   loadRuntime: () => Promise<HostRuntime>;
@@ -279,6 +285,31 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
       execute: async () => ({ content: [{ type: "text", text: session ? statusText(session) : "Radian inactive." }], details: undefined }),
     });
     pi.registerTool({
+      name: "radian_git_inspect",
+      label: "Inspect Git (read-only)",
+      description: "Read-only Git inspection of the project: status, log, diff, or show. Revisions must be exact commit ids (use log to find them); paths are repository-relative. Runs a fixed argument vector with hooks, pagers, external diff, textconv, filters, and fsmonitor disabled. There is no shell.",
+      parameters: T.Object({
+        op: T.Union(["status", "log", "diff", "show"].map((op) => T.Literal(op))),
+        from: T.Optional(T.String({ description: "diff: exact commit id" })),
+        to: T.Optional(T.String({ description: "diff: exact commit id (default: working tree)" })),
+        paths: T.Optional(T.Array(T.String(), { description: "diff: repository-relative paths" })),
+        rev: T.Optional(T.String({ description: "log/show: exact commit id" })),
+        path: T.Optional(T.String({ description: "show: repository-relative file at rev" })),
+        max: T.Optional(T.Number({ description: "log: 1-200 entries (default 20)" })),
+      }),
+      execute: async (_id, params) => {
+        if (!session) throw new Error("Radian inactive");
+        const request = inspectRequest(params);
+        if (!request.ok) return { content: [{ type: "text", text: blockerText(request.blocker) }], details: undefined };
+        const argv = inspectArgv(request.value);
+        if (!argv.ok) return { content: [{ type: "text", text: blockerText(argv.blocker) }], details: undefined };
+        const result = await git(session.repo.ctx, argv.value, { timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 });
+        if (!succeeded(result)) return { content: [{ type: "text", text: `BLOCKED GIT_FAILURE: git ${request.value.op} did not complete (${result.timedOut ? "timed out" : result.outputLimitExceeded ? "output too large" : `exit ${result.code}`})` }], details: undefined };
+        const text = result.stdout.toString("utf8");
+        return { content: [{ type: "text", text: text.length > INSPECT_MAX_TEXT ? `${text.slice(0, INSPECT_MAX_TEXT)}\n[truncated: narrow the paths or revisions]` : text || "(no output)" }], details: undefined };
+      },
+    });
+    pi.registerTool({
       name: "radian_write_artifact",
       label: "Write planning artifact",
       description: "Write a PRD/spec, brief, or plan draft under .radian/planning/ for human review. Writing never approves it; only the user can approve with /radian approve.",
@@ -287,10 +318,9 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         if (!session) throw new Error("Radian inactive");
         const relative = String(params.path ?? "");
         if (!safeRelative(relative)) throw new Error("path must be relative inside .radian/planning/");
-        const root = session.planningRoots[0]!;
-        const file = path.join(root, relative);
-        mkdirSync(path.dirname(file), { recursive: true });
-        writeFileSync(file, String(params.content ?? ""));
+        // Kernel-enforced: no link anywhere from the project root to the destination (src/util/confined-fs.ts).
+        const written = writeConfined(session.repo.root, `${PLANNING_DIR.split(path.sep).join("/")}/${relative}`, String(params.content ?? ""));
+        if (!written.ok) throw new Error(blockerText(written.blocker));
         return { content: [{ type: "text", text: `Wrote ${path.join(".radian", "planning", relative)} (draft; requires the user's /radian approve).` }], details: undefined };
       },
     });
@@ -309,8 +339,9 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         nonGoals: T.Optional(T.Array(T.String())),
         writeRoots: T.Optional(T.Array(T.String())),
         candidateCheck: T.Optional(T.Boolean()),
+        checkOutputRoots: T.Optional(T.Array(T.String(), { description: "candidate checks: untracked build/output directories the check may write; source, tests, and config stay read-only" })),
         requiredChecks: T.Optional(T.Array(T.Object({ id: T.String(), description: T.String(), argv: T.Array(T.String()) }))),
-        newCandidateRound: T.Optional(T.Boolean()),
+        newCandidateRound: T.Optional(T.Boolean({ description: "Ignored (legacy). Candidate cycles are derived from the task's durable state: work after an assembled candidate starts the next cycle." })),
         baseCandidate: T.Optional(T.String()),
         ruleId: T.Optional(T.String()),
         profile: T.Optional(T.String()),
@@ -321,12 +352,10 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         if (!run.ok) return { content: [{ type: "text", text: blockerText(run.blocker) }], details: undefined };
         const planned = toPlan(session!, params);
         if (!planned.ok) return { content: [{ type: "text", text: blockerText(planned.blocker) }], details: undefined };
-        if (planned.value.requiredChecks?.length) run.value.coordinator.setRequiredChecks(planned.value.task, planned.value.requiredChecks.map((c) => c.id));
         void run.value.coordinator.runAssignment(planned.value).then((outcome) => {
           const text = outcomeText(outcome);
           if (outcome.state === "completed") {
             if (outcome.delivery) deliveries.set(outcome.assignment, outcome.delivery);
-            if (planned.value.purpose === "candidate-check") run.value.coordinator.recordCheckEvidence(planned.value.task, outcome.result);
             if (planned.value.role === "reviewer" && planned.value.base.kind === "commit") run.value.coordinator.recordReview(planned.value.task, planned.value.base.commit, outcome.result);
           }
           ctx.ui.notify(text, outcome.state === "completed" ? "info" : "warning");
@@ -377,6 +406,8 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     ctx.ui.setWidget("radian", undefined);
     const run = session.run;
     if (run) {
+      // Stop renewal and monitoring first, so nothing renews a released lease or reports a loss for an orderly exit.
+      run.safety?.stop();
       // With live workers, leave the watcher fed by nothing: losing coordination stops owned work.
       if (run.coordinator.liveAssignments().length === 0) run.supervision.release();
       else run.supervision.dropHeartbeat();
@@ -404,6 +435,40 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
   return controller;
 }
 
+/** Map validated tool parameters onto a fixed inspection operation; Git options are not representable. */
+function inspectRequest(params: Record<string, unknown>): Outcome<InspectRequest> {
+  const text = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+  switch (params.op) {
+    case "status":
+      return success({ op: "status" });
+    case "log": {
+      const request: InspectRequest = { op: "log", max: typeof params.max === "number" ? params.max : 20 };
+      const rev = text(params.rev);
+      if (rev !== undefined) request.rev = rev;
+      return success(request);
+    }
+    case "diff": {
+      const from = text(params.from);
+      if (from === undefined) return refuse("CONFIG_INVALID", "diff requires an exact 'from' commit id");
+      const request: InspectRequest = { op: "diff", from };
+      const to = text(params.to);
+      if (to !== undefined) request.to = to;
+      if (Array.isArray(params.paths)) request.paths = params.paths.map(String);
+      return success(request);
+    }
+    case "show": {
+      const rev = text(params.rev);
+      if (rev === undefined) return refuse("CONFIG_INVALID", "show requires an exact 'rev' commit id");
+      const request: InspectRequest = { op: "show", rev };
+      const file = text(params.path);
+      if (file !== undefined) request.path = file;
+      return success(request);
+    }
+    default:
+      return refuse("CONFIG_INVALID", "unknown Git inspection operation");
+  }
+}
+
 function toPlan(session: ProjectSession, params: Record<string, unknown>): Outcome<AssignmentPlan> {
   const role = params.role as Role;
   if (!ROLES.includes(role)) return refuse("CONFIG_INVALID", "unknown role");
@@ -412,8 +477,10 @@ function toPlan(session: ProjectSession, params: Record<string, unknown>): Outco
   if (!plan) return refuse("APPROVAL_MISSING", "plan artifact is missing");
   const candidateCheck = params.candidateCheck === true;
   const base = typeof params.baseCandidate === "string" && /^[0-9a-f]{40,64}$/.test(params.baseCandidate) ? { kind: "commit" as const, commit: params.baseCandidate } : { kind: "target" as const };
-  const writeRoots = candidateCheck ? [""] : role === "reviewer" || role === "scout" ? [] : ((params.writeRoots as string[] | undefined) ?? []);
+  // Exact-candidate checks never get a writable source tree: only declared output roots (validated by the coordinator).
+  const writeRoots = candidateCheck ? ((params.checkOutputRoots as string[] | undefined) ?? []) : role === "reviewer" || role === "scout" ? [] : ((params.writeRoots as string[] | undefined) ?? []);
   if (writeRoots.some((w) => w !== "" && !safeRelative(w))) return refuse("PATH_INVALID", "write roots must be repository-relative");
+  if (candidateCheck && writeRoots.includes("")) return refuse("PATH_OUTSIDE_SCOPE", "a candidate check cannot write the whole checkout");
   const selection = typeof params.ruleId === "string" && typeof params.profile === "string" ? { rule: { id: params.ruleId, profile: params.profile, rationale: String(params.rationale ?? "") } } : {};
   const artifacts: AssignmentPlan["artifacts"] = { plan };
   const spec = hash(params.specPath);
@@ -430,7 +497,6 @@ function toPlan(session: ProjectSession, params: Record<string, unknown>): Outco
     writeRoots,
     operations: ROLE_OPS[role],
     selection,
-    newCandidateRound: params.newCandidateRound === true && role === "developer",
     base,
     artifacts,
   };
@@ -441,7 +507,7 @@ function toPlan(session: ProjectSession, params: Record<string, unknown>): Outco
 function outcomeText(outcome: AssignmentOutcome): string {
   switch (outcome.state) {
     case "completed":
-      return `Assignment ${outcome.assignment} completed: ${outcome.result.summary.slice(0, 300)}${outcome.delivery ? ` (delivery ${outcome.delivery.commit.slice(0, 12)})` : ""}; ${outcome.result.findings.length} finding(s).`;
+      return `Assignment ${outcome.assignment} completed: ${outcome.result.summary.slice(0, 300)}${outcome.delivery ? ` (delivery ${outcome.delivery.commit.slice(0, 12)})` : ""}${outcome.checks ? `; coordinator-bound checks: ${outcome.checks.map((c) => `${c.id}=${c.outcome}`).join(", ") || "none"}` : ""}; ${outcome.result.findings.length} finding(s).`;
     case "blocked":
       return `Assignment ${outcome.assignment ?? "(not created)"} blocked — ${outcome.blocker.code}: ${outcome.blocker.message}${outcome.decisionId ? ` (decision ${outcome.decisionId})` : ""}`;
     case "failed":

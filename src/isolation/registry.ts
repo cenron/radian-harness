@@ -2,6 +2,12 @@
 // coordinator state (never worker-writable). Registration intent is recorded
 // before a process is spawned, so an interrupted registration leaves evidence
 // that makes termination "unknown" rather than silently forgotten.
+//
+// Revocation closes the delayed-launch race: whoever stops an attempt first
+// records "revoked" under the registry lock, and the launcher records each
+// intent only if the attempt is not revoked, under the same lock. So a launcher
+// either registered its intent before the revocation (and is visible to the
+// termination check) or never starts anything.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +20,11 @@ export type RegistryEntry =
   | { kind: "process"; at: string; attempt: string; label: string; identity: ProcessIdentity; source: "launcher" | "discovered" }
   | { kind: "resource"; at: string; attempt: string; resource: "port" | "service" | "pane" | "projection" | "scratch"; id: string }
   | { kind: "terminated"; at: string; attempt: string; postcondition: "verified" | "unknown"; survivors: number; discovered: number }
-  | { kind: "exited"; at: string; attempt: string; exitCode: number | null; signal: string | null };
+  | { kind: "exited"; at: string; attempt: string; exitCode: number | null; signal: string | null }
+  /** No launcher may start anything for this attempt after this record (written before termination checks). */
+  | { kind: "revoked"; at: string; attempt: string }
+  /** An approved candidate check the launcher itself ran under containment (execution evidence, R03). */
+  | { kind: "check"; at: string; attempt: string; id: string; exitCode: number | null; signal: string | null; timedOut: boolean };
 
 type WithoutAt<T> = T extends unknown ? Omit<T, "at"> & { at?: string } : never;
 
@@ -37,6 +47,28 @@ export class SupervisionRegistry {
     await withLock(path.join(this.dir, "lock"), "supervision registry", () => appendDurable(this.file(), JSON.stringify(full)));
   }
 
+  /** Revoke an attempt's launch; idempotent. Must precede the termination check that relies on it. */
+  async revoke(attempt: string): Promise<void> {
+    ensureDir(this.dir);
+    await withLock(path.join(this.dir, "lock"), "supervision registry", () => {
+      if (!this.revoked(attempt)) appendDurable(this.file(), JSON.stringify({ kind: "revoked", at: iso(this.clock.now()), attempt }));
+    });
+  }
+
+  revoked(attempt: string): boolean {
+    return this.entries().some((e) => e.kind === "revoked" && e.attempt === attempt);
+  }
+
+  /** Record a registration intent unless the attempt was revoked (atomically). Returns false when revoked. */
+  async appendIntent(attempt: string, label: string): Promise<boolean> {
+    ensureDir(this.dir);
+    return withLock(path.join(this.dir, "lock"), "supervision registry", () => {
+      if (this.revoked(attempt)) return false;
+      appendDurable(this.file(), JSON.stringify({ kind: "intent", at: iso(this.clock.now()), attempt, label }));
+      return true;
+    });
+  }
+
   entries(): RegistryEntry[] {
     let text: string;
     try {
@@ -57,6 +89,11 @@ export class SupervisionRegistry {
     return out;
   }
 
+  /** Launcher-recorded executions of approved candidate checks for an attempt. */
+  checks(attempt: string): Array<Extract<RegistryEntry, { kind: "check" }>> {
+    return this.entries().filter((e): e is Extract<RegistryEntry, { kind: "check" }> => e.kind === "check" && e.attempt === attempt);
+  }
+
   processes(attempt?: string): ProcessIdentity[] {
     return this.entries()
       .filter((e): e is Extract<RegistryEntry, { kind: "process" }> => e.kind === "process" && (attempt === undefined || e.attempt === attempt))
@@ -67,6 +104,8 @@ export class SupervisionRegistry {
   unresolvedIntents(attempt?: string): string[] {
     const entries = this.entries().filter((e) => attempt === undefined || e.attempt === attempt);
     const registered = new Set(entries.filter((e) => e.kind === "process").map((e) => `${e.attempt}:${(e as { label: string }).label}`));
+    // The launcher waits for a check to close and kills its process group before recording it.
+    for (const e of entries) if (e.kind === "check") registered.add(`${e.attempt}:check:${e.id}`);
     return entries.filter((e) => e.kind === "intent" && !registered.has(`${e.attempt}:${e.label}`)).map((e) => (e as { label: string }).label);
   }
 }

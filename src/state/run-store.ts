@@ -105,8 +105,47 @@ export interface CreateAssignmentInput {
   maxAutomaticRecoveries: number;
   /** Current hashes of approved artifacts, computed by the coordinator from disk. */
   artifacts: CurrentArtifacts;
-  /** Repairs/reviews/tests of an existing candidate stay within the current round. */
-  newCandidateRound: boolean;
+  /** Work toward a new candidate ("assignment"), or an exact-candidate check. Default "assignment". */
+  purpose?: "assignment" | "candidate-check" | "integration";
+  /** Cycle the caller projected with `candidateCycle`; a different durable result is refused as stale. */
+  expectedRound?: number;
+  /**
+   * Legacy, non-authoritative: ignored. Candidate cycles are derived from
+   * durable task state (`candidateCycle`); a model-supplied value never decides
+   * whether a cycle is consumed.
+   */
+  newCandidateRound?: boolean;
+}
+
+/**
+ * The candidate cycle an assignment belongs to, derived only from durable task
+ * state. Developer/tester work toward the next candidate shares the current
+ * cycle until that cycle has an assembled candidate; the first such assignment
+ * afterwards (a repair) starts the next cycle — exactly once, because callers
+ * apply this under the run lock. Checks and reviews stay in the current cycle;
+ * infrastructure recovery is a new attempt of the same assignment and never
+ * reaches here. At the cap, only recorded human grants allow another cycle; an
+ * open accounting decision blocks new candidate work until a human resolves it.
+ */
+export function candidateCycle(state: RunState, task: string, role: Role, purpose: "assignment" | "candidate-check" | "integration" = "assignment"): Outcome<{ round: number; starts: boolean }> {
+  const t = state.tasks[task];
+  if (!t) return refuse("INVALID_TRANSITION", "unknown task");
+  const towardCandidate = (role === "developer" || role === "tester") && purpose === "assignment";
+  if (!towardCandidate) {
+    if (role === "scout") return success({ round: Math.max(t.roundsUsed, 1), starts: false });
+    if (t.candidates.length === 0) return refuse("CANDIDATE_MISMATCH", "checks and reviews require an assembled candidate");
+    return success({ round: t.roundsUsed, starts: false });
+  }
+  if (Object.values(state.decisions).some((d) => d.kind === "accounting" && d.task === task && d.status === "open")) {
+    return refuse("AMBIGUOUS_ACCOUNTING", "cycle accounting for this task is awaiting a human decision", "Ask the user to resolve the open accounting decision.");
+  }
+  const current = t.roundsUsed;
+  if (current > 0 && !t.candidates.some((c) => c.round === current)) return success({ round: current, starts: false });
+  const cap = t.maxRounds + t.humanRoundGrants.reduce((sum, g) => sum + g.rounds, 0);
+  if (current >= cap) {
+    return refuse("ROUNDS_EXHAUSTED", `task used all ${cap} candidate cycles`, "Present remaining findings and preserved work to the user; only a human decision can grant more cycles.");
+  }
+  return success({ round: current + 1, starts: true });
 }
 
 export class RunStore {
@@ -289,11 +328,6 @@ export class RunStore {
 
   // --- Rounds and assignments -----------------------------------------------
 
-  private roundCap(state: RunState, task: string): number {
-    const t = state.tasks[task]!;
-    return t.maxRounds + t.humanRoundGrants.reduce((sum, g) => sum + g.rounds, 0);
-  }
-
   grantRounds(channel: HumanChannel, task: string, rounds: number, decisionId: string): Promise<Outcome<RunState>> {
     if (!HumanChannel.isGenuine(channel)) return Promise.resolve(refuse("APPROVAL_NOT_HUMAN", "additional rounds require an explicit human decision"));
     return this.transact({ kind: "human", id: channel.actorId }, `round-grant:${decisionId}`, (s) => {
@@ -320,18 +354,14 @@ export class RunStore {
         const plan = requireApproval(s, { task: input.task, kind: "plan" }, { artifactHash: input.artifacts.plan });
         if (!plan.ok) return plan;
       }
-      if (input.role === "reviewer" && task.candidates.length === 0) return refuse("CANDIDATE_MISMATCH", "review requires an assembled candidate");
-      const events: RunEvent[] = [];
-      let round = Math.max(task.roundsUsed, 1);
-      if (input.newCandidateRound) {
-        if (task.roundsUsed >= this.roundCap(s, input.task)) {
-          return refuse("ROUNDS_EXHAUSTED", `task used all ${this.roundCap(s, input.task)} candidate rounds`, "Present remaining findings and preserved work to the user; only a human decision can grant more rounds.");
-        }
-        round = task.roundsUsed + 1;
-        events.push({ type: "task.round-started", task: input.task, round });
-      } else if (task.roundsUsed === 0 && input.role !== "scout") {
-        return refuse("AMBIGUOUS_ACCOUNTING", "no candidate round has started for this task");
+      const cycle = candidateCycle(s, input.task, input.role, input.purpose ?? "assignment");
+      if (!cycle.ok) return cycle;
+      if (input.expectedRound !== undefined && input.expectedRound !== cycle.value.round) {
+        return refuse("AMBIGUOUS_ACCOUNTING", "the task's candidate cycle changed while this assignment was prepared", "Prepare the assignment again.");
       }
+      const events: RunEvent[] = [];
+      const round = cycle.value.round;
+      if (cycle.value.starts) events.push({ type: "task.round-started", task: input.task, round });
       if (input.limitMs <= 0) return refuse("EXECUTION_BUDGET_EXHAUSTED", "assignment has no execution budget");
       events.push({
         type: "assignment.created",
@@ -346,6 +376,10 @@ export class RunStore {
       const t = s.tasks[task];
       if (!t) return refuse("INVALID_TRANSITION", "unknown task");
       if (t.roundsUsed === 0) return refuse("AMBIGUOUS_ACCOUNTING", "candidate recorded outside a round");
+      const inCycle = t.candidates.filter((c) => c.round === t.roundsUsed);
+      if (inCycle.some((c) => c.candidate.commit === candidate.commit)) return success([]);
+      // One candidate per cycle: reassembling a different candidate cannot hide another cycle.
+      if (inCycle.length > 0) return refuse("CANDIDATE_MISMATCH", `cycle ${t.roundsUsed} already produced a candidate`, "A changed candidate needs repair work, which starts the next cycle.");
       return success([{ type: "task.candidate", task, round: t.roundsUsed, candidate }]);
     });
   }
@@ -381,22 +415,24 @@ export class RunStore {
       if (["retired", "cancelled", "failed", "result-validated"].includes(a.status)) return refuse("INVALID_TRANSITION", `assignment is ${a.status}`);
       if (a.budget.blocked) return refuse("QUESTION_OPEN", "assignment is blocked", "Resolve the blocking decision first.");
       const previous = a.attempts.at(-1);
+      if (previous && previous.status !== "ended") return refuse("TERMINATION_REQUIRED", "the previous attempt has not ended", "Stop and verify the previous attempt before replacing it.");
+      if (previous && previous.termination !== "verified") return refuse("TERMINATION_UNVERIFIED", "the previous attempt's termination is unverified", "Reconcile owned processes before any replacement.");
+      // Attempts refused before launch never executed: they neither need recovery nor use up a decision.
+      const executed = a.attempts.filter((x) => x.endReason !== "not-started");
       let automatic = false;
       let humanDecisionId: string | undefined;
-      if (previous) {
-        if (previous.status !== "ended") return refuse("TERMINATION_REQUIRED", "the previous attempt has not ended", "Stop and verify the previous attempt before replacing it.");
-        if (previous.termination !== "verified") return refuse("TERMINATION_UNVERIFIED", "the previous attempt's termination is unverified", "Reconcile owned processes before any replacement.");
+      if (executed.length > 0) {
         if (options.resumeDecisionId) {
           // Resuming after an answered question or a user pause is a fresh attempt, not an infrastructure recovery.
           const decision = s.decisions[options.resumeDecisionId];
           if (!decision || decision.assignment !== assignment || decision.status !== "resolved" || !["question", "other"].includes(decision.kind)) {
             return refuse("QUESTION_OPEN", "resume requires a resolved question or pause decision for this assignment");
           }
-          if (a.attempts.some((x) => x.humanDecisionId === options.resumeDecisionId)) return refuse("INVALID_TRANSITION", "that decision already resumed this assignment");
+          if (executed.some((x) => x.humanDecisionId === options.resumeDecisionId)) return refuse("INVALID_TRANSITION", "that decision already resumed this assignment");
           humanDecisionId = options.resumeDecisionId;
         } else if (options.humanDecisionId) {
           if (!a.humanRecoveries.includes(options.humanDecisionId)) return refuse("RECOVERY_EXHAUSTED", "human recovery decision is not recorded for this assignment");
-          if (a.attempts.some((x) => x.humanDecisionId === options.humanDecisionId)) return refuse("RECOVERY_EXHAUSTED", "human recovery decision was already used");
+          if (executed.some((x) => x.humanDecisionId === options.humanDecisionId)) return refuse("RECOVERY_EXHAUSTED", "human recovery decision was already used");
           humanDecisionId = options.humanDecisionId;
         } else if (a.automaticRecoveriesUsed < a.maxAutomaticRecoveries) {
           automatic = true;

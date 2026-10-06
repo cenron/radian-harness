@@ -1,11 +1,12 @@
 # Repository working agreement
 
-## Current phase: authorized unattended implementation
+## Current phase: review remediation plan prepared
 
-- Read `docs/planning/session-handoff.md`, proposals 0014–0015, and `docs/planning/implementation/README.md` before continuing. Proposal 0014 supersedes feasibility-only authorization and later-push restrictions; proposal 0012 remains the product decision checkpoint.
+- The original implementation milestones are complete but a subsequent review found seven safety defects. Read `docs/planning/remediation/README.md` and its `new-session-prompt.md` before any further implementation. Execute the remediation only when the user starts that scoped prompt; preparing this plan does not enable runtime capabilities or authorize live tests. The remediation execution contract supersedes the original milestone order/test-deferral rules for this pass only.
+- Read `docs/planning/session-handoff.md`, proposals 0014–0015, and `docs/planning/implementation/README.md` for historical implementation context. Proposal 0014 supersedes feasibility-only authorization and later-push restrictions; proposal 0012 remains the product decision checkpoint.
 - The user stopped feasibility testing and authorized a new Claude Code Opus 5.5/high session to implement the milestone plan without routine interaction. Confirm that model/effort through native session state; if unavailable, stop rather than fall back or change authentication/effort.
-- Implement milestones in order, mark each complete in its file and the index, then commit and push each milestone to the existing upstream. The planning/feasibility checkpoint commit and push are authorized now. No force-push, release/tag/package publication, or unrelated Git changes.
-- Write tests alongside implementation; defer full behavioral/build verification to the final milestone. Publication scans, staged-content/metadata review, and minimal whitespace checks still precede every push.
+- Original milestones 01–10 and their commits/pushes are historical and must not be replayed. In a user-started remediation session, follow R01–R08, record red/green evidence and truthful completion/blockers, then commit/push only the authorized focused remediation/checkpoint after publication checks. No force-push, release/tag/package publication, or unrelated Git changes.
+- For remediation, expose each defect with a failing regression before fixing it, run targeted tests immediately, and perform aggregate offline verification in R08. Publication scans, staged-content/metadata review, and whitespace checks still precede every push.
 - Ordinary reversible implementation choices are delegated. On a material safety/authorization blocker, preserve work, record a sanitized blocked milestone, and stop without interactive approval or bypass. Do not mark incomplete work complete.
 - Harness-source implementation is authorized; installation into target workspaces, host-global/elevated operations, stronger isolation, weaker containment exceptions, live provider/model/auth probes, and product-scope expansion are not.
 - Keep actual worker execution fail-closed on missing/unverified capabilities. Previous synthetic feasibility evidence does not prove supported runtime containment/auth/refresh/cancellation. Distinguish implementation completion from verification and runtime/release support.

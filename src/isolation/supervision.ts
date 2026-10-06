@@ -2,11 +2,16 @@
 // heartbeats, maintains the watch list, and checks watcher health. If the
 // watcher is lost, supervision is unhealthy: no new modifying launches, and the
 // coordinator stops owned execution itself while it is still alive.
+//
+// Loss is pushed as well as polled: the watcher process exiting or the
+// heartbeat pipe failing notifies onLoss listeners at once (pipe errors are
+// handled, never left unhandled). Handlers are bound to the generation that
+// started them, and an orderly release() is never reported as a loss.
 
 import { type ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type Clock, systemClock } from "../util/clock.ts";
 import { type IdentityProbe, type ProcessIdentity, currentIdentity, liveness, psProbe } from "../util/process-identity.ts";
 import { atomicWriteJson, ensureDir, readJsonIfExists, withLock } from "../state/fsutil.ts";
@@ -29,6 +34,10 @@ export class SupervisionClient {
   private child: ChildProcess | undefined;
   private watcherIdentity: ProcessIdentity | undefined;
   private timer: NodeJS.Timeout | undefined;
+  private generation = 0;
+  private released = false;
+  private lost: Blocker | undefined;
+  private readonly listeners = new Set<(blocker: Blocker) => void>();
 
   constructor(options: SupervisionOptions) {
     this.options = options;
@@ -48,6 +57,9 @@ export class SupervisionClient {
     });
     child.unref();
     this.child = child;
+    const generation = ++this.generation;
+    child.stdin?.on("error", () => this.lose(generation, "the heartbeat pipe to the watcher failed"));
+    child.on("exit", () => this.lose(generation, "the watcher process exited"));
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       const status = readJsonIfExists(watcherStatusFile(this.options.stateDir));
@@ -66,16 +78,42 @@ export class SupervisionClient {
   }
 
   beat(): void {
-    this.child?.stdin?.write("beat\n");
+    const stdin = this.child?.stdin;
+    if (this.lost || this.released || !stdin || !stdin.writable) return;
+    stdin.write("beat\n", () => undefined);
+  }
+
+  /** Notify on watcher exit or heartbeat-pipe failure. Returns an unsubscribe function. */
+  onLoss(listener: (blocker: Blocker) => void): () => void {
+    this.listeners.add(listener);
+    if (this.lost) queueMicrotask(() => listener(this.lost!));
+    return () => this.listeners.delete(listener);
+  }
+
+  private lose(generation: number, message: string): void {
+    if (generation !== this.generation || this.released || this.lost) return;
+    this.lost = { code: "SUPERVISION_UNHEALTHY", message, nextAction: "Owned execution is stopped; restart supervision before any new launch." };
+    if (this.timer) clearInterval(this.timer);
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(this.lost);
+      } catch {
+        // A listener failure must not hide the loss from other listeners.
+      }
+    }
   }
 
   /** Healthy only when the watcher process is the recorded one and its status is fresh. */
   health(): Outcome<true> {
+    if (this.lost) return { ok: false, blocker: this.lost };
+    if (this.released) return refuse("SUPERVISION_UNHEALTHY", "supervision was released");
     if (!this.watcherIdentity) return refuse("SUPERVISION_UNHEALTHY", "watcher not started");
     const state = liveness(this.watcherIdentity, this.probe);
     if (state !== "alive") return refuse("SUPERVISION_UNHEALTHY", `watcher is ${state === "dead" ? "gone" : "unverifiable"}`, "Stop owned execution and restart supervision before any new launch.");
     const status = readJsonIfExists(watcherStatusFile(this.options.stateDir));
     if (status.state !== "ok") return refuse("SUPERVISION_UNHEALTHY", "watcher status is unreadable");
+    const recorded = (status.value as { identity?: ProcessIdentity }).identity;
+    if (!recorded || recorded.pid !== this.watcherIdentity.pid || recorded.start !== this.watcherIdentity.start) return refuse("SUPERVISION_UNHEALTHY", "the watcher status belongs to a different process", "Stop owned execution; a replaced watcher does not verify earlier termination.");
     const beatAt = Date.parse((status.value as { beatAt?: string }).beatAt ?? "");
     if (!Number.isFinite(beatAt) || this.clock.now() - beatAt > this.options.leaseMs * 2) return refuse("SUPERVISION_UNHEALTHY", "watcher status is stale");
     return success(true);
@@ -101,9 +139,14 @@ export class SupervisionClient {
 
   /** Orderly shutdown: release the watcher without stopping workers. */
   release(): void {
+    if (this.released) return;
+    this.released = true;
     if (this.timer) clearInterval(this.timer);
-    this.child?.stdin?.write("release\n");
-    this.child?.stdin?.end();
+    const stdin = this.child?.stdin;
+    if (stdin?.writable) {
+      stdin.write("release\n", () => undefined);
+      stdin.end();
+    }
   }
 
   /** Simulate or perform an abrupt coordinator loss (tests): close the heartbeat pipe. */

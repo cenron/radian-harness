@@ -38,7 +38,8 @@ export const ASSIGNMENT_STATUSES = [
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 export type BlockReason = "question" | "quota" | "user-pause" | "supervision" | "other";
-export type AttemptEndReason = "completed" | "infrastructure" | "quota" | "cancelled" | "paused" | "timeout" | "unknown";
+/** "not-started": refused before anything could execute (verified); consumes no recovery or round. */
+export type AttemptEndReason = "completed" | "infrastructure" | "quota" | "cancelled" | "paused" | "timeout" | "unknown" | "not-started";
 export type Termination = "verified" | "unknown";
 
 export interface HarnessProvenance {
@@ -292,6 +293,8 @@ export function reduce(previous: RunState, envelope: EventEnvelope): RunState {
       attempt.endReason = e.reason;
       attempt.termination = e.termination;
       stopClock(a.budget, at);
+      // An automatic recovery that never started does not use up the recovery.
+      if (e.reason === "not-started" && attempt.automatic) a.automaticRecoveriesUsed = Math.max(0, a.automaticRecoveriesUsed - 1);
       if (e.reason !== "completed" && a.status !== "result-submitted" && a.status !== "result-validated") a.status = e.reason === "cancelled" ? "cancelled" : "interrupted";
       break;
     }

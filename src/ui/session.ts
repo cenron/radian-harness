@@ -8,7 +8,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import type { Role } from "../contracts/identity.ts";
 import type { ResolvedProfile } from "../config/provider-policy.ts";
 import { type ConfigSnapshot, loadAndResolve } from "../config/resolve.ts";
@@ -30,9 +30,10 @@ import { defaultAdapters } from "../runtimes/registry.ts";
 import { type ResolvedBinding, type WorkspaceRegistry, checkProjectBinding } from "../state/binding.ts";
 import { CapacityLedger } from "../state/capacity.ts";
 import { atomicWriteJson, ensureDir, readJsonIfExists } from "../state/fsutil.ts";
-import { CoordinatorLease } from "../state/lease.ts";
+import { CoordinatorLease, startLeaseRenewal } from "../state/lease.ts";
 import { RunStore } from "../state/run-store.ts";
 import { systemClock } from "../util/clock.ts";
+import { readConfined } from "../util/confined-fs.ts";
 import { type ProjectPaths, type WorkspacePaths, projectPaths, workspacePaths } from "../workspace/layout.ts";
 import { CalmPreference } from "./calm.ts";
 
@@ -46,7 +47,7 @@ export interface ProjectSession {
   calm: CalmPreference;
   planningRoots: string[];
   target?: ProtectedTarget;
-  run?: { store: RunStore; lease: CoordinatorLease; coordinator: Coordinator; supervision: SupervisionClient };
+  run?: { store: RunStore; lease: CoordinatorLease; coordinator: Coordinator; supervision: SupervisionClient; safety?: { stop(): void } };
 }
 
 export const PLANNING_DIR = path.join(".radian", "planning");
@@ -165,8 +166,12 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     await lease.value.release();
     return started;
   }
-  const renew = setInterval(() => void lease.value.renew(), session.config.harness.supervision.leaseSeconds * 1000);
-  renew.unref();
+  const leaseMs = session.config.harness.supervision.leaseSeconds * 1000;
+  // Supervision is healthy only while the watcher is healthy and this coordinator still holds its lease.
+  const supervisionHealthy = () => {
+    const watcher = supervision.health();
+    return watcher.ok ? lease.value.checkHeld() : watcher;
+  };
   const capabilities = new CapabilityRegistry(session.project.state);
   const driver = new RuntimeWorkerDriver({
     adapters: defaultAdapters(),
@@ -203,21 +208,33 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     artifactHash: (relative) => artifactHash(session.repo.root, relative),
     roleGuide: (role: Role) => readFileSync(path.join(workerDocs, `${role}.md`), "utf8"),
     credentialSourceFor,
-    supervisionHealthy: () => supervision.health(),
+    supervisionHealthy,
+    safetyIntervalMs: Math.max(250, Math.min(1000, Math.floor(leaseMs / 2))),
     startupMs: session.config.harness.assignment.startupTimeoutSeconds * 1000,
   });
-  session.run = { store: store.value, lease: lease.value, coordinator, supervision };
+  // Watcher exit, heartbeat-pipe failure, and every lease-renewal refusal or error stop owned work.
+  const onLoss = (blocker: Blocker) => void coordinator.supervisionLost(blocker).catch(() => undefined);
+  const unsubscribe = supervision.onLoss(onLoss);
+  const renewal = startLeaseRenewal(lease.value, leaseMs, onLoss);
+  const safety = {
+    stop() {
+      renewal.stop();
+      unsubscribe();
+      coordinator.stopMonitoring();
+    },
+  };
+  session.run = { store: store.value, lease: lease.value, coordinator, supervision, safety };
   return success(session.run);
 }
 
-/** Content digest of an approved artifact inside the project (planning artifacts live under .radian/planning). */
+/**
+ * Content digest of an approved artifact inside the project (planning artifacts
+ * live under .radian/planning). Read without following any link, so a link to
+ * a production file is never hashed, approved, or revalidated as an artifact.
+ */
 export function artifactHash(projectRoot: string, relative: string): string | undefined {
-  if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) return undefined;
-  try {
-    return Coordinator.artifactDigest(readFileSync(path.join(projectRoot, relative), "utf8"));
-  } catch {
-    return undefined;
-  }
+  const read = readConfined(projectRoot, relative);
+  return read.ok ? Coordinator.artifactDigest(read.value) : undefined;
 }
 
 export function shortHash(hash: string): string {

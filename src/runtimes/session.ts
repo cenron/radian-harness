@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import type { ResolvedAuthority } from "../contracts/authority.ts";
 import type { AssignmentIdentity } from "../contracts/identity.ts";
 import type { SealedBrief } from "../contracts/brief.ts";
@@ -30,7 +30,8 @@ import { PROFILE_TEMPLATE_VERSION } from "../isolation/profile.ts";
 import { SupervisionRegistry } from "../isolation/registry.ts";
 import type { SupervisionClient } from "../isolation/supervision.ts";
 import { terminateOwned, type TerminationOutcome } from "../isolation/terminate.ts";
-import { type LaunchSpec, writeSpec } from "../isolation/launcher.ts";
+import { type CheckRun, type LaunchSpec, writeSpec } from "../isolation/launcher.ts";
+import { resolveExecutable } from "../util/proc.ts";
 import { ensureDir } from "../state/fsutil.ts";
 import type { LaunchInput, RuntimeAdapter, RuntimeEvent, RuntimeInstall } from "./contract.ts";
 import type { HerdrTransport } from "./herdr.ts";
@@ -67,6 +68,14 @@ export interface AttemptRequest {
   credentialSource: CredentialSource;
   /** Required credential validity: remaining execution budget plus margin. */
   minValidityMs: number;
+  /** Exact-candidate checks the launcher runs itself (contained, no credentials) before the runtime. */
+  checks?: { runs: CheckRun[]; timeoutMs: number };
+  /**
+   * Coordinator launch authorization (current approvals, mode, supervision).
+   * Rechecked before credentials are projected, before the pane is created, and
+   * at the last boundary before the launcher command is delivered.
+   */
+  authorize?: () => Outcome<true>;
 }
 
 export interface PreflightResult {
@@ -113,9 +122,36 @@ function writePrivate(file: string, content: string): void {
   writeFileSync(file, content, { mode: 0o400, flag: "wx" });
 }
 
-export async function launchAttempt(deps: SessionDeps, request: AttemptRequest): Promise<Outcome<LaunchedAttempt>> {
+/**
+ * Outcome of a launch. `started: "no"` is proven non-execution: nothing was
+ * delivered to a pane (any created pane was closed and the projection
+ * destroyed). Once delivery of the launcher command was attempted, a failure is
+ * `started: "uncertain"` and carries the owned attempt: the caller must stop it
+ * (which revokes any delayed launcher) and establish termination before it
+ * releases capacity, worktree ownership, or watcher coverage.
+ */
+export type LaunchOutcome =
+  | { ok: true; value: LaunchedAttempt }
+  | { ok: false; blocker: Blocker; started: "no" }
+  | { ok: false; blocker: Blocker; started: "uncertain"; attempt: LaunchedAttempt };
+
+export async function launchAttempt(deps: SessionDeps, request: AttemptRequest): Promise<LaunchOutcome> {
+  const prepared = await prepareLaunchAttempt(deps, request);
+  if (!prepared.ok) return { ok: false, blocker: prepared.blocker, started: "no" };
+  const { launched, argv } = prepared.value;
+  const delivered = await deps.transport.runInPane(launched.paneId, argv);
+  // An error or timeout here does not prove the command was not typed; the launcher may still start.
+  if (!delivered.ok) return { ok: false, blocker: delivered.blocker, started: "uncertain", attempt: { ...launched, delivery: "uncertain" } };
+  return { ok: true, value: { ...launched, delivery: delivered.value } };
+}
+
+/** Every step before delivery; a refusal here has started nothing. */
+async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest): Promise<Outcome<{ launched: LaunchedAttempt; argv: string[] }>> {
   const ready = await preflight(deps, request);
   if (!ready.ok) return ready;
+  const authorize = (): Outcome<true> => request.authorize?.() ?? success(true);
+  const beforeCredentials = authorize();
+  if (!beforeCredentials.ok) return beforeCredentials;
   const { adapter, install, context } = ready.value;
   const projected = await deps.broker.project({
     identity: request.identity,
@@ -159,6 +195,15 @@ export async function launchAttempt(deps: SessionDeps, request: AttemptRequest):
     deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];
     deps2.missing.push(...resolved.missing);
   }
+  const checkEnv = { PATH: plan.value.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin", HOME: a.scratchDir, TMPDIR: a.scratchDir, LC_ALL: "C" };
+  for (const run of request.checks?.runs ?? []) {
+    const executable = resolveExecutable(run.argv[0] ?? "", checkEnv.PATH);
+    if (!executable) return fail(refuse("CAPABILITY_MISSING", `check '${run.id}' executable was not found on the check PATH`, "Fix the plan's check command; Radian does not widen access automatically."));
+    const resolved = await resolveDependencies(executable);
+    deps2.readRoots = [...new Set([...deps2.readRoots, ...resolved.readRoots])];
+    deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];
+    deps2.missing.push(...resolved.missing);
+  }
   if (deps2.missing.length > 0) return fail(refuse("CAPABILITY_MISSING", "runtime dependencies could not be resolved narrowly", "Inspect the runtime installation; Radian does not widen access automatically.", { missing: deps2.missing.length }));
 
   const launchDir = path.join(deps.stateDir, "launch", request.identity.attempt);
@@ -183,12 +228,15 @@ export async function launchAttempt(deps: SessionDeps, request: AttemptRequest):
     terminal: deps.terminal ?? "assigned",
     events: { file: eventsFile, runtime: request.profile.runtime },
   };
+  if (request.checks) spec.checks = { runs: request.checks.runs, timeoutMs: request.checks.timeoutMs, logDir: a.outputDir, env: checkEnv };
   const specFile = path.join(launchDir, "spec.json");
   const hash = writeSpec(specFile, spec);
 
-  // Recheck the pairing at the last moment before anything becomes visible.
+  // Recheck the pairing and the launch authorization before anything becomes visible.
   const late = recheckResolvedProfile(request.profile);
   if (!late.ok) return fail(late);
+  const beforePane = authorize();
+  if (!beforePane.ok) return fail(beforePane);
   await deps.supervision.watch({ assignment: request.identity.assignment, attempt: request.identity.attempt, ownedRoots: [a.worktree, a.outputDir, a.scratchDir], projectionDirs: [projection.dir] });
   const pane = await deps.transport.createPane({ assignment: request.identity.assignment, attempt: request.identity.attempt, parentPane: deps.parentPane, cwd: a.worktree });
   if (!pane.ok) {
@@ -196,9 +244,17 @@ export async function launchAttempt(deps: SessionDeps, request: AttemptRequest):
     return fail(pane);
   }
   await new SupervisionRegistry(deps.stateDir, request.identity.assignment).append({ kind: "resource", attempt: request.identity.attempt, resource: "pane", id: pane.value.paneId });
-  const delivered = await deps.transport.runInPane(pane.value.paneId, [...deps.launcherArgv, specFile, hash]);
-  if (!delivered.ok) return delivered; // projection stays until stop(): the launcher might still start
-  return success({ identity: request.identity, sessionId, paneId: pane.value.paneId, delivery: delivered.value, projection, eventsFile, specFile, resultFile, runtime: request.profile.runtime, model: request.profile.model });
+  // Last boundary: nothing has been typed into the pane yet, so a refusal here started nothing.
+  const beforeDelivery = authorize();
+  if (!beforeDelivery.ok) {
+    await deps.transport.closePane(pane.value.paneId, "verified");
+    await deps.supervision.unwatch(request.identity.assignment);
+    return fail(beforeDelivery);
+  }
+  return success({
+    launched: { identity: request.identity, sessionId, paneId: pane.value.paneId, delivery: "uncertain", projection, eventsFile, specFile, resultFile, runtime: request.profile.runtime, model: request.profile.model },
+    argv: [...deps.launcherArgv, specFile, hash],
+  });
 }
 
 /** Incremental reader for the captured runtime event stream. */
@@ -234,13 +290,14 @@ export interface BindingEvidence {
  * Wait (bounded) for semantic binding: the launcher's process registration and
  * the runtime's session-start plus accepted prompt with matching identity.
  */
-export async function awaitBinding(deps: Pick<SessionDeps, "stateDir" | "adapters">, launched: LaunchedAttempt, deadlineMs: number, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<Outcome<BindingEvidence>> {
+export async function awaitBinding(deps: Pick<SessionDeps, "stateDir" | "adapters">, launched: LaunchedAttempt, deadlineMs: number, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)), signal?: AbortSignal): Promise<Outcome<BindingEvidence>> {
   const adapter = deps.adapters[launched.runtime]!;
   const registry = new SupervisionRegistry(deps.stateDir, launched.identity.assignment);
   const tail = new EventTail(launched.eventsFile, adapter);
   let started: Extract<RuntimeEvent, { kind: "session-started" }> | undefined;
   let accepted = false;
   while (Date.now() < deadlineMs) {
+    if (signal?.aborted) return refuse("BINDING_UNCONFIRMED", "the wait for binding was interrupted; the attempt is being stopped");
     for (const event of tail.read()) {
       if (event.kind === "session-started") started = event;
       if (event.kind === "prompt-accepted") accepted = true;
@@ -267,9 +324,15 @@ export async function awaitBinding(deps: Pick<SessionDeps, "stateDir" | "adapter
   return refuse("BINDING_UNCONFIRMED", launched.delivery === "uncertain" ? "launch delivery was uncertain and binding was not observed" : "binding was not observed before the startup deadline", "Stop and reconcile the attempt; the launch is never resent automatically.");
 }
 
-/** Stop an attempt: verified termination, projection destroyed, pane closed only when verified. */
+/**
+ * Stop an attempt: revoke any not-yet-started launcher first, then verify
+ * termination; the projection is destroyed (cleanup, not proof of stopping) and
+ * the pane is closed and the watch released only when termination is verified.
+ * Idempotent: a repeated stop re-establishes the same postcondition.
+ */
 export async function stopAttempt(deps: SessionDeps, launched: Pick<LaunchedAttempt, "identity" | "projection" | "paneId">, authority: ResolvedAuthority): Promise<{ termination: TerminationOutcome; paneClosed: boolean }> {
   const registry = new SupervisionRegistry(deps.stateDir, launched.identity.assignment);
+  await registry.revoke(launched.identity.attempt);
   const termination = await terminateOwned(deps.ops, {
     registered: registry.processes(launched.identity.attempt),
     ownedRoots: [authority.worktree, authority.outputDir, authority.scratchDir],

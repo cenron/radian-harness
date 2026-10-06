@@ -67,8 +67,10 @@ test("coordinator lease: live or unknown owners are respected, dead owners recla
     assert.equal((() => { const c = old.checkHeld(); return c.ok ? "ok" : c.blocker.code; })(), "LEASE_LOST");
     clock.advance(31_000);
     assert.equal((() => { const c = reused.value.checkHeld(); return c.ok ? "ok" : c.blocker.code; })(), "LEASE_LOST");
-    assert.ok((await reused.value.renew()).ok);
-    assert.ok(reused.value.checkHeld().ok);
+    // An expired lease is a loss to respond to (R06), not something a late renewal silently revives.
+    const late = await reused.value.renew();
+    assert.equal(late.ok ? "ok" : late.blocker.code, "LEASE_LOST");
+    assert.equal(reused.value.checkHeld().ok, false);
     const other = await CoordinatorLease.acquire(dir, "prj_other1", { clock, probe: fakeProbe({}) });
     assert.equal(other.ok ? "ok" : other.blocker.code, "DUPLICATE_BINDING");
   } finally {
@@ -120,15 +122,21 @@ test("three total candidate rounds; more only by recorded human grant", async ()
   const { dir, store } = await setup();
   try {
     const task = await approvedTask(store);
-    for (let i = 0; i < 3; i += 1) assert.ok((await store.createAssignment(assignmentInput(task))).ok);
+    // Each cycle ends with an assembled candidate; the next candidate work starts the next cycle (R07).
+    const candidate = (i: number) => ({ commit: String(i).repeat(40), tree: "e".repeat(40), base: "f".repeat(40) });
+    for (let i = 0; i < 3; i += 1) {
+      assert.ok((await store.createAssignment(assignmentInput(task))).ok);
+      assert.ok((await store.recordCandidate(task, candidate(i + 1))).ok);
+    }
     assert.equal(store.state.tasks[task]?.roundsUsed, 3);
     const fourth = await store.createAssignment(assignmentInput(task));
     assert.equal(fourth.ok ? "ok" : fourth.blocker.code, "ROUNDS_EXHAUSTED");
-    // Tester/reviewer work within the current round does not consume a new one.
-    assert.ok((await store.createAssignment({ ...assignmentInput(task, false), role: "tester" })).ok);
+    // Review work on the current candidate does not consume a cycle.
+    assert.ok((await store.createAssignment({ ...assignmentInput(task, false), role: "reviewer" })).ok);
     assert.equal(store.state.tasks[task]?.roundsUsed, 3);
     assert.ok((await store.grantRounds(human(), task, 1, "dec_fixture01")).ok);
     assert.ok((await store.createAssignment(assignmentInput(task))).ok);
+    assert.equal(store.state.tasks[task]?.roundsUsed, 4);
     const ambiguous = await store.classifyFailure(task, "ambiguous", "check infrastructure unclear");
     assert.ok(ambiguous.ok);
     assert.ok(Object.values(store.state.decisions).some((d) => d.kind === "accounting" && d.status === "open"));

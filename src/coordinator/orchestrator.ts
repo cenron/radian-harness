@@ -13,7 +13,7 @@
 
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { type Outcome, refuse, success } from "../contracts/blockers.ts";
+import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type AuthorityRequest, type Operation, resolveAuthority } from "../contracts/authority.ts";
 import { sealBrief, type SealedBrief } from "../contracts/brief.ts";
 import { newId, type AssignmentIdentity, type Role } from "../contracts/identity.ts";
@@ -22,7 +22,7 @@ import type { WorkerResult } from "../contracts/result.ts";
 import { type ResolvedProfile, recheckResolvedProfile } from "../config/provider-policy.ts";
 import { type SelectionRequest, selectProfile } from "../config/dispatch.ts";
 import type { ConfigSnapshot } from "../config/resolve.ts";
-import { assembleCandidate } from "../git/candidate.ts";
+import { assembleCandidate, validateCheckOutputRoots, verifyCheckout } from "../git/candidate.ts";
 import { type CommitIdentity, type Delivery, deliverFromWorktree } from "../git/delivery.ts";
 import { integrateCandidate } from "../git/integration.ts";
 import { type ProtectedTarget, type Repository, resolveCommit } from "../git/repository.ts";
@@ -30,12 +30,12 @@ import type { WorktreeManager, WorktreePurpose } from "../git/worktrees.ts";
 import type { CredentialSource } from "../isolation/credentials.ts";
 import { HumanChannel, requireApproval } from "../state/approvals.ts";
 import type { CapacityLedger } from "../state/capacity.ts";
-import { atomicWriteJson, readJsonIfExists } from "../state/fsutil.ts";
+import { atomicWriteJson, ensureDir, readJsonIfExists } from "../state/fsutil.ts";
 import { collectResult } from "../state/inbox.ts";
 import { type AttemptEvidence, type ReconcileReport, reconcileRun } from "../state/reconcile.ts";
 import { SupervisionRegistry } from "../isolation/registry.ts";
 import { type IdentityProbe, liveness, psProbe } from "../util/process-identity.ts";
-import type { RunStore } from "../state/run-store.ts";
+import { type RunStore, candidateCycle } from "../state/run-store.ts";
 import type { Clock } from "../util/clock.ts";
 import { hashJson } from "../util/canonical.ts";
 import type { WorkerDriver, WorkerHandle } from "./driver.ts";
@@ -63,7 +63,10 @@ export interface CoordinatorDeps {
   artifactHash: (relativePath: string) => string | undefined;
   roleGuide: (role: Role) => string;
   credentialSourceFor: (profile: ResolvedProfile) => CredentialSource;
+  /** Watcher and coordinator-lease health; polled at launch and while owned work is alive. */
   supervisionHealthy: () => Outcome<true>;
+  /** Interval for active health monitoring while this coordinator owns live attempts (default 1000 ms). */
+  safetyIntervalMs?: number;
   /** Startup deadline for binding and margin for credential validity. */
   startupMs: number;
 }
@@ -83,13 +86,21 @@ export interface AssignmentPlan {
   acceptanceCriteria?: string[];
   deliverables?: string[];
   requiredChecks?: Array<{ id: string; description: string; argv: string[] }>;
-  /** Repository-relative write roots ("" = whole tree); empty for report-only roles. */
+  /**
+   * Repository-relative write roots ("" = whole tree); empty for report-only
+   * roles. For candidate checks these are only declared untracked output roots
+   * (validated against the candidate tree); source, tests, and config stay read-only.
+   */
   writeRoots: string[];
   operations: Operation[];
   ports?: number[];
   dependencyChangesApproved?: boolean;
   selection: Omit<SelectionRequest, "role">;
-  newCandidateRound: boolean;
+  /**
+   * Legacy, non-authoritative: ignored. Candidate cycles are derived from
+   * durable task state by the run store (`candidateCycle`), never from a flag.
+   */
+  newCandidateRound?: boolean;
   /** Commit the worktree starts from: target head, or the candidate being repaired/checked/reviewed. */
   base: { kind: "target" } | { kind: "commit"; commit: string };
   artifacts: ApprovedArtifacts;
@@ -97,7 +108,7 @@ export interface AssignmentPlan {
 }
 
 export type AssignmentOutcome =
-  | { state: "completed"; assignment: string; result: WorkerResult; delivery?: Delivery; worktree: string }
+  | { state: "completed"; assignment: string; result: WorkerResult; delivery?: Delivery; worktree: string; checks?: CheckEvidence[] }
   | { state: "blocked"; assignment?: string; blocker: { code: string; message: string; nextAction?: string }; decisionId?: string }
   | { state: "failed"; assignment: string; reason: string; termination: "verified" | "unknown" };
 
@@ -105,14 +116,40 @@ interface TaskEvidence {
   candidate?: CandidateRef & { round: number };
   /** Check IDs the approved plan requires for this task; integration is refused until each passes. */
   requiredChecks?: string[];
+  /** Argument vector first declared for each required check; a changed definition is refused. */
+  requiredCheckArgv?: Record<string, string[]>;
+  /** Only coordinator-bound evidence (assignment, attempt, tree, approved argv) is recorded here. */
   checks: CheckEvidence[];
   review?: { candidate: string; blockingFindings: number; outcome: WorkerResult["outcome"]; findings: number };
   risks: string[];
 }
 
+interface AttemptEntry {
+  handle: WorkerHandle;
+  reservation: string;
+  worktree: string;
+  plan: AssignmentPlan;
+  profile: ResolvedProfile;
+  brief: SealedBrief;
+  /** Aborts the attempt's binding/settlement waits when it is interrupted. */
+  abort: AbortController;
+  /** Set (synchronously) by whichever path takes over finishing the attempt. */
+  finishing?: boolean;
+  /** The one stop for this attempt; a retained unknown-termination entry clears it to retry. */
+  stopping?: Promise<{ termination: "verified" | "unknown" }>;
+  interruption?: { blocker: Blocker; done: Promise<void> };
+}
+
+const INTERRUPTED: unique symbol = Symbol("interrupted");
+
 export class Coordinator {
   readonly deps: CoordinatorDeps;
-  private readonly handles = new Map<string, { handle: WorkerHandle; reservation: string; worktree: string; plan: AssignmentPlan; profile: ResolvedProfile; brief: SealedBrief }>();
+  private readonly handles = new Map<string, AttemptEntry>();
+  /** Attempts whose termination could not be verified; their resources stay owned. */
+  private readonly unresolved = new Map<string, AttemptEntry>();
+  /** Latched on supervision or lease loss: no new dispatch from this coordinator. */
+  private halted: Blocker | undefined;
+  private monitor: NodeJS.Timeout | undefined;
 
   constructor(deps: CoordinatorDeps) {
     this.deps = deps;
@@ -131,11 +168,38 @@ export class Coordinator {
     atomicWriteJson(this.evidenceFile(task), evidence);
   }
 
-  /** Record the required checks for a task (from the approved plan); never reduced silently. */
-  setRequiredChecks(task: string, ids: readonly string[]): void {
+  /**
+   * Record the required checks for a task (from the approved plan); never
+   * reduced silently, and a check's argument vector cannot be redefined.
+   */
+  setRequiredChecks(task: string, checks: ReadonlyArray<{ id: string; argv: readonly string[] }>): Outcome<true> {
     const evidence = this.evidence(task);
-    evidence.requiredChecks = [...new Set([...(evidence.requiredChecks ?? []), ...ids])].sort();
+    const argv = { ...(evidence.requiredCheckArgv ?? {}) };
+    for (const check of checks) {
+      const known = argv[check.id];
+      if (known && !sameArgv(known, check.argv)) return refuse("CANDIDATE_MISMATCH", `required check '${check.id}' was already defined with a different command`, "Keep the approved check definition, or ask the user to approve a revised plan.");
+      argv[check.id] = [...check.argv];
+    }
+    evidence.requiredChecks = [...new Set([...(evidence.requiredChecks ?? []), ...checks.map((c) => c.id)])].sort();
+    evidence.requiredCheckArgv = argv;
     this.saveEvidence(task, evidence);
+    return success(true);
+  }
+
+  /** Before an exact-candidate check: the current candidate, approved checks, and untracked output roots only. */
+  private async validateCandidateCheck(plan: AssignmentPlan): Promise<Outcome<CandidateRef>> {
+    const current = this.evidence(plan.task).candidate;
+    if (plan.base.kind !== "commit" || !current || current.commit !== plan.base.commit) {
+      return refuse("CANDIDATE_MISMATCH", "candidate checks run only on the task's current assembled candidate", "Check the latest candidate; a repaired candidate needs its own checks.");
+    }
+    if (!plan.requiredChecks?.length) return refuse("CANDIDATE_MISMATCH", "a candidate check needs the plan's required checks");
+    if (plan.requiredChecks.some((c) => !/^[A-Za-z0-9._-]{1,128}$/.test(c.id) || c.argv.length === 0)) return refuse("CONFIG_INVALID", "check ids must be simple names and every check needs an argument vector");
+    const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks);
+    if (!recorded.ok) return recorded;
+    const roots = await validateCheckOutputRoots(this.deps.repo, current.commit, plan.writeRoots);
+    if (!roots.ok) return roots;
+    const { round: _round, ...candidate } = current;
+    return success(candidate);
   }
 
   private identityFor(assignment: string, attempt: string, generation: number, task: string, role: Role): AssignmentIdentity {
@@ -145,6 +209,7 @@ export class Coordinator {
   /** Validate a plan, allocate an owned worktree, resolve authority, seal the brief, and record the assignment. */
   async prepare(plan: AssignmentPlan): Promise<Outcome<{ assignment: string; profile: ResolvedProfile; brief: SealedBrief; worktree: string; reservation?: string }>> {
     const d = this.deps;
+    if (this.halted) return { ok: false, blocker: this.halted };
     const modeCheck = requireModeFor(d.mode.mode, plan.purpose === "candidate-check" ? { kind: "candidate-check" } : { kind: "dispatch", role: plan.role });
     if (!modeCheck.ok) return modeCheck;
     const healthy = d.supervisionHealthy();
@@ -155,6 +220,24 @@ export class Coordinator {
       return selection;
     }
     const profile = selection.value.profile;
+
+    if (plan.purpose === "candidate-check") {
+      const checkable = await this.validateCandidateCheck(plan);
+      if (!checkable.ok) return checkable;
+    } else if (plan.requiredChecks?.length) {
+      const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks);
+      if (!recorded.ok) return recorded;
+    }
+
+    // The candidate cycle comes from durable state; the store re-derives it under its lock.
+    const cycle = candidateCycle(d.store.state, plan.task, plan.role, plan.purpose);
+    if (!cycle.ok) {
+      if (cycle.blocker.code === "ROUNDS_EXHAUSTED") {
+        d.metrics.record("rounds-exhausted", { task: plan.task, role: plan.role });
+        await d.store.setPhase(plan.task, "blocked");
+      }
+      return cycle;
+    }
 
     const head = await resolveCommit(d.repo, d.target.ref);
     if (!head.ok) return head;
@@ -182,9 +265,7 @@ export class Coordinator {
     const authority = resolveAuthority(request, { projectRoot: d.repo.root, protectedPaths: [d.repo.commonDir, d.paths.stateDir], privatePaths: [d.paths.stateDir] });
     if (!authority.ok) return authority;
 
-    const task = d.store.state.tasks[plan.task];
-    if (!task) return refuse("INVALID_TRANSITION", "unknown task");
-    const round = plan.newCandidateRound ? task.roundsUsed + 1 : Math.max(task.roundsUsed, 1);
+    const round = Math.max(cycle.value.round, 1);
     const harness = d.config.harness;
     const approvals: Array<{ kind: "spec" | "brief" | "plan"; approvalId: string; artifact: { path: string; hash: string } }> = [];
     for (const kind of ["spec", "brief", "plan"] as const) {
@@ -226,7 +307,8 @@ export class Coordinator {
         limitMs: harness.assignment.executionLimitMinutes * 60_000,
         maxAutomaticRecoveries: harness.assignment.automaticRecoveries,
         artifacts: plan.artifacts,
-        newCandidateRound: plan.newCandidateRound,
+        purpose: plan.purpose,
+        expectedRound: cycle.value.round,
       },
       assignment,
     );
@@ -237,7 +319,7 @@ export class Coordinator {
       }
       return created;
     }
-    if (plan.newCandidateRound) d.metrics.record("round-started", { task: plan.task, round });
+    if (cycle.value.starts) d.metrics.record("round-started", { task: plan.task, round });
     return success({ assignment, profile, brief: sealed.value, worktree: worktree.value.path });
   }
 
@@ -248,33 +330,43 @@ export class Coordinator {
    */
   async runAttempt(assignment: string, plan: AssignmentPlan, prepared: { profile: ResolvedProfile; brief: SealedBrief; worktree: string }, attemptOptions: { humanDecisionId?: string; resumeDecisionId?: string } = {}): Promise<AssignmentOutcome> {
     const d = this.deps;
-    const modeCheck = requireModeFor(d.mode.mode, plan.purpose === "candidate-check" ? { kind: "candidate-check" } : { kind: "dispatch", role: plan.role });
-    if (!modeCheck.ok) return { state: "blocked", assignment, blocker: modeCheck.blocker };
-    const healthy = d.supervisionHealthy();
-    if (!healthy.ok) return { state: "blocked", assignment, blocker: healthy.blocker };
-    const pairing = recheckResolvedProfile(prepared.profile);
-    if (!pairing.ok) return { state: "blocked", assignment, blocker: pairing.blocker };
+    // The launch authorization: rechecked before reservation, after every awaited
+    // setup step, and by the driver at the last boundary before delivery.
+    const authorize = (): Outcome<true> => this.launchAuthorization(plan, prepared);
+    const initial = authorize();
+    if (!initial.ok) return { state: "blocked", assignment, blocker: initial.blocker };
 
     const reservation = await d.capacity.reserve(d.capacityCeiling, { project: d.project, run: d.store.state.run.id, assignment, role: plan.role });
     if (!reservation.ok) return { state: "blocked", assignment, blocker: reservation.blocker };
 
     const started = await d.store.startAttempt(assignment, attemptOptions);
-    if (!started.ok) return { state: "blocked", assignment, blocker: started.blocker };
+    if (!started.ok) {
+      await d.capacity.release(reservation.value.id, "terminated");
+      return { state: "blocked", assignment, blocker: started.blocker };
+    }
     const a = started.value.assignments[assignment]!;
     const attempt = a.attempts.at(-1)!;
+    let claimedWorktree: string | undefined;
+    const notStarted = (blocker: Blocker): Promise<AssignmentOutcome> => this.endBeforeLaunch(assignment, attempt.id, claimedWorktree, reservation.value.id, blocker);
     const identity = this.identityFor(assignment, attempt.id, attempt.generation, a.task, a.role);
     const worktreeRecord = (await d.worktrees.list()).find((w) => w.assignment === assignment && w.state === "active");
-    if (!worktreeRecord) return { state: "blocked", assignment, blocker: { code: "OWNERSHIP_AMBIGUOUS", message: "assignment worktree is missing" } };
+    if (!worktreeRecord) return notStarted({ code: "OWNERSHIP_AMBIGUOUS", message: "assignment worktree is missing" });
     const claimed = await d.worktrees.claim(worktreeRecord.id, attempt.id, attempt.generation);
-    if (!claimed.ok) return { state: "blocked", assignment, blocker: claimed.blocker };
-    if (attempt.automatic) d.metrics.record("recovery", { task: a.task, assignment, role: a.role, outcome: "automatic" });
+    if (!claimed.ok) return notStarted(claimed.blocker);
+    claimedWorktree = worktreeRecord.id;
 
     // The brief identity carries the real attempt/generation; reseal against it.
     const brief = sealBrief({ ...prepared.brief.brief, identity, budget: { ...prepared.brief.brief.budget, executionMsRemaining: d.store.remainingMs(assignment), automaticRecoveriesRemaining: Math.max(0, a.maxAutomaticRecoveries - a.automaticRecoveriesUsed) } });
-    if (!brief.ok) return { state: "blocked", assignment, blocker: brief.blocker };
+    if (!brief.ok) return notStarted(brief.blocker);
     const fixed = await d.store.recordAttemptBrief(assignment, attempt.id, brief.value.hash);
-    if (!fixed.ok) return { state: "blocked", assignment, blocker: fixed.blocker };
+    if (!fixed.ok) return notStarted(fixed.blocker);
     const briefText = renderBrief(brief.value, d.roleGuide(a.role));
+    // Exact-candidate checks are executed by the contained launcher itself; their records are the evidence.
+    const checkRuns = plan.purpose === "candidate-check" ? brief.value.brief.requiredChecks.map((c) => ({ id: c.id, argv: [...c.argv] })) : undefined;
+    const checkTimeoutMs = checkRuns ? d.store.remainingMs(assignment) : 0;
+    const ready = authorize();
+    if (!ready.ok) return notStarted(ready.blocker);
+    if (attempt.automatic) d.metrics.record("recovery", { task: a.task, assignment, role: a.role, outcome: "automatic" });
     d.metrics.record("assignment-started", { task: a.task, assignment, role: a.role, runtime: prepared.profile.runtime, model: prepared.profile.model, effort: prepared.profile.effort, round: a.round });
 
     const launched = await d.driver.launch({
@@ -285,27 +377,36 @@ export class Coordinator {
       briefText,
       systemPrompt: d.roleGuide(a.role),
       credentialSource: d.credentialSourceFor(prepared.profile),
-      minValidityMs: d.store.remainingMs(assignment) + d.startupMs,
+      minValidityMs: d.store.remainingMs(assignment) + d.startupMs + checkTimeoutMs,
+      authorize,
+      ...(checkRuns ? { checks: { runs: checkRuns, timeoutMs: checkTimeoutMs } } : {}),
     });
-    if (!launched.ok) {
-      // Nothing was started when launch is refused before pane creation; the attempt ends verified.
-      await d.store.endAttempt(assignment, attempt.id, "infrastructure", "verified");
-      await d.worktrees.markRetired(worktreeRecord.id, attempt.id);
-      await d.capacity.release(reservation.value.id, "terminated");
+    if (launched.kind === "refused") {
       d.metrics.record("preflight-blocked", { task: a.task, assignment, role: a.role, outcome: launched.blocker.code });
-      return { state: "blocked", assignment, blocker: launched.blocker };
+      return notStarted(launched.blocker);
     }
-    const handle = launched.value;
-    this.handles.set(assignment, { handle, reservation: reservation.value.id, worktree: worktreeRecord.id, plan, profile: prepared.profile, brief: brief.value });
+    // From here the attempt may have started: it is owned work until stopped and verified.
+    const handle = launched.handle;
+    const entry: AttemptEntry = { handle, reservation: reservation.value.id, worktree: worktreeRecord.id, plan, profile: prepared.profile, brief: brief.value, abort: new AbortController() };
+    this.handles.set(assignment, entry);
+    this.ensureMonitoring();
     await d.capacity.setState(reservation.value.id, "active");
+    // Supervision may have been lost while the launch was in flight: the new attempt is stopped with the rest.
+    const afterLaunch = this.halted ? { ok: false as const, blocker: this.halted } : d.supervisionHealthy();
+    if (!afterLaunch.ok) await this.supervisionLost(afterLaunch.blocker);
+    if (entry.abort.signal.aborted) return this.interrupted(assignment, entry);
+    if (launched.kind === "uncertain") return this.finishFailure(assignment, "infrastructure", `launch delivery was not confirmed: ${launched.blocker.message}`);
 
-    const bound = await d.driver.awaitBinding(handle, Date.now() + d.startupMs);
+    const bound = await this.interruptible(entry, d.driver.awaitBinding(handle, Date.now() + d.startupMs + checkTimeoutMs, entry.abort.signal));
+    if (bound === INTERRUPTED || entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (!bound.ok) return this.finishFailure(assignment, "infrastructure", bound.blocker.message);
     const binding = await d.store.bindAttempt(identity);
+    if (entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (!binding.ok) return this.finishFailure(assignment, "infrastructure", binding.blocker.message);
     d.metrics.record("assignment-bound", { task: a.task, assignment, role: a.role });
 
-    const settled = await d.driver.awaitSettled(handle, Date.now() + d.store.remainingMs(assignment));
+    const settled = await this.interruptible(entry, d.driver.awaitSettled(handle, Date.now() + d.store.remainingMs(assignment), entry.abort.signal));
+    if (settled === INTERRUPTED || entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (settled.kind === "timeout") return this.finishFailure(assignment, "timeout", "execution budget exhausted");
     if (settled.kind === "settled" && settled.outcome === "error" && settled.error?.class === "quota") {
       return this.finishQuota(assignment, settled.error.summary, settled.error.resetAtMs);
@@ -314,6 +415,43 @@ export class Coordinator {
       // Results written before the failure are still collected below if present.
     }
     return this.finishSettled(assignment, settled.kind === "settled" ? settled.usage : undefined);
+  }
+
+  /**
+   * Whether a new attempt of this plan may begin now: Build mode for modifying
+   * work, healthy supervision, the proposal 0015 pairing, and every approval
+   * bound into the brief still current — its artifact re-hashed from the
+   * coordinator-owned path and the latest human decision for that kind still an
+   * approval of exactly that content (not rejected, invalidated, or replaced).
+   * Recovery or retry authorizations never substitute for these approvals.
+   */
+  launchAuthorization(plan: AssignmentPlan, prepared: { profile: ResolvedProfile; brief: SealedBrief }): Outcome<true> {
+    const d = this.deps;
+    if (this.halted) return { ok: false, blocker: this.halted };
+    const modeCheck = requireModeFor(d.mode.mode, plan.purpose === "candidate-check" ? { kind: "candidate-check" } : { kind: "dispatch", role: plan.role });
+    if (!modeCheck.ok) return modeCheck;
+    const healthy = d.supervisionHealthy();
+    if (!healthy.ok) return healthy;
+    const pairing = recheckResolvedProfile(prepared.profile);
+    if (!pairing.ok) return pairing;
+    const approvals = prepared.brief.brief.approvals;
+    if (approvals.length === 0) return refuse("APPROVAL_MISSING", "assignments require at least one current approved artifact");
+    for (const bound of approvals) {
+      const current = d.artifactHash(bound.artifact.path);
+      if (current === undefined) return refuse("APPROVAL_STALE", `the approved ${bound.kind} artifact is missing or unreadable`, "Restore the artifact or ask the user to approve a revision.");
+      if (current !== bound.artifact.hash) return refuse("APPROVAL_STALE", `the approved ${bound.kind} artifact changed after the assignment was prepared`, "Ask the user to review and approve the changed artifact.");
+      const valid = requireApproval(d.store.state, { task: plan.task, kind: bound.kind }, { artifactHash: current });
+      if (!valid.ok) return valid;
+    }
+    return success(true);
+  }
+
+  /** A launch refused before anything could start: end the attempt verified as not-started and release what it held. */
+  private async endBeforeLaunch(assignment: string, attempt: string, worktree: string | undefined, reservation: string, blocker: Blocker): Promise<AssignmentOutcome> {
+    await this.deps.store.endAttempt(assignment, attempt, "not-started", "verified");
+    if (worktree) await this.deps.worktrees.markRetired(worktree, attempt);
+    await this.deps.capacity.release(reservation, "terminated");
+    return { state: "blocked", assignment, blocker };
   }
 
   /** Prepare and run in one step. */
@@ -337,19 +475,123 @@ export class Coordinator {
   }
 
   private async release(assignment: string, termination: "verified" | "unknown"): Promise<void> {
-    const entry = this.handles.get(assignment);
+    const entry = this.handles.get(assignment) ?? this.unresolved.get(assignment);
     if (!entry) return;
+    this.handles.delete(assignment);
     if (termination === "verified") {
+      this.unresolved.delete(assignment);
       await this.deps.worktrees.markRetired(entry.worktree, entry.handle.identity.attempt);
       await this.deps.capacity.release(entry.reservation, "terminated");
+      return;
     }
-    // Unknown termination keeps the reservation and worktree ownership: replacement stays blocked.
-    this.handles.delete(assignment);
+    // Unknown termination keeps the reservation, worktree ownership, and the
+    // handle (so a later cancel can retry the stop): replacement stays blocked.
+    delete entry.stopping;
+    this.unresolved.set(assignment, entry);
+  }
+
+  private stopOnce(entry: AttemptEntry): Promise<{ termination: "verified" | "unknown" }> {
+    entry.stopping ??= this.deps.driver.stop(entry.handle);
+    return entry.stopping;
+  }
+
+  private interruptible<T>(entry: AttemptEntry, wait: Promise<T>): Promise<T | typeof INTERRUPTED> {
+    if (entry.abort.signal.aborted) return Promise.resolve(INTERRUPTED);
+    const aborted = new Promise<typeof INTERRUPTED>((resolve) => entry.abort.signal.addEventListener("abort", () => resolve(INTERRUPTED), { once: true }));
+    return Promise.race([wait, aborted]);
+  }
+
+  /** The attempt was taken over by an interruption (supervision loss, pause, cancel); report its outcome. */
+  private async interrupted(assignment: string, entry: AttemptEntry): Promise<AssignmentOutcome> {
+    await entry.interruption?.done;
+    return { state: "blocked", assignment, blocker: entry.interruption?.blocker ?? this.halted ?? { code: "SUPERVISION_UNHEALTHY", message: "the attempt was interrupted" } };
+  }
+
+  /**
+   * Take over a live attempt: abort its waits, stop it once, then finalize.
+   * Idempotent per attempt. If the normal path is already finishing it, only
+   * the (shared) stop is awaited so the worker is not left running.
+   */
+  private interrupt(entry: AttemptEntry, blocker: Blocker, finalize: (termination: "verified" | "unknown") => Promise<void>): Promise<void> {
+    if (entry.interruption) return entry.interruption.done;
+    if (entry.finishing) {
+      const done = this.stopOnce(entry).then(() => undefined);
+      entry.interruption = { blocker, done };
+      return done;
+    }
+    entry.finishing = true;
+    entry.abort.abort();
+    const done = (async () => {
+      const stopped = await this.stopOnce(entry);
+      try {
+        await finalize(stopped.termination);
+      } catch {
+        // Bookkeeping failures (for example a lost lease) never undo the stop; ownership stays as released above.
+      }
+    })();
+    entry.interruption = { blocker, done };
+    return done;
+  }
+
+  /**
+   * Respond to watcher, heartbeat, or coordinator-lease loss while this
+   * coordinator is still alive: latch a halt (no new dispatch), then stop every
+   * live attempt concurrently, ending each with its honest termination, keeping
+   * capacity and ownership when termination is unknown, and opening a
+   * supervision blocker. Nothing restarts automatically; a restarted watcher
+   * is not evidence that earlier work stopped. Idempotent.
+   */
+  async supervisionLost(blocker: Blocker): Promise<void> {
+    const d = this.deps;
+    if (!this.halted) {
+      this.halted = { code: blocker.code, message: blocker.message, nextAction: "Owned work was stopped. Restart the coordinator session and reconcile before dispatching again." };
+      d.metrics.record("supervision-gap", { outcome: blocker.code });
+    }
+    const lost = this.halted;
+    const outcomes: Array<{ assignment: string; attempt: string; termination: "verified" | "unknown" }> = [];
+    await Promise.all(
+      [...this.handles.entries()].map(([assignment, entry]) =>
+        this.interrupt(entry, lost, async (termination) => {
+          outcomes.push({ assignment, attempt: entry.handle.identity.attempt, termination });
+          await d.store.endAttempt(assignment, entry.handle.identity.attempt, "infrastructure", termination);
+          await this.release(assignment, termination);
+          await d.store.block(assignment, "supervision", `Supervision was lost (${lost.code}: ${lost.message}). Owned work was stopped; termination ${termination}. Work is preserved; nothing restarts automatically.`);
+        }),
+      ),
+    );
+    try {
+      ensureDir(path.join(d.paths.stateDir, "supervision"));
+      atomicWriteJson(path.join(d.paths.stateDir, "supervision", "coordinator-loss.json"), { schema: "radian.coordinator-loss/1", reason: lost.code, message: lost.message, at: new Date(d.clock.now()).toISOString(), outcomes });
+    } catch {
+      // The run log and supervision registry still hold the per-attempt evidence.
+    }
+    if (this.handles.size === 0) this.stopMonitoring();
+  }
+
+  /** Poll supervision and lease health while this coordinator owns live attempts. */
+  private ensureMonitoring(): void {
+    if (this.monitor) return;
+    this.monitor = setInterval(() => {
+      if (this.handles.size === 0) {
+        this.stopMonitoring();
+        return;
+      }
+      const healthy = this.halted ? { ok: false as const, blocker: this.halted } : this.deps.supervisionHealthy();
+      if (!healthy.ok) void this.supervisionLost(healthy.blocker).catch(() => undefined);
+    }, Math.max(10, this.deps.safetyIntervalMs ?? 1000));
+    this.monitor.unref();
+  }
+
+  /** Stop active monitoring (session shutdown). */
+  stopMonitoring(): void {
+    if (this.monitor) clearInterval(this.monitor);
+    this.monitor = undefined;
   }
 
   private async finishFailure(assignment: string, reason: "infrastructure" | "timeout", detail: string): Promise<AssignmentOutcome> {
     const entry = this.handles.get(assignment)!;
-    const stopped = await this.deps.driver.stop(entry.handle);
+    entry.finishing = true;
+    const stopped = await this.stopOnce(entry);
     await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, reason, stopped.termination);
     const a = this.deps.store.state.assignments[assignment]!;
     this.deps.metrics.record("assignment-ended", { task: a.task, assignment, role: a.role, outcome: reason, durationMs: a.budget.consumedMs, blockedMs: a.budget.blockedMs });
@@ -359,7 +601,8 @@ export class Coordinator {
 
   private async finishQuota(assignment: string, summary: string, resetAtMs: number | undefined): Promise<AssignmentOutcome> {
     const entry = this.handles.get(assignment)!;
-    const stopped = await this.deps.driver.stop(entry.handle);
+    entry.finishing = true;
+    const stopped = await this.stopOnce(entry);
     await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "quota", stopped.termination);
     const reset = resetAtMs === undefined ? "unknown" : new Date(resetAtMs).toISOString();
     const blocked = await this.deps.store.block(assignment, "quota", `Quota exhausted (${summary}); reliable reset: ${reset}. Options: wait and approve one retry with the same profile, explicitly choose a different profile, or cancel.`);
@@ -373,7 +616,8 @@ export class Coordinator {
   private async finishSettled(assignment: string, usage: { inputTokens?: number; outputTokens?: number; source: string } | undefined): Promise<AssignmentOutcome> {
     const d = this.deps;
     const entry = this.handles.get(assignment)!;
-    const stopped = await d.driver.stop(entry.handle);
+    entry.finishing = true;
+    const stopped = await this.stopOnce(entry);
     const collected = await collectResult(d.store, entry.handle.authority.outputDir, { identity: entry.handle.identity, briefHash: entry.brief.hash });
     await d.store.endAttempt(assignment, entry.handle.identity.attempt, collected.ok ? "completed" : "unknown", stopped.termination);
     const a = d.store.state.assignments[assignment]!;
@@ -392,6 +636,15 @@ export class Coordinator {
       d.metrics.record("question-opened", { task: a.task, assignment, role: a.role });
       const decision = blocked.ok ? Object.values(blocked.value.decisions).filter((x) => x.assignment === assignment && x.status === "open").at(-1)?.id : undefined;
       return { state: "blocked", assignment, blocker: { code: "QUESTION_OPEN", message: "worker asked for a decision; affected work paused and preserved" }, ...(decision ? { decisionId: decision } : {}) };
+    }
+
+    if (entry.plan.purpose === "candidate-check") {
+      // Results are claims; only coordinator-verified bindings become evidence.
+      const bound = await this.bindCheckEvidence(assignment, entry, result, stopped.termination);
+      await this.release(assignment, stopped.termination);
+      if (stopped.termination === "verified") await d.store.retire(assignment);
+      if (!bound.ok) return { state: "blocked", assignment, blocker: bound.blocker };
+      return { state: "completed", assignment, result, worktree: entry.handle.authority.worktree, checks: bound.value };
     }
 
     let delivery: Delivery | undefined;
@@ -474,16 +727,55 @@ export class Coordinator {
     return success({ ...candidate, round: t.roundsUsed });
   }
 
-  /** Record contained candidate-check evidence; only checks bound to the exact candidate count. */
-  recordCheckEvidence(task: string, result: WorkerResult): CheckEvidence[] {
+  /**
+   * Bind a finished candidate check to coordinator-recorded facts: verified
+   * termination, the task's still-current candidate, a checkout verified to
+   * hold exactly that candidate (outside declared output roots), the attempt
+   * that ran, and each approved check's argument vector. The outcome comes only
+   * from the launcher's execution record (exit status 0 and no timeout =
+   * passed); the worker's report is a claim, noted when it disagrees. An
+   * approved check without exactly one execution record is not-run.
+   */
+  private async bindCheckEvidence(assignment: string, entry: { handle: WorkerHandle; plan: AssignmentPlan; brief: SealedBrief }, result: WorkerResult, termination: "verified" | "unknown"): Promise<Outcome<CheckEvidence[]>> {
+    if (termination !== "verified") return refuse("TERMINATION_UNVERIFIED", "the check's termination is unverified; its results are not evidence", "Reconcile the check assignment; run a fresh check after verified termination.");
+    const task = entry.plan.task;
+    const current = this.evidence(task).candidate;
+    const checked = entry.brief.brief.base.candidate;
+    if (!current || checked === undefined || current.commit !== checked) return refuse("CANDIDATE_MISMATCH", "the candidate changed while the check ran; its results are historical");
+    const checkout = await verifyCheckout(this.deps.repo, entry.handle.authority.worktree, current, entry.plan.writeRoots);
+    if (!checkout.ok) return checkout;
+    const executions = this.deps.driver.checkExecutions(entry.handle);
+    const bound: CheckEvidence[] = [];
+    for (const approved of entry.brief.brief.requiredChecks) {
+      const runs = executions.filter((e) => e.id === approved.id);
+      const record: CheckEvidence = { id: approved.id, outcome: "not-run", candidate: current.commit, tree: current.tree, argv: [...approved.argv], assignment, attempt: entry.handle.identity.attempt };
+      const notes: string[] = [];
+      const run = runs.length === 1 ? runs[0]! : undefined;
+      if (!run) notes.push(runs.length === 0 ? "no launcher execution record" : "more than one execution record");
+      else {
+        record.outcome = run.exitCode === 0 && !run.timedOut ? "passed" : "failed";
+        record.exitCode = run.exitCode;
+        if (run.timedOut) notes.push("timed out");
+        else if (run.signal) notes.push(`ended by ${run.signal}`);
+      }
+      const claim = result.checks.find((c) => c.id === approved.id);
+      if (claim && claim.outcome !== record.outcome) notes.push(`worker reported ${claim.outcome}`);
+      if (notes.length) record.reason = notes.join("; ");
+      bound.push(record);
+    }
     const evidence = this.evidence(task);
-    const candidate = evidence.candidate?.commit;
-    const exact = result.checks.filter((c) => candidate !== undefined && c.candidate === candidate);
-    evidence.checks = [...evidence.checks.filter((c) => !exact.some((x) => x.id === c.id)), ...exact];
+    if (evidence.candidate?.commit !== current.commit) return refuse("CANDIDATE_MISMATCH", "the candidate changed while the check ran; its results are historical");
+    evidence.checks = [...evidence.checks.filter((c) => !bound.some((b) => b.id === c.id)), ...bound];
     evidence.risks = [...new Set([...evidence.risks, ...result.risks])];
     this.saveEvidence(task, evidence);
-    for (const check of exact) this.deps.metrics.record("check-outcome", { task, outcome: check.outcome });
-    return exact;
+    for (const check of bound) this.deps.metrics.record("check-outcome", { task, outcome: check.outcome });
+    return success(bound);
+  }
+
+  /** Evidence the coordinator itself bound to the current candidate; anything else is historical or a claim. */
+  private boundChecks(evidence: TaskEvidence): CheckEvidence[] {
+    const candidate = evidence.candidate;
+    return candidate ? evidence.checks.filter((c) => c.candidate === candidate.commit && c.tree === candidate.tree && c.attempt !== undefined && c.assignment !== undefined) : [];
   }
 
   recordReview(task: string, reviewedCandidate: string, result: WorkerResult): void {
@@ -502,8 +794,9 @@ export class Coordinator {
     const head = await resolveCommit(d.repo, d.target.ref);
     if (!head.ok) return head;
     const gaps: string[] = [];
+    const checks = this.boundChecks(evidence);
     for (const id of requiredChecks) {
-      const c = evidence.checks.find((x) => x.id === id);
+      const c = checks.find((x) => x.id === id);
       if (!c) gaps.push(`check ${id}: not run`);
       else if (c.outcome !== "passed") gaps.push(`check ${id}: ${c.outcome}`);
     }
@@ -511,7 +804,7 @@ export class Coordinator {
     else if (evidence.review.blockingFindings > 0) gaps.push(`review: ${evidence.review.blockingFindings} blocking finding(s)`);
     if (head.value !== evidence.candidate.base) gaps.push("target moved since assembly");
     const { round: _round, ...candidate } = evidence.candidate;
-    return success({ candidate, target: { ref: d.target.ref, commit: head.value }, checks: evidence.checks, review: evidence.review, risks: evidence.risks, ready: gaps.length === 0, gaps });
+    return success({ candidate, target: { ref: d.target.ref, commit: head.value }, checks, review: evidence.review, risks: evidence.risks, ready: gaps.length === 0, gaps });
   }
 
   /** Integrate the exact approved, verified, reviewed candidate. Requires Build mode and a human channel. */
@@ -529,7 +822,7 @@ export class Coordinator {
       repo: d.repo,
       target: d.target,
       candidate,
-      evidence: { requiredChecks, checks: evidence.checks, review: { candidate: evidence.review.candidate, blockingFindings: evidence.review.blockingFindings, outcome: evidence.review.outcome } },
+      evidence: { requiredChecks, checks: this.boundChecks(evidence), review: { candidate: evidence.review.candidate, blockingFindings: evidence.review.blockingFindings, outcome: evidence.review.outcome } },
       approval: (target) => requireApproval(d.store.state, { task, kind: "integration" }, { artifactHash, candidate, target }),
     });
     if (!result.ok) return result;
@@ -538,15 +831,28 @@ export class Coordinator {
     return success(result.value);
   }
 
-  /** Cancel a running attempt: stop, verify, preserve work; reservation released only if verified. */
+  /**
+   * Cancel an attempt: stop, verify, preserve work; reservation released only
+   * if verified. An attempt whose earlier stop was unverified is stopped again
+   * (idempotent); without any handle the recorded termination is reported as is.
+   */
   async cancel(assignment: string): Promise<Outcome<{ termination: "verified" | "unknown" }>> {
-    const entry = this.handles.get(assignment);
     const a = this.deps.store.state.assignments[assignment];
     if (!a) return refuse("INVALID_TRANSITION", "unknown assignment");
-    let termination: "verified" | "unknown" = "verified";
-    if (entry) {
-      termination = (await this.deps.driver.stop(entry.handle)).termination;
-      await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "cancelled", termination);
+    const last = a.attempts.at(-1);
+    let termination: "verified" | "unknown" = !last ? "verified" : last.status === "ended" ? (last.termination ?? "unknown") : "unknown";
+    const live = this.handles.get(assignment);
+    const retained = this.unresolved.get(assignment);
+    if (live) {
+      await this.interrupt(live, { code: "INVALID_TRANSITION", message: "cancelled by the user" }, async (t) => {
+        termination = t;
+        await this.deps.store.endAttempt(assignment, live.handle.identity.attempt, "cancelled", t);
+        await this.release(assignment, t);
+      });
+      termination = (await this.stopOnce(live)).termination;
+    } else if (retained) {
+      termination = (await this.stopOnce(retained)).termination;
+      await this.deps.store.endAttempt(assignment, retained.handle.identity.attempt, "cancelled", termination);
       await this.release(assignment, termination);
     }
     await this.deps.store.cancelAssignment(assignment);
@@ -589,11 +895,14 @@ export class Coordinator {
   async pause(assignment: string, reason: string): Promise<Outcome<{ termination: "verified" | "unknown"; decisionId?: string }>> {
     const entry = this.handles.get(assignment);
     if (!entry) return refuse("INVALID_TRANSITION", "assignment has no live attempt in this coordinator");
-    const stopped = await this.deps.driver.stop(entry.handle);
-    await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "paused", stopped.termination);
-    await this.release(assignment, stopped.termination);
-    const blocked = await this.deps.store.block(assignment, "user-pause", `Paused by the user: ${reason}. Resume starts a fresh attempt with preserved work.`);
-    const decisionId = blocked.ok ? Object.values(blocked.value.decisions).filter((x) => x.assignment === assignment && x.status === "open").at(-1)?.id : undefined;
+    let decisionId: string | undefined;
+    await this.interrupt(entry, { code: "QUESTION_OPEN", message: `paused by the user: ${reason}` }, async (termination) => {
+      await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "paused", termination);
+      await this.release(assignment, termination);
+      const blocked = await this.deps.store.block(assignment, "user-pause", `Paused by the user: ${reason}. Resume starts a fresh attempt with preserved work.`);
+      decisionId = blocked.ok ? Object.values(blocked.value.decisions).filter((x) => x.assignment === assignment && x.status === "open").at(-1)?.id : undefined;
+    });
+    const stopped = await this.stopOnce(entry);
     return success({ termination: stopped.termination, ...(decisionId ? { decisionId } : {}) });
   }
 
@@ -601,6 +910,10 @@ export class Coordinator {
   static artifactDigest(content: string): string {
     return hashJson({ content });
   }
+}
+
+function sameArgv(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
 /** Render the bounded brief the worker reads: role guidance plus the sealed contract. */
