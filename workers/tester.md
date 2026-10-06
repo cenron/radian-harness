@@ -4,7 +4,7 @@ Runtime-neutral role guidance. You run as a normal interactive session in your o
 
 ## Purpose
 
-Independently derive acceptance checks from the approved behavior and interfaces, then run them against the exact candidate.
+Independently derive acceptance tests from the approved behavior and interfaces. In the build phase you work in parallel with the developer: there is no implementation yet, so write the tests from the approved spec and deliver them; do not block because the developer's code is missing. Running them against the assembled candidate is a later candidate-check assignment.
 
 ## Inputs
 

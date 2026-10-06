@@ -18,6 +18,7 @@ import { loadAndResolve } from "../config/resolve.ts";
 import { CapacityLedger } from "../state/capacity.ts";
 import { readJsonIfExists } from "../state/fsutil.ts";
 import { loadRunDir } from "../state/run-store.ts";
+import type { RunState } from "../state/model.ts";
 import { readConfined } from "../util/confined-fs.ts";
 import { type Discovery, type WorkspaceInfo, discover, loadWorkspace } from "../workspace/discovery.ts";
 import { projectPaths, workspacePaths } from "../workspace/layout.ts";
@@ -1171,14 +1172,24 @@ function outcomeText(outcome: AssignmentOutcome): string {
 
 export function statusText(session: ProjectSession): string {
   const lines = [`Radian ${session.mode.mode.toUpperCase()} · project ${session.binding.project} · target ${session.target?.ref ?? "(not registered)"}${session.calm.enabled ? " · calm" : ""}`];
-  const state = session.run?.store.state;
+  // After a restart the active run is on disk but not reopened until a Radian action needs it.
+  const state = session.run?.store.state ?? activeRunOnDisk(session.project.state);
   if (!state) lines.push("No active run yet; one opens automatically when the user approves a draft.");
   else {
-    lines.push(`Run ${state.run.id}: ${state.run.status} · harness ${state.run.harness.version}@${state.run.harness.revision.slice(0, 12)}`);
+    lines.push(`Run ${state.run.id}: ${state.run.status} · harness ${state.run.harness.version}@${state.run.harness.revision.slice(0, 12)}${session.run ? "" : " (not open in this session yet; it reopens on the next Radian action)"}`);
     for (const task of Object.values(state.tasks)) lines.push(`- task ${task.id} "${task.title}": ${task.phase}, round ${task.roundsUsed}/${task.maxRounds}`);
     for (const a of Object.values(state.assignments)) lines.push(`  - ${a.role} ${a.id}: ${a.status} (${a.profile.runtime}/${a.profile.model}/${a.profile.effort})`);
     const open = Object.values(state.decisions).filter((d) => d.status === "open");
-    for (const d of open) lines.push(`  ? decision ${d.id} (${d.kind}): ${d.prompt.slice(0, 160)}`);
+    for (const d of open) lines.push(`  ? decision ${d.id} (${d.kind}): ${d.prompt.slice(0, 1000)}`);
+    if (open.length) lines.push("  Answer an open decision with /radian decide <decision-id> <answer>.");
   }
   return lines.join("\n");
+}
+
+/** The project's active run state read from disk (read-only), when one exists. */
+function activeRunOnDisk(stateDir: string): RunState | undefined {
+  const active = readJsonIfExists(path.join(stateDir, "active-run.json"));
+  if (active.state !== "ok" || typeof (active.value as { run?: unknown }).run !== "string") return undefined;
+  const run = loadRunDir(path.join(stateDir, "runs", (active.value as { run: string }).run));
+  return run.ok ? run.value.state : undefined;
 }
