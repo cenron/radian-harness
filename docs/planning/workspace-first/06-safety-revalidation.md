@@ -40,7 +40,15 @@ Baseline: the assembled feature source at `af4b45e` (W05 checkpoint). Each regre
   - **F03:** a gap remained. The pre-commit guard ran before the run-lock wait, so an attempt handed off after the guard but before the commit escaped revocation. The launcher's start gate re-hashes contents only, so a rejected decision on unchanged content passed it. An ephemeral probe, then the production-path regression `tests/unit/remediation/f03-guard-commit-window.test.ts`, showed the runtime starting after the rejection committed (`intent`, `process` recorded; red).
     - Correction: the run store counts approval changes between guard and commit (incremented synchronously before the guards run). `runAttempt` waits for them to settle, then performs its final authorization and registers the pending start with no await in between. Every later change therefore revokes the start before committing. Green 1/1, repeated 3/3. With only the coordinator wait removed the regression is red again.
     - Recovery, resume, and quota retry use the same `runAttempt` path.
-  - **F02 and F04:** fixes read but not yet independently probed. Open questions:
-    - F02: does integration refuse when no dispatch recorded the required checks, and can an older approved plan revision still be used after a newer one?
-    - F04: after a loss whose re-stop is also unknown, coordinator monitoring stops, leaving the watcher as the only backstop.
-  - **Status:** W06 is not yet independently cleared.
+  - **F02:** a gap remained. Integration readiness and `integrate()` judged checks against the caller-supplied list and whatever definitions had been recorded. `tests/unit/remediation/w06-f02-followup.test.ts` was red 4/4:
+    - a check added by an approved plan revision was not required;
+    - a changed check command accepted the old command's pass;
+    - an empty caller list made an unchecked candidate ready;
+    - a later plan rejection did not block integration.
+    - Correction: `currentPlanChecks` re-reads the task's latest plan decision, which must still be valid for the content on disk. Readiness and `integrate()` require every check it declares to have passed with exactly the declared argument vector. The caller's list can only add checks. Green 4/4. An older approved revision already cannot define checks (`setRequiredChecks` binds to the latest plan approval); this is retained as a passing case.
+  - **F04:** `tests/unit/remediation/w06-f04-followup.test.ts` probed three cases; no counterexample was found (3/3 pass, retained):
+    - a loss whose retry stop is also unknown;
+    - quit with retained work still unknown;
+    - a concurrent cancel and loss.
+    - After a loss the coordinator is halted and stops polling. Retained work keeps its slot and worktree, is counted as owned, is retried by an explicit cancel (released once when verified), and leaves the watcher unfed at quit. This is the designed behaviour, not monitoring that continues indefinitely.
+  - **Status:** follow-up probing of F01–F04 is complete. The F02 and F03 corrections were written by this same session and still need an independent review before live verification.

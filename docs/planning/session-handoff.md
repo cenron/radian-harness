@@ -8,7 +8,16 @@
   - Then the W06 follow-up F03 correction: the guard-to-commit window. See the [W06 record](workspace-first/06-safety-revalidation.md#completion-record).
   - Offline: typecheck, unit 203/203, integration 12/12, run sequentially. Generic publication checks pass; private-denylist coverage is absent.
   - Not run: the interactive TUI dialogs in a real terminal, live probes, and the six feasibility suites.
-  - **Remaining before live verification:** independent probing of F02/F04 (open questions in the W06 record), and the unexplained transient W05 integration failure under concurrent load.
+  - **Later the same day:**
+    - F02 follow-up corrected: integration is judged against the current approved plan's exact checks.
+    - F04 follow-up probes found no counterexample.
+    - Dispatch accepts trailing-slash write roots such as `scenes/`, never widening `//` to the whole checkout.
+    - **Integration flake explained and fixed (test-side):**
+      - the fixtures' unchecked `setModel` (Pi returns `false` while a replaced runtime's provider is not usable yet) left Pi on its "unknown" model;
+      - the RPC helper ignored the resulting prompt rejections.
+      - Result: 12/12 clean aggregate integration runs.
+    - Possible product follow-up: Radian's `applyCarry` re-applies the model once, and only warns if Pi refuses.
+  - **Remaining before live verification:** independent review of the F02/F03 corrections written in this session.
   - Typed confirmations (`/radian approve` etc.) still use Pi's `confirm`, where Enter means Yes (noted in 0016).
   - Capabilities are 0/26 verified. Live verification needs separate authorization.
   - The installed session was not restarted or driven; Herdr was used only to read its pane at the user's request.

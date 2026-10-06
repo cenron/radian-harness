@@ -913,6 +913,52 @@ export class Coordinator {
     this.deps.metrics.record("review-outcome", { task, outcome: evidence.review.blockingFindings > 0 ? "changes-requested" : result.outcome });
   }
 
+  /**
+   * The required checks of the task's *current* approved plan revision (its
+   * latest plan decision, still valid for the content on disk). Integration
+   * is judged against these exact definitions, never against a caller-supplied
+   * list or definitions recorded under an earlier revision (W06/F02 follow-up).
+   */
+  currentPlanChecks(task: string): Outcome<{ plan: string; checks: Record<string, string[]> }> {
+    const latest = Object.values(this.deps.store.state.approvals).filter((a) => a.task === task && a.kind === "plan").at(-1);
+    if (!latest) return refuse("APPROVAL_MISSING", "the task has no approved plan");
+    const hash = this.deps.artifactHash(latest.artifact.path);
+    if (!hash) return refuse("APPROVAL_STALE", "the approved plan is missing or unreadable");
+    const current = this.approvedCheckDefinitions(task, hash);
+    if (!current.ok) return current;
+    if (Object.keys(current.value.checks).length === 0) return refuse("APPROVAL_MISSING", "the approved plan declares no required checks");
+    return current;
+  }
+
+  /**
+   * Gaps between the bound check evidence and the required checks: every check
+   * the current plan declares must have passed with exactly its declared
+   * command; any additional id the caller names must have passed too.
+   */
+  private checkGaps(task: string, checks: readonly CheckEvidence[], extra: readonly string[]): { gaps: string[]; required: string[]; accepted: CheckEvidence[] } {
+    const current = this.currentPlanChecks(task);
+    if (!current.ok) return { gaps: [`plan: ${current.blocker.message}`], required: [...extra], accepted: [] };
+    const declared = current.value.checks;
+    const gaps: string[] = [];
+    const accepted: CheckEvidence[] = [];
+    const required = [...new Set([...Object.keys(declared), ...extra])].sort();
+    for (const id of required) {
+      const definition = declared[id];
+      if (!definition) {
+        gaps.push(`check ${id}: not declared by the current approved plan`);
+        continue;
+      }
+      const ran = checks.filter((c) => c.id === id);
+      const matching = ran.filter((c) => c.argv !== undefined && sameArgv(c.argv, definition));
+      const passed = matching.find((c) => c.outcome === "passed");
+      if (passed) accepted.push(passed);
+      else if (matching.length > 0) gaps.push(`check ${id}: ${matching.at(-1)!.outcome}`);
+      else if (ran.length > 0) gaps.push(`check ${id}: ran a command the current approved plan does not declare`);
+      else gaps.push(`check ${id}: not run`);
+    }
+    return { gaps, required, accepted };
+  }
+
   /** Compact summary presented to the human before the integration decision. */
   async integrationSummary(task: string, requiredChecks: readonly string[]): Promise<Outcome<{ candidate: CandidateRef; target: { ref: string; commit: string }; checks: CheckEvidence[]; review: TaskEvidence["review"]; risks: string[]; ready: boolean; gaps: string[] }>> {
     const d = this.deps;
@@ -920,13 +966,8 @@ export class Coordinator {
     if (!evidence.candidate) return refuse("CANDIDATE_MISMATCH", "no candidate has been assembled");
     const head = await resolveCommit(d.repo, d.target.ref);
     if (!head.ok) return head;
-    const gaps: string[] = [];
     const checks = this.boundChecks(evidence);
-    for (const id of requiredChecks) {
-      const c = checks.find((x) => x.id === id);
-      if (!c) gaps.push(`check ${id}: not run`);
-      else if (c.outcome !== "passed") gaps.push(`check ${id}: ${c.outcome}`);
-    }
+    const gaps = [...this.checkGaps(task, checks, requiredChecks).gaps];
     if (!evidence.review || evidence.review.candidate !== evidence.candidate.commit) gaps.push("review: not run on this candidate");
     else if (evidence.review.blockingFindings > 0) gaps.push(`review: ${evidence.review.blockingFindings} blocking finding(s)`);
     if (head.value !== evidence.candidate.base) gaps.push("target moved since assembly");
@@ -944,12 +985,15 @@ export class Coordinator {
     if (!evidence.candidate || !evidence.review) return refuse("CANDIDATE_MISMATCH", "candidate evidence is incomplete");
     const artifactHash = d.artifactHash(approvedArtifact.path);
     if (!artifactHash) return refuse("APPROVAL_STALE", "approved integration artifact is missing");
+    // Judged against the current approved plan's exact definitions; the caller's list can only add.
+    const judged = this.checkGaps(task, this.boundChecks(evidence), requiredChecks);
+    if (judged.gaps.length > 0) return refuse("CANDIDATE_MISMATCH", `required checks are not satisfied: ${judged.gaps.join("; ")}`, "Run the current plan's checks on this candidate, or ask the user to approve a revised plan.");
     const { round, ...candidate } = evidence.candidate;
     const result = await integrateCandidate({
       repo: d.repo,
       target: d.target,
       candidate,
-      evidence: { requiredChecks, checks: this.boundChecks(evidence), review: { candidate: evidence.review.candidate, blockingFindings: evidence.review.blockingFindings, outcome: evidence.review.outcome } },
+      evidence: { requiredChecks: judged.required, checks: judged.accepted, review: { candidate: evidence.review.candidate, blockingFindings: evidence.review.blockingFindings, outcome: evidence.review.outcome } },
       approval: (target) => requireApproval(d.store.state, { task, kind: "integration" }, { artifactHash, candidate, target }),
     });
     if (!result.ok) return result;
