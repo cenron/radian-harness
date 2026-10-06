@@ -49,9 +49,10 @@ async function otool(flag: string, file: string): Promise<string | undefined> {
 
 export function parseLoadCommands(output: string): { libraries: string[] } {
   return {
+    // Library lines are indented; unindented lines are file or per-architecture headers (universal binaries).
     libraries: output
       .split("\n")
-      .slice(1)
+      .filter((l) => /^\s/.test(l))
       .map((l) => l.trim().replace(/\s+\(compatibility version.*$/, ""))
       .filter((l) => l.length > 0),
   };

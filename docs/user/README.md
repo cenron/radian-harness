@@ -74,6 +74,12 @@ Shipped defaults live in the harness `config/`. Overrides merge in this order: s
 
 `harness.json` (defaults): `concurrency.maxActiveWorkers` 3 (workspace-wide, all roles and runs), `assignment.executionLimitMinutes` 30, `assignment.candidateRounds` 3 (cannot be raised), `assignment.automaticRecoveries` 1 (cannot be raised), `assignment.startupTimeoutSeconds`, `supervision.leaseSeconds`, `supervision.terminationGraceSeconds`, `interface.calmDefault`. Fail-closed execution policy fields cannot be weakened.
 
+`execution.workerTools` (default none) is the user-approved list of extra tools workers and their contained checks may run, as absolute paths. Example, in `<workspace>/.radian/config/harness.json`: `{ "execution": { "workerTools": ["/opt/homebrew/bin/godot"] } }`.
+- Each tool is exposed under its own name, first on the worker's PATH.
+- Read access is granted only to its resolved binary, or its whole `.app` bundle, plus its libraries. Other programs next to it stay unreachable.
+- The brief names the approved tools.
+- An invalid or missing entry refuses the launch rather than widening access.
+
 `dispatch.json` holds named profiles (`runtime`, `provider`, `model`, `effort`), `aliases` (`"@name"` references), and routing `rules` whose `use` lists are **candidate sets for the coordinator to choose from, never fallback chains**. `selection.onUnavailable` accepts only `block`. The configured starting policy is:
 
 | Profile | Model | Runtime | Effort |

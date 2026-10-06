@@ -23,6 +23,7 @@ import type { SealedBrief } from "../contracts/brief.ts";
 import { type ResolvedProfile, recheckResolvedProfile } from "../config/provider-policy.ts";
 import { RUNTIME_FACTS } from "../config/runtimes.ts";
 import { type CapabilityContext, CapabilityRegistry, requiredCapabilities } from "../isolation/capabilities.ts";
+import { resolveWorkerTools } from "../isolation/tools.ts";
 import { type CredentialBroker, type CredentialSource, type Projection, assertNoProhibitedEnv } from "../isolation/credentials.ts";
 import { resolveDependencies } from "../isolation/dependencies.ts";
 import type { ProcessOps } from "../isolation/processes.ts";
@@ -56,6 +57,8 @@ export interface SessionDeps {
   graceMs: number;
   /** "assigned" grants the pane's own terminal device (production); "none" for headless fixtures. */
   terminal?: "assigned" | "none";
+  /** User-approved tools (execution.workerTools) exposed to workers and their checks. */
+  workerTools?: readonly string[];
 }
 
 export interface AttemptRequest {
@@ -172,10 +175,14 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
   };
 
   const a = request.authority;
+  // User-approved tools: links under their configured names, first on PATH, with narrow read access.
+  const tools = await resolveWorkerTools(deps.workerTools ?? [], path.join(a.outputDir, ".radian-tools"));
+  if (!tools.ok) return fail(tools);
+  const toolsNote = tools.value.names.length ? `\n\n## Approved tools\nOn your PATH (approved by the user): ${tools.value.names.join(", ")}. Use them only as the task requires.` : "";
   const briefFile = path.join(a.outputDir, `brief-${request.identity.attempt}.md`);
   const resultFile = path.join(a.outputDir, "result.json");
   if (existsSync(resultFile)) return fail(refuse("OWNERSHIP_AMBIGUOUS", "the output directory already holds a result; a fresh attempt needs a fresh exchange directory"));
-  writePrivate(briefFile, `${request.briefText}\n\n<!-- radian brief ${request.brief.hash} -->\n`);
+  writePrivate(briefFile, `${request.briefText}${toolsNote}\n\n<!-- radian brief ${request.brief.hash} -->\n`);
   const sessionId = randomUUID();
   const input: LaunchInput = { identity: request.identity, profile: request.profile, authority: a, install, projection, briefFile, resultFile, sessionId };
   const plan = adapter.buildLaunch(input);
@@ -187,11 +194,13 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
     writePrivate(systemPromptFile, request.systemPrompt);
     writePrivate(path.join(projection.dir, "bridge-config.json"), JSON.stringify(piBridgeConfig(input, layout.value.entry, plan.value.tools, systemPromptFile)));
   }
+  if (tools.value.names.length) plan.value.env.PATH = `${tools.value.binDir}:${plan.value.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin"}`;
   const env = assertNoProhibitedEnv(plan.value.env);
   if (!env.ok) return fail(env);
 
   const deps2 = await resolveDependencies(plan.value.argv[0]!, [...install.installRoots, ...plan.value.readRoots]);
-  deps2.readFiles = [...new Set([...deps2.readFiles, ...(plan.value.readFiles ?? [])])];
+  deps2.readFiles = [...new Set([...deps2.readFiles, ...(plan.value.readFiles ?? []), ...tools.value.readFiles])];
+  deps2.readRoots = [...new Set([...deps2.readRoots, ...tools.value.readRoots])];
   for (const helper of install.helpers) {
     const resolved = await resolveDependencies(helper);
     deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];

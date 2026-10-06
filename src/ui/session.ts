@@ -186,6 +186,7 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     launcherArgv: [process.execPath, path.join(harnessRoot(), "src", "isolation", "launcher-main.ts")],
     parentPane,
     denyRead: personalCredentialStores(),
+    workerTools: session.config.harness.execution.workerTools ?? [],
     graceMs: session.config.harness.supervision.terminationGraceSeconds * 1000,
   });
   const workerDocs = path.join(harnessRoot(), "workers");
