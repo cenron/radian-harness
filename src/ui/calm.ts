@@ -42,12 +42,17 @@ function isErrorResult(result: { isError?: boolean; details?: unknown }): boolea
 export function calmResolver(enabled: () => boolean, makeLine: (text: string) => unknown): (toolName: string, next: () => HostToolRenderers | undefined) => HostToolRenderers | undefined {
   return (toolName, next) => {
     const base = next();
-    if (!base) return base;
+    // Pi uses its built-in result renderer when this callback is absent.
+    // Installing a wrapper that returns undefined suppresses that fallback
+    // and gives MouseRegion an undefined child, crashing the interactive TUI.
+    // Preserve the host fallback rather than inventing a renderer here.
+    const renderResult = base?.renderResult;
+    if (!base || !renderResult) return base;
     return {
       ...base,
       renderResult(result, options, theme, context) {
         if (!enabled() || options.expanded || options.isPartial || isErrorResult(result)) {
-          return base.renderResult ? base.renderResult(result, options, theme, context) : undefined;
+          return renderResult(result, options, theme, context);
         }
         return makeLine(theme.fg("muted", `${toolName}: output hidden by /calm (expand to view)`));
       },
