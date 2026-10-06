@@ -9,15 +9,14 @@ No release, tag, or package publication is authorized yet. Before Radian is adve
 - [ ] Workspace-wide concurrency enforcement and execution-time accounting.
 - [ ] Safe cancellation, pause/resume, stale-result rejection, and preservation of unfinished work.
 
-## Containment and runtimes
+## Runtimes (MVP: no OS isolation; proposal 0017)
 
-- [ ] Native containment verified per runtime/version: scoped reads/writes, protected Git/state/policy, credential stores unreadable, children and symlinks covered (**live**).
-- [ ] Role restrictions verified per runtime (reviewer read/report only; no unregistered delegation) (**live**).
-- [ ] Non-refreshing credential access and subscription billing path verified per runtime; no API-key or paid spillover (**live**).
-- [ ] Semantic assignment binding and cancellation of actual runtime processes, including detached descendants (**live**).
+- [ ] Each runtime opens as its interactive session in an owned Herdr pane with the configured model, effort, role prompt, and tools, and completes a small task (**live**, per runtime).
+- [ ] Role restrictions hold per runtime (reviewer read/report only; no delegation to other agents) (**live**).
+- [ ] Subscription billing path per runtime; no API-key or paid spillover (**live**).
+- [ ] Cancellation and stop terminate actual runtime processes, including descendants; finished panes close (**live**).
 - [ ] Independent watcher stops actual workers on coordinator crash and stall; watcher loss handled (**live**).
-- [ ] Owned Herdr pane creation, command delivery, and closure in an isolated session (**live**).
-- [ ] Capability evidence recorded only after the checks above, bound to versions.
+- [ ] Deferred past the MVP: OS-level worker isolation, scoped credentials, and capability verification.
 
 ## Interface
 

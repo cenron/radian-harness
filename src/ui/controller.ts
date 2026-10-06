@@ -34,14 +34,12 @@ import type { Delivery } from "../git/delivery.ts";
 import { git } from "../git/exec.ts";
 import { type InspectRequest, inspectArgv } from "../git/inspect.ts";
 import { succeeded } from "../util/proc.ts";
-import { CAPABILITIES, CapabilityRegistry, requiredCapabilities } from "../isolation/capabilities.ts";
 import { HumanChannel } from "../state/approvals.ts";
 import { calmResolver } from "./calm.ts";
 import { managedEditorFactory } from "./editor.ts";
 import { guardToolCall } from "./guard.ts";
 import type { HostBashOperations, HostContext, HostRuntime, HostToolDefinition, PiHost } from "./pi-host.ts";
-import { PLANNING_DIR, type ProjectSession, artifactContent, artifactHash, osVersion, shortHash } from "./session.ts";
-import { type VerificationRun, evidenceContext, verifyClaudeCode } from "../verification/run.ts";
+import { PLANNING_DIR, type ProjectSession, artifactContent, artifactHash, shortHash } from "./session.ts";
 import { CHOICE, artifactExcerpt, artifactTitle, coordinatorNote, openTasks, profileLines } from "./guided.ts";
 import { parseCheckDefinitions } from "../coordinator/orchestrator.ts";
 import { approvalValidity, requireApproval } from "../state/approvals.ts";
@@ -61,8 +59,6 @@ export interface ControllerOptions {
   actorId?: string;
   /** Workspace discovery (tests may inject one). */
   discover?: (cwd: string) => Discovery;
-  /** Capability verification run (tests may inject one); records nothing itself. */
-  verifyCapabilities?: (progress: (message: string) => void) => Promise<VerificationRun>;
 }
 
 const MODIFYING_OPS: Operation[] = ["read", "edit", "shell", "run-checks", "install-locked-dependencies", "deliver-changes", "write-report", "network-outbound"];
@@ -250,66 +246,6 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     return stale ? refuse("APPROVAL_STALE", stale, "Request a new PRD approval with radian_request_approval.") : refuse("APPROVAL_MISSING", "the task has no approved PRD/spec or brief", "Request one with radian_request_approval first.");
   };
 
-  /**
-   * Run the capability checks, show the results, and record the passed items
-   * only if the user chooses to (Cancel-first dialogs; interactive only).
-   */
-  const verifyAndRecord = async (v: View, ctx: HostContext, s: ProjectSession): Promise<string> => {
-    if (ctx.mode !== "tui" || !ctx.hasUI) return blockerText({ code: "NONINTERACTIVE_APPROVAL_REQUIRED", message: "capability verification is recorded only from an interactive Pi terminal" });
-    if (lastInputSource !== undefined && lastInputSource !== "interactive") return blockerText({ code: "APPROVAL_NOT_HUMAN", message: "capability evidence is recorded only after your own interactive input" });
-    const stale = () => blockerText({ code: "STALE_GENERATION", message: "the selected project changed during verification; nothing was recorded" });
-    const intro = [
-      "Radian · verify Claude Code capabilities",
-      "",
-      "Runs Radian's capability checks on this Mac with the production worker setup: the sandbox, process and network limits, supervision, the Claude Code launch, a scoped copy of your Claude Code login (macOS may ask for Keychain access), three tiny Claude Haiku tasks on your plan, and one Herdr pane opened and closed next to this one.",
-      "Nothing is recorded until you approve the results.",
-    ].join("\n");
-    const start = await ctx.ui.select(intro, ["Cancel", "Run verification"]);
-    if (!current(v)) return stale();
-    if (start !== "Run verification") return "Verification not started; nothing was recorded.";
-    ctx.ui.notify("Verifying Claude Code capabilities; this takes a minute or two.", "info");
-    const run = await (options.verifyCapabilities ?? ((progress) => verifyClaudeCode(osVersion(), progress)))((message) => ctx.ui.notify(message, "info"));
-    if (!current(v)) return stale();
-    const passed = run.results.filter((r) => r.passed);
-    const failed = run.results.filter((r) => !r.passed);
-    const summary = [
-      `Claude Code ${run.runtimeVersion ?? "(not detected)"} · macOS ${run.osVersion}${Object.keys(run.login).length ? ` · login ${run.login.authMethod ?? "?"}/${run.login.apiProvider ?? "?"} (${run.login.subscriptionType ?? "?"})` : ""}`,
-      ...run.results.map((r) => `${r.passed ? "PASS" : "FAIL"} ${r.capability}`),
-    ];
-    if (passed.length === 0) return `${summary.join("\n")}\nNothing passed; nothing was recorded.`;
-    const record = `Record ${passed.length} passed`;
-    const billing = passed.some((r) => r.capability.startsWith("billing."));
-    const prompt = [
-      "Radian · capability verification results",
-      "",
-      ...summary,
-      "",
-      ...(failed.length ? [`${failed.length} failed item(s) are not recorded; dispatch stays blocked for roles that need them.`] : []),
-      ...(billing ? ["Recording the billing item also confirms that you checked your Claude usage page and the worker usage counts against your plan, not API billing."] : []),
-      `Record the ${passed.length} passed item(s) as verified for these versions? Upgrading macOS or Claude Code requires verifying again.`,
-    ].join("\n");
-    for (;;) {
-      const choice = await ctx.ui.select(prompt, ["Cancel", "View details", record]);
-      if (!current(v)) return stale();
-      if (choice === "View details") {
-        await ctx.ui.select(run.results.flatMap((r) => [`${r.passed ? "PASS" : "FAIL"} ${r.capability}`, ...r.details.map((d) => `     ${d}`)]).join("\n"), ["Back"]);
-        if (!current(v)) return stale();
-        continue;
-      }
-      if (choice !== record) return `${summary.join("\n")}\nNot recorded.`;
-      break;
-    }
-    const channel = HumanChannel.fromUserInput("user-ui", actor, "/radian capabilities verify");
-    const registry = new CapabilityRegistry(s.project.state);
-    const reference = `radian capability verification ${new Date().toISOString()} (${passed.length}/${run.results.length} passed)`;
-    for (const r of passed) {
-      const recorded = await registry.record(channel, { capability: r.capability, status: "verified", context: evidenceContext(r.capability, run), reference });
-      if (!recorded.ok) return blockerText(recorded.blocker);
-    }
-    updateStatus(ctx);
-    return `Recorded ${passed.length} verified item(s)${failed.length ? `; ${failed.length} failed and were not recorded` : ""}.\n${capabilityText(s).split("\n")[0]}`;
-  };
-
   const requireRun = async (s: ProjectSession): Promise<Outcome<NonNullable<ProjectSession["run"]>>> => (s.run ? success(s.run) : options.startRun(s));
 
   const setMode = async (v: View, ctx: HostContext, mode: "plan" | "build"): Promise<string> => {
@@ -353,7 +289,6 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
       const s = projectOf(v);
       if (!s) {
         if (sub === "status") return workspaceStatusText(v.kind === "dashboard" ? v.workspace : undefined);
-        if (sub === "capabilities") return capabilityTextFor(workspacePaths(workspaceRootOf(v)!).state);
         return NO_PROJECT(`/radian ${sub}`);
       }
       switch (sub) {
@@ -483,10 +418,8 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
           const created = retros.create(records, { problem: "On-demand review of recent runs", change: "To be written by the user from the evidence below", expectedBenefit: "n/a until specified", regressionRisk: "n/a until specified", evaluation: "Compare per-version summaries on comparable tasks", rollback: "Do not adopt; keep the current harness version" });
           return created.ok ? `Retrospective ${created.value.id} written privately (${created.value.observations.length} observation(s)); status proposed.` : blockerText(created.blocker);
         }
-        case "capabilities":
-          return rest[0] === "verify" ? verifyAndRecord(v, ctx, s) : capabilityText(s);
         default:
-          return "Radian commands: status, mode plan|build, calm on|off, start, task add <title>, approve|reject <kind> <task> <path>, decide <id> <answer>, integrate <task>, pause|cancel <assignment>, grant-rounds <task> <n>, authorize-recovery <assignment>, retro [decide …], capabilities [verify]. Workspace: /projects, /workspace, /new-project, /add-project.";
+          return "Radian commands: status, mode plan|build, calm on|off, start, task add <title>, approve|reject <kind> <task> <path>, decide <id> <answer>, integrate <task>, pause|cancel <assignment>, grant-rounds <task> <n>, authorize-recovery <assignment>, retro [decide …]. Workspace: /projects, /workspace, /new-project, /add-project.";
       }
     },
     async projectsCommand(args, ctx) {
@@ -618,7 +551,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     pi.registerTool({
       name: "radian_status",
       label: "Radian status",
-      description: "Read Radian's status: the workspace and its projects when no project is selected, otherwise the selected project's run, tasks, assignments, decisions, and capabilities. Read-only.",
+      description: "Read Radian's status: the workspace and its projects when no project is selected, otherwise the selected project's run, tasks, assignments, and decisions. Read-only.",
       parameters: T.Object({}),
       execute: async () => {
         const v = view;
@@ -1145,7 +1078,7 @@ function activeRunLabel(workspaceRoot: string, project: string): string | undefi
 
 export function workspaceStatusText(ws: WorkspaceInfo | undefined): string {
   if (!ws) return "Radian workspace status unavailable.";
-  return [`Radian workspace ${path.basename(ws.root)} · no project selected`, projectListText(ws, undefined), capabilityTextFor(workspacePaths(ws.root).state).split("\n")[0]!].join("\n");
+  return [`Radian workspace ${path.basename(ws.root)} · no project selected`, projectListText(ws, undefined)].join("\n");
 }
 
 /** Map validated tool parameters onto a fixed inspection operation; Git options are not representable. */
@@ -1247,17 +1180,5 @@ export function statusText(session: ProjectSession): string {
     const open = Object.values(state.decisions).filter((d) => d.status === "open");
     for (const d of open) lines.push(`  ? decision ${d.id} (${d.kind}): ${d.prompt.slice(0, 160)}`);
   }
-  lines.push(capabilityText(session).split("\n")[0]!);
   return lines.join("\n");
-}
-
-export function capabilityText(session: ProjectSession): string {
-  return capabilityTextFor(session.project.state);
-}
-
-export function capabilityTextFor(stateDir: string): string {
-  const registry = new CapabilityRegistry(stateDir);
-  const unverified = CAPABILITIES.filter((c) => registry.latest(c)?.status !== "verified");
-  const ready = (["claude-code", "pi", "codex"] as const).filter((runtime) => requiredCapabilities(runtime, "developer").every((c) => registry.latest(c)?.status === "verified"));
-  return `Runtime capabilities: ${CAPABILITIES.length - unverified.length}/${CAPABILITIES.length} with recorded verification evidence (version-bound; rechecked at every launch). A worker launches only when every item its runtime and role need is verified for the current versions${ready.length ? `; recorded for: ${ready.join(", ")}` : ""}.\n${unverified.map((c) => `  unverified: ${c}`).join("\n")}`;
 }

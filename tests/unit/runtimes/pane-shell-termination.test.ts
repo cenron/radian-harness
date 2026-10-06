@@ -8,12 +8,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { CapabilityRegistry } from "../../../src/isolation/capabilities.ts";
 import type { HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { awaitBinding, launchAttempt, stopAttempt } from "../../../src/runtimes/session.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { authorityFor, layout } from "../helpers/layout.ts";
-import { deps, fakeCodex, native, request, source, verifyAll } from "../helpers/session-fixture.ts";
+import { deps, fakeCodex, native, request } from "../helpers/session-fixture.ts";
 
 /** A pane that, like Herdr, runs a long-lived shell in the requested --cwd and closes it on `pane close`. */
 function shellPane(shells: Map<string, number>): HerdrRunner {
@@ -43,9 +42,8 @@ test("a worker pane's own shell does not make a clean stop unknown", { skip: nat
   const l = layout();
   const shells = new Map<string, number>();
   try {
-    await verifyAll(new CapabilityRegistry(l.state), "developer");
     const d = deps(l, fakeCodex(l, "bind-and-wait"), [], true, shellPane(shells));
-    const launched = await launchAttempt(d, { ...request(l), credentialSource: source({ count: 0 }) });
+    const launched = await launchAttempt(d, { ...request(l) });
     assert.ok(launched.ok, launched.ok ? "" : launched.blocker.message);
     if (!launched.ok) return;
     const bound = await awaitBinding(d, launched.value, Date.now() + 20_000);

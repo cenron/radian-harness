@@ -21,8 +21,6 @@ import type { CommitIdentity } from "../git/delivery.ts";
 import { controlledGitEnv, gitArgv } from "../git/exec.ts";
 import { type ProtectedTarget, type Repository, openRepository, validateTarget } from "../git/repository.ts";
 import { WorktreeManager } from "../git/worktrees.ts";
-import { CapabilityRegistry } from "../isolation/capabilities.ts";
-import { CredentialBroker, type CredentialSource, claudeKeychainSource, codexAuthFileSource, piAuthFileSource } from "../isolation/credentials.ts";
 import { systemProcessOps } from "../isolation/processes.ts";
 import { SupervisionClient } from "../isolation/supervision.ts";
 import { HerdrTransport, herdrEnvironment, locateHerdr, systemHerdrRunner } from "../runtimes/herdr.ts";
@@ -98,29 +96,6 @@ export function readCommitIdentity(repo: Repository): Outcome<CommitIdentity> {
   return success({ name, email });
 }
 
-/** Personal credential stores that workers may never read directly. */
-export function personalCredentialStores(): string[] {
-  const home = os.homedir();
-  return [path.join(home, ".pi"), path.join(home, ".codex"), path.join(home, ".claude"), path.join(home, "Library", "Keychains"), path.join(home, ".ssh"), path.join(home, ".aws"), path.join(home, ".config", "gh")].filter((p) => existsSync(p)).map((p) => realpathSync(p));
-}
-
-export function credentialSourceFor(profile: ResolvedProfile): CredentialSource {
-  const home = os.homedir();
-  switch (profile.runtime) {
-    case "pi":
-      return piAuthFileSource(path.join(home, ".pi", "agent", "auth.json"), profile.provider);
-    case "codex":
-      return codexAuthFileSource(path.join(home, ".codex", "auth.json"));
-    case "claude-code":
-      return claudeKeychainSource("Claude Code-credentials");
-  }
-}
-
-export function osVersion(): string {
-  const result = spawnSync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 5000 });
-  return result.status === 0 ? result.stdout.trim() : os.release();
-}
-
 function activeRunFile(session: ProjectSession): string {
   return path.join(session.project.state, "active-run.json");
 }
@@ -172,21 +147,14 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     const watcher = supervision.health();
     return watcher.ok ? lease.value.checkHeld() : watcher;
   };
-  const capabilities = new CapabilityRegistry(session.project.state);
   const driver = new RuntimeWorkerDriver({
     adapters: defaultAdapters(),
-    capabilities,
-    broker: new CredentialBroker(),
     transport: new HerdrTransport({ runner: systemHerdrRunner(herdr, herdrEnvironment()), stateDir: session.project.state }),
     supervision,
     ops: systemProcessOps,
     stateDir: session.project.state,
-    projectionRoot: session.project.projections,
-    osVersion: osVersion(),
     launcherArgv: [process.execPath, path.join(harnessRoot(), "src", "isolation", "launcher-main.ts")],
     parentPane,
-    denyRead: personalCredentialStores(),
-    workerTools: session.config.harness.execution.workerTools ?? [],
     graceMs: session.config.harness.supervision.terminationGraceSeconds * 1000,
   });
   const workerDocs = path.join(harnessRoot(), "workers");
@@ -209,7 +177,6 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     artifactHash: (relative) => artifactHash(session.repo.root, relative),
     artifactContent: (relative) => artifactContent(session.repo.root, relative),
     roleGuide: (role: Role) => readFileSync(path.join(workerDocs, `${role}.md`), "utf8"),
-    credentialSourceFor,
     supervisionHealthy,
     safetyIntervalMs: Math.max(250, Math.min(1000, Math.floor(leaseMs / 2))),
     startupMs: session.config.harness.assignment.startupTimeoutSeconds * 1000,

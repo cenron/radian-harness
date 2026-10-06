@@ -7,21 +7,17 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveAuthority } from "../../../src/contracts/authority.ts";
 import { newId } from "../../../src/contracts/identity.ts";
-import { CapabilityRegistry, type CapabilityContext } from "../../../src/isolation/capabilities.ts";
-import { type LaunchSpec, launchContained, prepareLaunch, writeSpec } from "../../../src/isolation/launcher.ts";
-import { PROFILE_TEMPLATE_VERSION, diagnoseAccess, generateProfile } from "../../../src/isolation/profile.ts";
-import { HumanChannel } from "../../../src/state/approvals.ts";
+import { type LaunchSpec, launchRuntime, prepareLaunch, writeSpec } from "../../../src/isolation/launcher.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
 import { type Behaviour, type World, controllerOver, world } from "../helpers/coordinator-world.ts";
 
 const CHECKS = [{ id: "unit", description: "unit tests", argv: ["npm", "test"] }];
-const native = process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
+const native = process.platform === "darwin";
 
 type UI = Awaited<ReturnType<typeof controllerOver>>;
 
@@ -69,7 +65,7 @@ test("R03: a candidate check that modified source, tests, or config is not evide
   }
 });
 
-test("R03: candidate-check authority keeps source/tests/config immutable; only declared untracked output roots are writable", async () => {
+test("R03: candidate checks may declare only untracked output roots; tracked or unsafe roots are refused before launch", async () => {
   const w = await world();
   try {
     const ui = await controllerOver(w);
@@ -77,11 +73,6 @@ test("R03: candidate-check authority keeps source/tests/config immutable; only d
     await check(w, ui, candidate, { edit: { "dist/out.js": "generated\n" } }, { checkOutputRoots: ["dist"] });
     const launch = w.driver.launches.at(-1)!;
     assert.equal(launch.brief.brief.base.candidate, candidate);
-    const worktree = launch.authority.worktree;
-    const input = { authority: launch.authority, dependencies: { readRoots: [], readFiles: [] }, gitPointer: path.join(worktree, ".git") };
-    const writable = (relative: string) => diagnoseAccess(input, path.join(worktree, relative), "write").allowed;
-    assert.deepEqual(["src/a.ts", "tests/a.test.ts", "package.json", "docs/spec.md", ".gitattributes"].filter(writable), [], "no tracked or config path is writable during an exact-candidate check");
-    assert.equal(writable("dist/out.js"), true, "a declared untracked output root is writable");
     assert.ok(await unitAccepted(w), "a valid check with permitted generated output counts");
     // Output roots that contain tracked files are refused before launch.
     const launches = w.driver.launches.length;
@@ -93,20 +84,6 @@ test("R03: candidate-check authority keeps source/tests/config immutable; only d
       assert.match(bad.text, /blocked/i, JSON.stringify(roots));
     }
 
-    if (native) {
-      // The same authority under the native containment profile: a transient
-      // mutate-then-restore of tracked source cannot happen, generated output can.
-      const profile = generateProfile(input);
-      assert.ok(profile.ok);
-      if (!profile.ok) return;
-      const file = path.join(w.root, "check.sb");
-      writeFileSync(file, profile.value.text);
-      const run = (script: string) => spawnSync("/usr/bin/sandbox-exec", ["-f", file, "/bin/sh", "-c", script], { cwd: worktree, env: { PATH: "/usr/bin:/bin", HOME: launch.authority.scratchDir, TMPDIR: launch.authority.scratchDir }, timeout: 15_000 }).status;
-      const before = readFileSync(path.join(worktree, "src", "a.ts"), "utf8");
-      assert.notEqual(run("cp src/a.ts \"$TMPDIR/saved\" && echo tampered > src/a.ts && cp \"$TMPDIR/saved\" src/a.ts"), 0);
-      assert.equal(readFileSync(path.join(worktree, "src", "a.ts"), "utf8"), before);
-      assert.equal(run("mkdir -p dist && echo built > dist/out2.js"), 0);
-    }
   } finally {
     removeDir(w.root);
   }
@@ -155,56 +132,36 @@ test("R03: unknown-termination, unexecuted, failed, timed-out, stale, and wrong-
   }
 });
 
-test("R03: the contained launcher runs approved checks itself, without credentials or source writes, and records exit status", { skip: native ? false : "requires macOS sandbox-exec" }, async () => {
+test("R03: the launcher runs approved checks itself, before the runtime, and records exit status, timeouts, and logs", { skip: native ? false : "macOS process tools" }, async () => {
   const l = layout();
   try {
-    const authority = resolveAuthority(
-      { role: "tester", worktree: l.worktree, readRoots: [l.project], writeRoots: [], outputDir: l.output, scratchDir: l.scratch, operations: ["read", "shell", "run-checks", "write-report"] },
-      { projectRoot: l.project, protectedPaths: [l.gitDir, l.state] },
-    );
-    assert.ok(authority.ok);
-    if (!authority.ok) return;
-    const projection = path.join(l.root, "projection");
-    mkdirSync(projection);
-    writeFileSync(path.join(projection, "auth.json"), '{"synthetic":"projected"}\n');
-    const context: CapabilityContext = { osVersion: "27.0", runtime: "codex", runtimeVersion: "synthetic", policyTemplate: PROFILE_TEMPLATE_VERSION };
-    await new CapabilityRegistry(l.state).record(HumanChannel.fromUserInput("user-command", "fixture-user", "/radian capability"), { capability: "containment.sandbox-exec.filesystem", status: "verified", context, reference: "synthetic fixture" });
     const identity = { workspace: newId("ws"), project: newId("prj"), run: newId("run"), task: newId("task"), assignment: newId("asg"), attempt: newId("att"), generation: 1, role: "tester" as const };
+    const env = { PATH: "/usr/bin:/bin", HOME: l.scratch, TMPDIR: l.scratch, LC_ALL: "C" };
     const spec: LaunchSpec = {
-      schema: "radian.launch/1",
+      schema: "radian.launch/2",
       identity,
       stateDir: l.state,
-      profile: { authority: authority.value, dependencies: { readRoots: [], readFiles: [] }, credentialDir: projection, gitPointer: path.join(l.worktree, ".git") },
-      argv: ["/bin/sh", "-c", `cat "${projection}/auth.json" > "${l.output}/runtime-read.txt"`],
-      env: { PATH: "/usr/bin:/bin", HOME: l.scratch, TMPDIR: l.scratch },
+      argv: ["/bin/sh", "-c", "exit 0"],
+      env,
       cwd: l.worktree,
-      requiredCapabilities: ["containment.sandbox-exec.filesystem"],
-      capabilityContext: context,
-      terminal: "none",
       checks: {
         runs: [
-          { id: "writes-source", argv: ["/bin/sh", "-c", "echo tampered > src/input.txt"] },
-          { id: "reads-credentials", argv: ["/bin/sh", "-c", `cat "${projection}/auth.json"`] },
           { id: "passes", argv: ["/bin/sh", "-c", "echo ok; exit 0"] },
           { id: "fails", argv: ["/bin/sh", "-c", "exit 3"] },
           { id: "hangs", argv: ["/bin/sleep", "30"] },
         ],
         timeoutMs: 4_000,
         logDir: l.output,
-        env: { PATH: "/usr/bin:/bin", HOME: l.scratch, TMPDIR: l.scratch, LC_ALL: "C" },
+        env,
       },
     };
     const specFile = path.join(l.state, "launch", "spec.json");
-    const prepared = prepareLaunch(specFile, writeSpec(specFile, spec), undefined);
+    const prepared = prepareLaunch(specFile, writeSpec(specFile, spec));
     assert.ok(prepared.ok, prepared.ok ? "" : prepared.blocker.message);
     if (!prepared.ok) return;
-    const result = await launchContained(prepared.value, { stdio: "ignore" });
+    const result = await launchRuntime(prepared.value, { stdio: "ignore" });
     assert.ok(result.ok);
     const records = Object.fromEntries(prepared.value.registry.checks(identity.attempt).map((r) => [r.id, r]));
-    assert.notEqual(records["writes-source"]?.exitCode, 0, "a check cannot write candidate source");
-    assert.equal(readFileSync(path.join(l.worktree, "src", "input.txt"), "utf8"), "task input\n");
-    assert.notEqual(records["reads-credentials"]?.exitCode, 0, "a check cannot read the credential projection");
-    assert.match(readFileSync(path.join(l.output, "runtime-read.txt"), "utf8"), /projected/, "control: the runtime profile can read its projection, so the check's denial is the credential rule");
     assert.equal(records["passes"]?.exitCode, 0);
     assert.equal(records["fails"]?.exitCode, 3);
     assert.equal(records["hangs"]?.timedOut, true);

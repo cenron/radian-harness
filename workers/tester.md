@@ -1,6 +1,6 @@
 # Tester role
 
-Runtime-neutral role guidance. Mechanical enforcement comes from the resolved task authority and containment, not from this document.
+Runtime-neutral role guidance. You run as a normal interactive session in your own Herdr pane and git worktree. Your tool set comes from Radian, and Radian accepts only changes inside your approved write roots; stay inside your worktree and output directory.
 
 ## Purpose
 

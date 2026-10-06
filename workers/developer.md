@@ -1,6 +1,6 @@
 # Developer role
 
-Runtime-neutral role guidance. Mechanical enforcement (filesystem scope, Git restrictions, process and network boundaries) comes from the resolved task authority and the containment layer, not from this document. If guidance and enforcement disagree, enforcement wins and you report a blocker.
+Runtime-neutral role guidance. You run as a normal interactive session in your own Herdr pane and git worktree; the user may watch or type to you. Your tool set and permission mode come from Radian, and Radian accepts only changes inside your approved write roots. Stay inside your worktree and output directory even where a tool would let you go further. If guidance and enforcement disagree, enforcement wins and you report a blocker.
 
 ## Purpose
 

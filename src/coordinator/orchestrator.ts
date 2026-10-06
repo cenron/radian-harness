@@ -27,7 +27,6 @@ import { type CommitIdentity, type Delivery, deliverFromWorktree } from "../git/
 import { integrateCandidate } from "../git/integration.ts";
 import { type ProtectedTarget, type Repository, resolveCommit } from "../git/repository.ts";
 import type { WorktreeManager, WorktreePurpose } from "../git/worktrees.ts";
-import type { CredentialSource } from "../isolation/credentials.ts";
 import { HumanChannel, requireApproval } from "../state/approvals.ts";
 import type { CapacityLedger } from "../state/capacity.ts";
 import { atomicWriteJson, ensureDir, readJsonIfExists } from "../state/fsutil.ts";
@@ -68,7 +67,6 @@ export interface CoordinatorDeps {
    */
   artifactContent?: (relativePath: string) => string | undefined;
   roleGuide: (role: Role) => string;
-  credentialSourceFor: (profile: ResolvedProfile) => CredentialSource;
   /** Watcher and coordinator-lease health; polled at launch and while owned work is alive. */
   supervisionHealthy: () => Outcome<true>;
   /** Interval for active health monitoring while this coordinator owns live attempts (default 1000 ms). */
@@ -454,8 +452,6 @@ export class Coordinator {
       brief: brief.value,
       briefText,
       systemPrompt: d.roleGuide(a.role),
-      credentialSource: d.credentialSourceFor(prepared.profile),
-      minValidityMs: d.store.remainingMs(assignment) + d.startupMs + checkTimeoutMs,
       authorize,
       // The launcher re-hashes every approved artifact immediately before anything starts.
       startGate: { projectRoot: d.repo.root, artifacts: brief.value.brief.approvals.map((x) => ({ kind: x.kind, path: x.artifact.path, hash: x.artifact.hash })) },

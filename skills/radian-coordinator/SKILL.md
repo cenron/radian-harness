@@ -5,7 +5,7 @@ description: Coordinate a Radian-managed engineering task in Pi — draft specs 
 
 # Radian coordinator workflow
 
-This is guidance. Approvals, containment, budgets, and integration are enforced by Radian's code; if guidance and enforcement disagree, enforcement wins and you report the blocker.
+This is guidance. Approvals, write scopes, budgets, and integration are enforced by Radian's code; if guidance and enforcement disagree, enforcement wins and you report the blocker.
 
 ## Your role
 
@@ -34,4 +34,4 @@ If the user declines or requests changes, nothing was recorded: address their no
 - Blockers are information. Report them with their code and the safe next action; do not work around them, retry silently, change runtime/model/effort, or widen scope.
 - Repairs use a fresh developer assignment with the findings; there are at most three candidate cycles, and only the user can grant more. A cycle produces one candidate; reassembling a different candidate needs a repair cycle.
 - Questions from workers go to the user; never answer them on the user's behalf.
-- Worker launches stay disabled until required runtime capabilities are verified; say so plainly when dispatch returns `CAPABILITY_UNVERIFIED`.
+- Each worker opens in its own Herdr pane as a normal interactive session of its runtime (model, effort, and role prompt set by Radian). Its outcome arrives as a notice when it writes its result; finished panes close themselves. A worker that stops without a result stays visible for the user.

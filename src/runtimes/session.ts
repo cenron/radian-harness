@@ -1,19 +1,17 @@
-// Per-attempt runtime session: preflight → credential projection → contained
-// launch in a fresh owned pane → semantic binding → monitoring → stop.
+// Per-attempt runtime session: preflight → owned Herdr pane → launcher starts
+// the runtime's normal interactive session (exact model, effort, role system
+// prompt, tool limits, first task message) → binding → stop.
 //
 // Ordering guarantees:
-// - The proposal 0015 pairing is rechecked before any credential source is read
-//   and again before the pane is created.
-// - Every required capability (containment, supervision, runtime, credential,
-//   billing, transport) must be verified for the detected versions; otherwise
-//   the attempt is blocked before credentials are touched.
+// - The proposal 0015 pairing (Anthropic models through Claude Code only) is
+//   rechecked before launch preparation and again before the pane is created.
 // - The watcher learns about the attempt before the pane exists, and the
-//   launcher registers the runtime process before binding can be confirmed.
-// - Binding requires the runtime's own session-start evidence (matching
-//   session/model, accepted prompt, and for Claude Code an auth source with no
-//   API key) — pane idleness is never binding.
+//   launcher registers the runtime process before binding is confirmed.
+// - Workers use the user's own runtime logins; API-key, custom-endpoint, and
+//   proxy variables are removed from their environment.
+// There is no OS sandbox and no capability gate (isolation is deferred past the MVP).
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
@@ -22,43 +20,30 @@ import type { AssignmentIdentity } from "../contracts/identity.ts";
 import type { SealedBrief } from "../contracts/brief.ts";
 import { type ResolvedProfile, recheckResolvedProfile } from "../config/provider-policy.ts";
 import { RUNTIME_FACTS } from "../config/runtimes.ts";
-import { type CapabilityContext, CapabilityRegistry, requiredCapabilities } from "../isolation/capabilities.ts";
-import { resolveWorkerTools } from "../isolation/tools.ts";
-import { type CredentialBroker, type CredentialSource, type Projection, assertNoProhibitedEnv } from "../isolation/credentials.ts";
-import { resolveDependencies } from "../isolation/dependencies.ts";
 import type { ProcessOps } from "../isolation/processes.ts";
-import { PROFILE_TEMPLATE_VERSION } from "../isolation/profile.ts";
 import { SupervisionRegistry } from "../isolation/registry.ts";
 import type { SupervisionClient } from "../isolation/supervision.ts";
 import { terminateOwned, type TerminationOutcome } from "../isolation/terminate.ts";
 import { type CheckRun, type LaunchSpec, writeSpec } from "../isolation/launcher.ts";
-import { resolveExecutable } from "../util/proc.ts";
+import { psProbe } from "../util/process-identity.ts";
 import { ensureDir } from "../state/fsutil.ts";
-import type { LaunchInput, RuntimeAdapter, RuntimeEvent, RuntimeInstall } from "./contract.ts";
+import type { RuntimeAdapter, RuntimeInstall } from "./contract.ts";
+import { workerEnv } from "./env.ts";
 import type { HerdrTransport } from "./herdr.ts";
-import { piBridgeConfig, piLayout } from "./pi.ts";
 
 export interface SessionDeps {
   adapters: Record<string, RuntimeAdapter>;
-  capabilities: CapabilityRegistry;
-  broker: CredentialBroker;
   transport: HerdrTransport;
   supervision: Pick<SupervisionClient, "health" | "watch" | "unwatch">;
   ops: ProcessOps;
   stateDir: string;
-  projectionRoot: string;
-  osVersion: string;
   /** Node executable and launcher entry used inside the pane. */
   launcherArgv: readonly string[];
   /** Coordinator's own pane, used as the explicit split parent. */
   parentPane: string;
-  /** Personal credential stores that must never be readable by workers. */
-  denyRead: readonly string[];
   graceMs: number;
-  /** "assigned" grants the pane's own terminal device (production); "none" for headless fixtures. */
-  terminal?: "assigned" | "none";
-  /** User-approved tools (execution.workerTools) exposed to workers and their checks. */
-  workerTools?: readonly string[];
+  /** Environment workers inherit (default: this process's), minus API-key/endpoint/proxy variables. */
+  hostEnv?: NodeJS.ProcessEnv;
 }
 
 export interface AttemptRequest {
@@ -67,16 +52,14 @@ export interface AttemptRequest {
   authority: ResolvedAuthority;
   brief: SealedBrief;
   briefText: string;
+  /** The role guide, given to the runtime as its system prompt. */
   systemPrompt: string;
-  credentialSource: CredentialSource;
-  /** Required credential validity: remaining execution budget plus margin. */
-  minValidityMs: number;
-  /** Exact-candidate checks the launcher runs itself (contained, no credentials) before the runtime. */
+  /** Exact-candidate checks the launcher runs itself before the runtime. */
   checks?: { runs: CheckRun[]; timeoutMs: number };
   /**
    * Coordinator launch authorization (current approvals, mode, supervision).
-   * Rechecked before credentials are projected, before the pane is created, and
-   * at the last boundary before the launcher command is delivered.
+   * Rechecked before preparation, before the pane is created, and at the last
+   * boundary before the launcher command is delivered.
    */
   authorize?: () => Outcome<true>;
   /** Revision-bound start gate the launcher re-checks immediately before anything starts (W06/F03). */
@@ -86,7 +69,6 @@ export interface AttemptRequest {
 export interface PreflightResult {
   adapter: RuntimeAdapter;
   install: RuntimeInstall;
-  context: CapabilityContext;
   tools: string[];
 }
 
@@ -95,8 +77,6 @@ export interface LaunchedAttempt {
   sessionId: string;
   paneId: string;
   delivery: "sent" | "uncertain";
-  projection: Projection;
-  eventsFile: string;
   specFile: string;
   resultFile: string;
   runtime: ResolvedProfile["runtime"];
@@ -116,10 +96,7 @@ export async function preflight(deps: SessionDeps, request: Pick<AttemptRequest,
   if (!tools.ok) return tools;
   const health = deps.supervision.health();
   if (!health.ok) return health;
-  const context: CapabilityContext = { osVersion: deps.osVersion, runtime: request.profile.runtime, runtimeVersion: install.value.version, policyTemplate: PROFILE_TEMPLATE_VERSION };
-  const capabilities = deps.capabilities.require(requiredCapabilities(request.profile.runtime, request.identity.role), context);
-  if (!capabilities.ok) return capabilities;
-  return success({ adapter, install: install.value, context, tools: tools.value });
+  return success({ adapter, install: install.value, tools: tools.value });
 }
 
 function writePrivate(file: string, content: string): void {
@@ -129,11 +106,11 @@ function writePrivate(file: string, content: string): void {
 
 /**
  * Outcome of a launch. `started: "no"` is proven non-execution: nothing was
- * delivered to a pane (any created pane was closed and the projection
- * destroyed). Once delivery of the launcher command was attempted, a failure is
- * `started: "uncertain"` and carries the owned attempt: the caller must stop it
- * (which revokes any delayed launcher) and establish termination before it
- * releases capacity, worktree ownership, or watcher coverage.
+ * delivered to a pane (any created pane was closed). Once delivery of the
+ * launcher command was attempted, a failure is `started: "uncertain"` and
+ * carries the owned attempt: the caller must stop it (which revokes any
+ * delayed launcher) and establish termination before it releases capacity,
+ * worktree ownership, or watcher coverage.
  */
 export type LaunchOutcome =
   | { ok: true; value: LaunchedAttempt }
@@ -155,108 +132,40 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
   const ready = await preflight(deps, request);
   if (!ready.ok) return ready;
   const authorize = (): Outcome<true> => request.authorize?.() ?? success(true);
-  const beforeCredentials = authorize();
-  if (!beforeCredentials.ok) return beforeCredentials;
-  const { adapter, install, context } = ready.value;
-  const projected = await deps.broker.project({
-    identity: request.identity,
-    profile: request.profile,
-    source: request.credentialSource,
-    projectionRoot: deps.projectionRoot,
-    minValidityMs: request.minValidityMs,
-    capabilities: deps.capabilities,
-    capabilityContext: context,
-  });
-  if (!projected.ok) return projected;
-  const projection = projected.value;
-  const fail = <T>(outcome: Outcome<T>): Outcome<T> => {
-    deps.broker.destroy(projection);
-    return outcome;
-  };
+  const beforePreparation = authorize();
+  if (!beforePreparation.ok) return beforePreparation;
+  const { adapter, install } = ready.value;
 
   const a = request.authority;
-  // User-approved tools: links under their configured names, first on PATH, with narrow read access.
-  const tools = await resolveWorkerTools(deps.workerTools ?? [], path.join(a.outputDir, ".radian-tools"));
-  if (!tools.ok) return fail(tools);
-  const toolsNote = tools.value.names.length ? `\n\n## Approved tools\nOn your PATH (approved by the user): ${tools.value.names.join(", ")}. Use them only as the task requires.` : "";
   const briefFile = path.join(a.outputDir, `brief-${request.identity.attempt}.md`);
   const resultFile = path.join(a.outputDir, "result.json");
-  if (existsSync(resultFile)) return fail(refuse("OWNERSHIP_AMBIGUOUS", "the output directory already holds a result; a fresh attempt needs a fresh exchange directory"));
-  writePrivate(briefFile, `${request.briefText}${toolsNote}\n\n<!-- radian brief ${request.brief.hash} -->\n`);
+  if (existsSync(resultFile)) return refuse("OWNERSHIP_AMBIGUOUS", "the output directory already holds a result; a fresh attempt needs a fresh exchange directory");
+  writePrivate(briefFile, `${request.briefText}\n\n<!-- radian brief ${request.brief.hash} -->\n`);
   const sessionId = randomUUID();
-  const input: LaunchInput = { identity: request.identity, profile: request.profile, authority: a, install, projection, briefFile, resultFile, sessionId };
-  const plan = adapter.buildLaunch(input);
-  if (!plan.ok) return fail(plan);
-  if (request.profile.runtime === "pi") {
-    const layout = piLayout(path.join(install.installRoots[0] ?? "", "bin", "pi"));
-    if (!layout.ok) return fail(layout);
-    const systemPromptFile = path.join(projection.dir, "system-prompt.md");
-    writePrivate(systemPromptFile, request.systemPrompt);
-    writePrivate(path.join(projection.dir, "bridge-config.json"), JSON.stringify(piBridgeConfig(input, layout.value.entry, plan.value.tools, systemPromptFile)));
-  }
-  if (tools.value.names.length) plan.value.env.PATH = `${tools.value.binDir}:${plan.value.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin"}`;
-  const env = assertNoProhibitedEnv(plan.value.env);
-  if (!env.ok) return fail(env);
-
-  const deps2 = await resolveDependencies(plan.value.argv[0]!, [...install.installRoots, ...plan.value.readRoots]);
-  deps2.readFiles = [...new Set([...deps2.readFiles, ...(plan.value.readFiles ?? []), ...tools.value.readFiles])];
-  deps2.readRoots = [...new Set([...deps2.readRoots, ...tools.value.readRoots])];
-  for (const helper of install.helpers) {
-    const resolved = await resolveDependencies(helper);
-    deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];
-    deps2.missing.push(...resolved.missing);
-  }
-  const checkEnv = { PATH: plan.value.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin", HOME: a.scratchDir, TMPDIR: a.scratchDir, LC_ALL: "C" };
-  for (const run of request.checks?.runs ?? []) {
-    const executable = resolveExecutable(run.argv[0] ?? "", checkEnv.PATH);
-    if (!executable) return fail(refuse("CAPABILITY_MISSING", `check '${run.id}' executable was not found on the check PATH`, "Fix the plan's check command; Radian does not widen access automatically."));
-    const resolved = await resolveDependencies(executable);
-    deps2.readRoots = [...new Set([...deps2.readRoots, ...resolved.readRoots])];
-    deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];
-    deps2.missing.push(...resolved.missing);
-  }
-  if (deps2.missing.length > 0) return fail(refuse("CAPABILITY_MISSING", "runtime dependencies could not be resolved narrowly", "Inspect the runtime installation; Radian does not widen access automatically.", { missing: deps2.missing.length }));
+  const plan = adapter.buildLaunch({ identity: request.identity, profile: request.profile, authority: a, install, systemPrompt: request.systemPrompt, briefFile, resultFile, sessionId });
+  if (!plan.ok) return plan;
+  const env = workerEnv(deps.hostEnv ?? process.env, plan.value.env);
 
   const launchDir = path.join(deps.stateDir, "launch", request.identity.attempt);
-  const eventsFile = path.join(deps.stateDir, "supervision", request.identity.assignment, `events-${request.identity.attempt}.jsonl`);
-  ensureDir(path.dirname(eventsFile));
-  const spec: LaunchSpec = {
-    schema: "radian.launch/1",
-    identity: request.identity,
-    stateDir: deps.stateDir,
-    profile: {
-      authority: a,
-      dependencies: { readRoots: deps2.readRoots, readFiles: deps2.readFiles },
-      credentialDir: projection.dir,
-      denyRead: [...deps.denyRead, deps.stateDir],
-      gitPointer: path.join(a.worktree, ".git"),
-    },
-    argv: plan.value.argv,
-    env: plan.value.env,
-    cwd: plan.value.cwd,
-    requiredCapabilities: requiredCapabilities(request.profile.runtime, request.identity.role),
-    capabilityContext: context,
-    terminal: deps.terminal ?? "assigned",
-    events: { file: eventsFile, runtime: request.profile.runtime },
-  };
-  if (request.checks) spec.checks = { runs: request.checks.runs, timeoutMs: request.checks.timeoutMs, logDir: a.outputDir, env: checkEnv };
+  const spec: LaunchSpec = { schema: "radian.launch/2", identity: request.identity, stateDir: deps.stateDir, argv: plan.value.argv, env, cwd: plan.value.cwd };
+  if (request.checks) spec.checks = { runs: request.checks.runs, timeoutMs: request.checks.timeoutMs, logDir: a.outputDir, env };
   if (request.startGate) spec.startGate = request.startGate;
   const specFile = path.join(launchDir, "spec.json");
   const hash = writeSpec(specFile, spec);
 
   // Recheck the pairing and the launch authorization before anything becomes visible.
   const late = recheckResolvedProfile(request.profile);
-  if (!late.ok) return fail(late);
+  if (!late.ok) return late;
   const beforePane = authorize();
-  if (!beforePane.ok) return fail(beforePane);
-  await deps.supervision.watch({ assignment: request.identity.assignment, attempt: request.identity.attempt, ownedRoots: [a.worktree, a.outputDir, a.scratchDir], projectionDirs: [projection.dir] });
+  if (!beforePane.ok) return beforePane;
+  await deps.supervision.watch({ assignment: request.identity.assignment, attempt: request.identity.attempt, ownedRoots: [a.worktree, a.outputDir, a.scratchDir], projectionDirs: [] });
   // The pane's own shell lives outside the worker's owned roots: a Herdr pane keeps its shell until
   // closed, and an unowned process inside an owned root would make every clean stop "unknown".
   // The launcher sets the runtime's working directory itself (spec.cwd).
   const pane = await deps.transport.createPane({ assignment: request.identity.assignment, attempt: request.identity.attempt, parentPane: deps.parentPane, cwd: launchDir });
   if (!pane.ok) {
     await deps.supervision.unwatch(request.identity.assignment);
-    return fail(pane);
+    return pane;
   }
   await new SupervisionRegistry(deps.stateDir, request.identity.assignment).append({ kind: "resource", attempt: request.identity.attempt, resource: "pane", id: pane.value.paneId });
   // Last boundary: nothing has been typed into the pane yet, so a refusal here started nothing.
@@ -264,88 +173,57 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
   if (!beforeDelivery.ok) {
     await deps.transport.closePane(pane.value.paneId, "verified");
     await deps.supervision.unwatch(request.identity.assignment);
-    return fail(beforeDelivery);
+    return beforeDelivery;
   }
   return success({
-    launched: { identity: request.identity, sessionId, paneId: pane.value.paneId, delivery: "uncertain", projection, eventsFile, specFile, resultFile, runtime: request.profile.runtime, model: request.profile.model },
+    launched: { identity: request.identity, sessionId, paneId: pane.value.paneId, delivery: "uncertain", specFile, resultFile, runtime: request.profile.runtime, model: request.profile.model },
     argv: [...deps.launcherArgv, specFile, hash],
   });
 }
 
-/** Incremental reader for the captured runtime event stream. */
-export class EventTail {
-  private offset = 0;
-  private readonly file: string;
-  private readonly adapter: RuntimeAdapter;
-  constructor(file: string, adapter: RuntimeAdapter) {
-    this.file = file;
-    this.adapter = adapter;
-  }
-  read(): RuntimeEvent[] {
-    if (!existsSync(this.file)) return [];
-    const size = statSync(this.file).size;
-    if (size <= this.offset) return [];
-    const text = readFileSync(this.file, "utf8").slice(this.offset);
-    const end = text.lastIndexOf("\n");
-    if (end === -1) return [];
-    const complete = text.slice(0, end + 1);
-    this.offset += Buffer.byteLength(complete, "utf8");
-    return complete.split("\n").filter(Boolean).flatMap((line) => this.adapter.parseEvent(line));
-  }
-}
-
 export interface BindingEvidence {
   runtimeProcess: { pid: number; start: string };
-  sessionId?: string;
-  model?: string;
-  authSource?: string;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** How long the interactive session must stay up after registration before it counts as bound. */
+export const BINDING_STABLE_MS = 1_500;
+
 /**
- * Wait (bounded) for semantic binding: the launcher's process registration and
- * the runtime's session-start plus accepted prompt with matching identity.
+ * Binding: the launcher registered the runtime's interactive session process
+ * for this exact attempt, and it has kept running for BINDING_STABLE_MS (an
+ * interactive session waits for input; one that crashes on startup does not).
+ * A session that exits, or never registers before the deadline, is never bound.
  */
-export async function awaitBinding(deps: Pick<SessionDeps, "stateDir" | "adapters">, launched: LaunchedAttempt, deadlineMs: number, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)), signal?: AbortSignal): Promise<Outcome<BindingEvidence>> {
-  const adapter = deps.adapters[launched.runtime]!;
+export async function awaitBinding(deps: SessionDeps, launched: LaunchedAttempt, deadlineMs: number, _unused?: unknown, signal?: AbortSignal): Promise<Outcome<BindingEvidence>> {
   const registry = new SupervisionRegistry(deps.stateDir, launched.identity.assignment);
-  const tail = new EventTail(launched.eventsFile, adapter);
-  let started: Extract<RuntimeEvent, { kind: "session-started" }> | undefined;
-  let accepted = false;
+  let aliveSince: number | undefined;
   while (Date.now() < deadlineMs) {
     if (signal?.aborted) return refuse("BINDING_UNCONFIRMED", "the wait for binding was interrupted; the attempt is being stopped");
-    for (const event of tail.read()) {
-      if (event.kind === "session-started") started = event;
-      if (event.kind === "prompt-accepted") accepted = true;
-      if (event.kind === "settled" && !started) return refuse("BINDING_UNCONFIRMED", "runtime settled before reporting a session");
+    const entries = registry.entries().filter((e) => e.attempt === launched.identity.attempt);
+    const runtime = entries.find((e) => e.kind === "process" && e.label === "runtime");
+    if (runtime && runtime.kind === "process" && !entries.some((e) => e.kind === "exited")) {
+      const state = psProbe(runtime.identity.pid);
+      if (state.state === "running" && state.start === runtime.identity.start) {
+        aliveSince ??= Date.now();
+        if (Date.now() - aliveSince >= BINDING_STABLE_MS) return success({ runtimeProcess: runtime.identity });
+      } else aliveSince = undefined;
     }
-    const processes = registry.processes(launched.identity.attempt);
-    const exited = registry.entries().some((e) => e.kind === "exited" && e.attempt === launched.identity.attempt);
-    if (started && accepted && processes[0]) {
-      if (launched.runtime === "claude-code") {
-        if (started.sessionId !== launched.sessionId) return refuse("IDENTITY_MISMATCH", "Claude Code reported a different session id");
-        if (started.model !== launched.model) return refuse("PROVIDER_PROVENANCE_UNKNOWN", "Claude Code reported a different model");
-        if (started.authSource !== "none") return refuse("BILLING_PATH_UNVERIFIED", "Claude Code did not report subscription authentication (an API-key source was present or unknown)");
-      }
-      if (launched.runtime === "pi" && (started.sessionId !== launched.sessionId || started.model !== launched.model)) return refuse("IDENTITY_MISMATCH", "Pi bridge reported a different session or model");
-      const evidence: BindingEvidence = { runtimeProcess: processes[0] };
-      if (started.sessionId) evidence.sessionId = started.sessionId;
-      if (started.model) evidence.model = started.model;
-      if (started.authSource) evidence.authSource = started.authSource;
-      return success(evidence);
-    }
-    if (exited && !started) return refuse("BINDING_UNCONFIRMED", "runtime exited before binding");
+    if (entries.some((e) => e.kind === "exited")) return refuse("BINDING_UNCONFIRMED", "the runtime session exited before it was bound");
+    if (entries.some((e) => e.kind === "revoked") && !runtime) return refuse("BINDING_UNCONFIRMED", "the launch was revoked before the session started");
     await sleep(100);
   }
-  return refuse("BINDING_UNCONFIRMED", launched.delivery === "uncertain" ? "launch delivery was uncertain and binding was not observed" : "binding was not observed before the startup deadline", "Stop and reconcile the attempt; the launch is never resent automatically.");
+  return refuse("BINDING_UNCONFIRMED", launched.delivery === "uncertain" ? "launch delivery was uncertain and the session was not observed" : "the session did not start before the startup deadline", "Stop and reconcile the attempt; the launch is never resent automatically.");
 }
 
 /**
  * Stop an attempt: revoke any not-yet-started launcher first, then verify
- * termination; the projection is destroyed (cleanup, not proof of stopping) and
- * the pane is closed and the watch released only when termination is verified.
- * Idempotent: a repeated stop re-establishes the same postcondition.
+ * termination; the pane is closed and the watch released only when
+ * termination is verified. Idempotent: a repeated stop re-establishes the same
+ * postcondition.
  */
-export async function stopAttempt(deps: SessionDeps, launched: Pick<LaunchedAttempt, "identity" | "projection" | "paneId">, authority: ResolvedAuthority): Promise<{ termination: TerminationOutcome; paneClosed: boolean }> {
+export async function stopAttempt(deps: SessionDeps, launched: Pick<LaunchedAttempt, "identity" | "paneId">, authority: ResolvedAuthority): Promise<{ termination: TerminationOutcome; paneClosed: boolean }> {
   const registry = new SupervisionRegistry(deps.stateDir, launched.identity.assignment);
   await registry.revoke(launched.identity.attempt);
   const termination = await terminateOwned(deps.ops, {
@@ -355,7 +233,6 @@ export async function stopAttempt(deps: SessionDeps, launched: Pick<LaunchedAtte
     protectedPids: [process.pid],
     graceMs: deps.graceMs,
   });
-  deps.broker.destroy(launched.projection);
   await registry.append({ kind: "terminated", attempt: launched.identity.attempt, postcondition: termination.postcondition, survivors: termination.survivors.length, discovered: termination.discovered });
   const closed = await deps.transport.closePane(launched.paneId, termination.postcondition);
   if (termination.postcondition === "verified") await deps.supervision.unwatch(launched.identity.assignment);

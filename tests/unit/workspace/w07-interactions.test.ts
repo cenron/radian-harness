@@ -11,7 +11,6 @@ import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import { success } from "../../../src/contracts/blockers.ts";
 import { RuntimeWorkerDriver } from "../../../src/coordinator/driver.ts";
-import { CapabilityRegistry } from "../../../src/isolation/capabilities.ts";
 import { SupervisionRegistry } from "../../../src/isolation/registry.ts";
 import type { HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { confinedAccessSupported } from "../../../src/util/confined-fs.ts";
@@ -20,7 +19,7 @@ import { processRuntime } from "../../../src/ui/workspace-runtime.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
 import { candidateRound, controllerOver, human, plan, world } from "../helpers/coordinator-world.ts";
-import { deps, fakeCodex, native, source, verifyAll } from "../helpers/session-fixture.ts";
+import { deps, fakeCodex, native } from "../helpers/session-fixture.ts";
 import { FakePiProcess, workspaceWorld } from "../helpers/workspace-world.ts";
 
 const opts = { skip: confinedAccessSupported() ? false : "needs macOS O_NOFOLLOW_ANY" };
@@ -44,9 +43,7 @@ test("a plan rejected after the view was switched away still stops A's delayed l
       }
       return { code: 0, stdout: "{}", stderr: "", timedOut: false };
     };
-    await verifyAll(new CapabilityRegistry(w.stateDir), "developer");
-    w.coordinator.deps.driver = new RuntimeWorkerDriver({ ...deps(l, fakeCodex(l, "bind-and-wait"), calls, true, runner), stateDir: w.stateDir, capabilities: new CapabilityRegistry(w.stateDir), projectionRoot: path.join(l.root, "projections") });
-    w.coordinator.deps.credentialSourceFor = () => source({ count: 0 });
+    w.coordinator.deps.driver = new RuntimeWorkerDriver({ ...deps(l, fakeCodex(l, "bind-and-wait"), calls, true, runner), stateDir: w.stateDir });
     w.coordinator.deps.startupMs = 4_000;
     const outcome = await w.coordinator.runAssignment(plan(w, "developer"));
     await new Promise((r) => setTimeout(r, 4_000));

@@ -1,6 +1,6 @@
 # Scout role
 
-Runtime-neutral role guidance. Enforcement comes from the resolved authority and containment, not from this document.
+Runtime-neutral role guidance. You run as a normal interactive session in your own Herdr pane; your tool set comes from Radian. Investigate and report; do not change files outside your output directory.
 
 ## Purpose
 

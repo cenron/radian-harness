@@ -1,6 +1,6 @@
 # Reviewer role
 
-Runtime-neutral role guidance. Reviewers are read/report-only; enforcement comes from the resolved authority (no shell, installation, Git mutation, or general network tools) and containment, not from this document.
+Runtime-neutral role guidance. Reviewers are read/report-only: your tools exclude shell and editing, and the only file you write is your result in the output directory. You run as a normal interactive session in your own Herdr pane.
 
 ## Purpose
 

@@ -2,15 +2,15 @@
 
 A Pi-native harness under implementation for agentic software engineering, maintained outside the workspaces where it is used.
 
-**Status: [workspace-first](docs/planning/workspace-first/README.md) source implementation (install into an empty workspace, then create, select, and switch projects in one Pi interface) and the corrections for the [independent review](docs/research/remediation-follow-up-review.md)'s remaining findings have offline evidence on the `workspace-first` branch ([verification history](docs/research/implementation-verification.md)); an independent follow-up review is pending. No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
+**Status: MVP.** Install into an empty workspace, then create, select, and switch projects in one Pi interface. Workers run like claude-kit: each is the normal interactive session of its runtime in its own Herdr pane and git worktree, with the right model, effort, and role prompt. Worker isolation (an OS sandbox) and capability verification were removed for the MVP and are deferred ([proposal 0017](docs/proposals/0017-interactive-worker-sessions.md)). No release exists.
 
-| Runtime | Implemented | Offline evidence | Launch |
-| --- | --- | --- | --- |
-| Pi (non-Anthropic subscription profiles) | SDK bridge with read-only credentials | Public SDK compatibility, refresh/API-key/clamp refusal in a network-denied sandbox | disabled |
-| Codex CLI | `codex exec --json` adapter | Emitted flags match the installed CLI | disabled |
-| Claude Code (only route for Anthropic models) | `claude -p` stream-json adapter | Emitted flags match the installed CLI | disabled |
+| Runtime | Worker session | Offline evidence |
+| --- | --- | --- |
+| Claude Code (only route for Anthropic models; the default) | interactive `claude` | Emitted flags match the installed CLI |
+| Codex CLI | interactive `codex` | Emitted flags match the installed CLI |
+| Pi (non-Anthropic subscription profiles) | interactive `pi` | Emitted flags match the installed CLI |
 
-- **[User and operations guide](docs/user/README.md)** — installing into a workspace, configuration, the Pi interface, workflow, budgets, capabilities, diagnostics, and limitations.
+- **[User and operations guide](docs/user/README.md)** — installing into a workspace, configuration, the Pi interface, how workers run, workflow, budgets, diagnostics, and limitations.
 - [Release acceptance checklist](docs/user/release-acceptance.md) and [development guide](docs/development.md).
 
 ## Direction
@@ -22,7 +22,7 @@ A Pi-native harness under implementation for agentic software engineering, maint
 - Default eligible non-Anthropic workers to Pi, with JSON task-based runtime/model/effort dispatch profiles. Anthropic models run only through Claude Code's supported subscription path; invalid pairings block without silent rerouting or paid fallback.
 - Maintain durable state, worker identity, reliable delivery, healthy supervision, and safe cleanup.
 - Separate human approvals, automated verification, and agent instructions.
-- Enforce worker role boundaries, require resource containment by default, and require public PII/secrets checks as the publication baseline.
+- Enforce worker role boundaries through tool sets and approved write scopes (OS-level isolation is deferred past the MVP), and require public PII/secrets checks as the publication baseline.
 
 ## Planning documents
 

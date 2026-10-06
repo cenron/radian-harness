@@ -2,6 +2,16 @@
 
 ## Current checkpoint — resume here
 
+- **Newest (2026-10-06): MVP pivot, user decision (proposal 0017).**
+  - Workers now run like claude-kit: each is its runtime's normal interactive session (Claude Code, Codex, or Pi) in an owned Herdr pane and git worktree, with model, effort, role system prompt, tools, and the first task message on the command line.
+  - Completion is a complete `result.json`. Radian then stops the session with verified termination and closes the pane.
+  - **Removed on the user's instruction:** `sandbox-exec` containment, credential projection, the capability gate and its verification tooling, worker tools, the Pi SDK bridge, and the feasibility suites.
+  - Workers use the user's own logins and environment, minus API-key, endpoint, and proxy variables.
+  - `AGENTS.md`, the user guide, the README, and the release checklist are updated.
+  - Offline: typecheck, unit, and integration suites pass. Not yet run live in the new mode.
+  - Possible first-run prompts: Claude Code or Codex may ask to trust a new worktree folder in the worker pane, and the user can answer there.
+  - The entries below describe the earlier, now-superseded isolation work and are kept as history.
+
 - **Latest (2026-10-06, user-authorized commits/pushes to `main`):**
   - `7d3d7bf`: coordinator skill fix. The model had invented a task id, so approvals failed with `unknown task`.
   - `aa14a83` / `b6a5236`: [proposal 0016](../proposals/0016-guided-approvals.md) guided approvals (option A). The coordinator requests PRD/spec, start (plan + Build), and merge dialogs that Radian renders from disk, with Cancel first. Tasks are created on PRD approval. The three approval points are unchanged.

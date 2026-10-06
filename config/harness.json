@@ -10,8 +10,6 @@
     "startupTimeoutSeconds": 120
   },
   "execution": {
-    "unverifiedCapabilities": "deny",
-    "containment": "required",
     "network": "ordinary-outbound",
     "blanketPermissionBypass": false
   },

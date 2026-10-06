@@ -6,12 +6,22 @@ import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { piLayout } from "../../src/runtimes/pi.ts";
 import { resolveExecutable } from "../../src/util/proc.ts";
 import { removeDir, tempDir } from "../unit/helpers/fixture.ts";
 
-const executable = resolveExecutable("pi", process.env.PATH);
-const layout = executable ? piLayout(realpathSync(executable)) : undefined;
+/** Pi's package entry and Node interpreter in the reviewed Homebrew layout (test-only; workers run the Pi CLI). */
+function piPackage(): { ok: true; value: { node: string; entry: string } } | undefined {
+  const executable = resolveExecutable("pi", process.env.PATH);
+  if (!executable) return undefined;
+  const root = path.dirname(path.dirname(realpathSync(executable)));
+  const entry = path.join(root, "libexec", "lib", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js");
+  const launcher = path.join(root, "libexec", "bin", "pi");
+  if (!existsSync(entry) || !existsSync(launcher)) return undefined;
+  const firstLine = spawnSync("/usr/bin/head", ["-1", launcher], { encoding: "utf8" }).stdout.trim();
+  if (!firstLine.startsWith("#!/")) return undefined;
+  return { ok: true, value: { node: realpathSync(firstLine.slice(2)), entry } };
+}
+const layout = piPackage();
 const available = process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec") && layout?.ok;
 
 test("Calm: native Pi TUI renders tools without result callbacks in off/on, expanded, partial, and error states", { skip: available ? false : "reviewed Pi layout and macOS sandbox required" }, () => {

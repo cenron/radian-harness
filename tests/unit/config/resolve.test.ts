@@ -25,7 +25,7 @@ test("shipped defaults: three workers, 30 minutes, three rounds, one recovery, f
   assert.equal(harness.assignment.executionLimitMinutes, 30);
   assert.equal(harness.assignment.candidateRounds, 3);
   assert.equal(harness.assignment.automaticRecoveries, 1);
-  assert.equal(harness.execution.unverifiedCapabilities, "deny");
+  assert.equal(harness.execution.blanketPermissionBypass, false);
   assert.equal(dispatch.default, "developer-standard");
   assert.equal(dispatch.profiles["pi-default"]?.runtime, "pi");
   assert.equal(dispatch.profiles["claude-code"]?.provider, "anthropic");
@@ -51,7 +51,6 @@ test("shipped default selects standard development without enabling capabilities
     assert.equal(selection.value.profile.provider, "anthropic");
     assert.equal(selection.value.profile.effort, "medium");
   }
-  assert.equal(result.value.harness.execution.unverifiedCapabilities, "deny");
 });
 
 test("shipped role/task rules resolve exact profiles with explicit coordinator choices", () => {
@@ -129,6 +128,7 @@ test("overrides cannot exceed product invariants or weaken fail-closed policy", 
     { assignment: { candidateRounds: 4 } },
     { assignment: { automaticRecoveries: 2 } },
     { execution: { unverifiedCapabilities: "allow" } },
+    { execution: { containment: "required" } },
     { execution: { blanketPermissionBypass: true } },
     { concurrency: { maxActiveWorkers: 0 } },
     { surprise: true },

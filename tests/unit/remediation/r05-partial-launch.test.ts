@@ -12,14 +12,13 @@ import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { RuntimeWorkerDriver } from "../../../src/coordinator/driver.ts";
-import { CapabilityRegistry } from "../../../src/isolation/capabilities.ts";
 import { SupervisionRegistry } from "../../../src/isolation/registry.ts";
 import type { HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { launchAttempt, stopAttempt } from "../../../src/runtimes/session.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
 import { type World, human, plan, world } from "../helpers/coordinator-world.ts";
-import { deps, fakeCodex, native, request, source, verifyAll } from "../helpers/session-fixture.ts";
+import { deps, fakeCodex, native, request } from "../helpers/session-fixture.ts";
 
 type RunBehaviour = "refuse" | "timeout" | "intent-then-refuse" | "delayed-launcher";
 
@@ -59,11 +58,9 @@ async function productionWorld(behaviour: RunBehaviour) {
   const l = layout();
   const calls: string[][] = [];
   let mode = behaviour;
-  await verifyAll(new CapabilityRegistry(w.stateDir), "developer");
-  const sessionDeps = { ...deps(l, fakeCodex(l, "exit-early"), calls, true, runner(calls, () => mode, () => w.stateDir)), stateDir: w.stateDir, capabilities: new CapabilityRegistry(w.stateDir), projectionRoot: path.join(l.root, "projections") };
+  const sessionDeps = { ...deps(l, fakeCodex(l, "exit-early"), calls, true, runner(calls, () => mode, () => w.stateDir)), stateDir: w.stateDir };
   w.coordinator.deps.driver = new RuntimeWorkerDriver(sessionDeps);
   const reads = { count: 0 };
-  w.coordinator.deps.credentialSourceFor = () => source(reads);
   return { w, l, calls, reads, setMode: (m: RunBehaviour) => (mode = m), cleanup: () => (removeDir(w.root), removeDir(l.root)) };
 }
 
@@ -72,25 +69,22 @@ function registryOf(w: World) {
   return { assignment, registry: new SupervisionRegistry(w.stateDir, assignment) };
 }
 
-const projections = (l: { root: string }) => (existsSync(path.join(l.root, "projections")) ? readdirSync(path.join(l.root, "projections")).filter((x) => !x.startsWith(".")) : []);
 
 test("R05: the session reports a delivery failure after pane creation as an owned, possibly-started launch", { skip: process.platform === "darwin" ? false : "dependency resolution requires macOS" }, async () => {
   const l = layout();
   try {
-    await verifyAll(new CapabilityRegistry(l.state), "developer");
     const calls: string[][] = [];
     const d = deps(l, fakeCodex(l, "exit-early"), calls, true, runner(calls, () => "refuse", () => l.state));
-    const out = await launchAttempt(d, { ...request(l), credentialSource: source({ count: 0 }) });
+    const out = await launchAttempt(d, { ...request(l) });
     assert.equal(out.ok, false);
     assert.equal((out as { started?: string }).started, "uncertain", "a command that may have been typed is not a verified non-start");
-    const partial = (out as { attempt?: { paneId: string; projection: { dir: string } } }).attempt;
-    assert.ok(partial?.paneId, "the owned pane and projection are carried for cleanup");
+    const partial = (out as { attempt?: { paneId: string } }).attempt;
+    assert.ok(partial?.paneId, "the owned pane is carried for cleanup");
     // Cleanup revokes the delayed launch, then establishes the postcondition; it is idempotent.
     const stopped = await stopAttempt(d, partial as never, request(l).authority);
     assert.equal(stopped.termination.postcondition, "verified");
     const again = await stopAttempt(d, partial as never, request(l).authority);
     assert.equal(again.termination.postcondition, "verified");
-    assert.ok(!existsSync(partial!.projection.dir));
   } finally {
     removeDir(l.root);
   }
@@ -110,7 +104,6 @@ test("R05: refused delivery and an error-response delivery are stopped and recon
       assert.ok(registry.entries().some((e) => e.kind === "terminated" && e.attempt === attempt.id && e.postcondition === "verified"), "termination was established before release");
     }
     assert.equal((await pw.w.capacity.list()).length, 0, "released only after verified termination");
-    assert.deepEqual(projections(pw.l), [], "credential projections destroyed during cleanup");
     assert.ok(pw.calls.filter((c) => c[1] === "close").length >= 2, "owned panes closed after verified termination");
   } finally {
     pw.cleanup();

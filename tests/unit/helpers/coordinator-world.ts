@@ -213,7 +213,6 @@ export async function world() {
     artifactHash: (relative) => artifactHash(projectDir, relative),
     artifactContent: (relative) => artifactContent(projectDir, relative),
     roleGuide: (role) => readFileSync(path.join(WORKERS, `${role}.md`), "utf8"),
-    credentialSourceFor: () => ({ runtime: "codex", provider: "openai", describe: "unused by fake driver", read: async () => ({ ok: false, blocker: { code: "CREDENTIAL_UNAVAILABLE", message: "fake" } }) }),
     supervisionHealthy: () => success(true as const),
     startupMs: 10_000,
   });

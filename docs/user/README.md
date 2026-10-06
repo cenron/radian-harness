@@ -1,6 +1,6 @@
 # Radian Harness — user and operations guide
 
-**Status:** the harness is implemented, but **no worker runtime is verified or supported yet**. Every worker launch is refused until all of its required runtime capabilities have recorded verification evidence (see [Capabilities](#capabilities-and-why-workers-are-blocked)). Planning, approvals, status, and installer operations work without workers. Nothing here is a release.
+**Status:** MVP. Workers run as the normal interactive sessions of their runtimes (Claude Code, Codex, or Pi) in their own Herdr panes, like claude-kit. There is no OS sandbox and no capability gate: isolation is deferred past the MVP (proposal 0017). Nothing here is a release.
 
 Radian extends [Pi](https://pi.dev/docs/latest) as the coordinator of a spec-driven, human-approved engineering workflow. Workers run in visible [Herdr](https://herdr.dev/docs/how-to-work/) panes using Pi (non-Anthropic subscription profiles), Codex CLI, or Claude Code (the only route for Anthropic models).
 
@@ -8,7 +8,7 @@ Radian extends [Pi](https://pi.dev/docs/latest) as the coordinator of a spec-dri
 
 | Component | Reviewed version | Notes |
 | --- | --- | --- |
-| macOS | 27 | Native `sandbox-exec` containment (deprecated by Apple; see limitations) |
+| macOS | 27 | Process supervision uses macOS `ps`/`lsof` |
 | Node.js | ≥ 22.18 | Runs Radian's TypeScript directly |
 | Git | 2.42+ (2.56 reviewed) | `--attr-source` and `merge-tree --write-tree` are required |
 | Pi | 1.0.2 | Coordinator and default worker runtime |
@@ -74,11 +74,7 @@ Shipped defaults live in the harness `config/`. Overrides merge in this order: s
 
 `harness.json` (defaults): `concurrency.maxActiveWorkers` 3 (workspace-wide, all roles and runs), `assignment.executionLimitMinutes` 30, `assignment.candidateRounds` 3 (cannot be raised), `assignment.automaticRecoveries` 1 (cannot be raised), `assignment.startupTimeoutSeconds`, `supervision.leaseSeconds`, `supervision.terminationGraceSeconds`, `interface.calmDefault`. Fail-closed execution policy fields cannot be weakened.
 
-`execution.workerTools` (default none) is the user-approved list of extra tools workers and their contained checks may run, as absolute paths. Example, in `<workspace>/.radian/config/harness.json`: `{ "execution": { "workerTools": ["/opt/homebrew/bin/godot"] } }`.
-- Each tool is exposed under its own name, first on the worker's PATH.
-- Read access is granted only to its resolved binary, or its whole `.app` bundle, plus its libraries. Other programs next to it stay unreachable.
-- The brief names the approved tools.
-- An invalid or missing entry refuses the launch rather than widening access.
+Workers inherit your normal environment (PATH, logins, installed tools such as Godot), minus API-key, custom-endpoint, and proxy variables.
 
 `dispatch.json` holds named profiles (`runtime`, `provider`, `model`, `effort`), `aliases` (`"@name"` references), and routing `rules` whose `use` lists are **candidate sets for the coordinator to choose from, never fallback chains**. `selection.onUnavailable` accepts only `block`. The configured starting policy is:
 
@@ -95,7 +91,7 @@ Shipped defaults live in the harness `config/`. Overrides merge in this order: s
 | `reviewer-standard` | `claude-sonnet-5-5` | Claude Code | medium |
 | `safety-review` | `claude-opus-5-5` | Claude Code | high |
 
-Compatibility names `pi-default`, `codex`, and `claude-code` remain configured for standard work. Model access was user-confirmed; the policy is not a measured quality/usage ranking and does not establish entitlement for other installations or runtime capability/billing verification. Worker execution remains fail-closed on missing verification.
+Compatibility names `pi-default`, `codex`, and `claude-code` remain configured for standard work. Model access was user-confirmed; the policy is not a measured quality/usage ranking and does not establish entitlement for other installations.
 
 Rule conditions are coordinator guidance, not an automatic classifier. Each assignment must explicitly select its rule/profile with a rationale, assign a profile in the approved plan, or use a human override. With no selection, **every role uses the global `developer-standard` default**. Use `tester-fast` only for prescribed check execution; regression design and nontrivial diagnosis use `tester-analysis`. Safety-critical review uses `safety-review`. Workers default to Anthropic models through Claude Code, by the user's choice for plan usage; Anthropic models never run through Pi or Codex (proposal 0015). The `-pi` and `-codex` OpenAI counterparts are explicit choices, never fallback chains. Model/runtime changes or effort escalation require explicit approval.
 
@@ -113,14 +109,14 @@ Provider rules (proposal 0015): Anthropic models (Opus, Sonnet, Haiku, Fable, an
 
 Start Pi at the workspace root (or inside a registered project for direct entry). Worker runs additionally need Pi to run inside a Herdr pane. Project sessions start in **PLAN**; the status line shows PLAN/BUILD, the project, live workers, Calm, and workspace capacity.
 
-**Quick flow (proposal 0016):** select a project with `/projects <name>`, shape the PRD in conversation, and approve it when the coordinator asks. Then say "start" and approve the plan, and later approve the merge. Each decision is a Radian dialog built from the files on disk: it shows the file, its content hash, the task, and for a start the exact check commands and worker profiles, or for a merge the integration summary. **Cancel** is the initial selection, so Enter alone or Escape records nothing. Approving the PRD creates the task, so you never type task ids or paths. Approving the start also switches that project to Build. A run opens automatically. Dialogs need an interactive terminal; the coordinator can only request them. Until runtime capabilities are verified, dispatch after a start is still refused with `CAPABILITY_UNVERIFIED`.
+**Quick flow (proposal 0016):** select a project with `/projects <name>`, shape the PRD in conversation, and approve it when the coordinator asks. Then say "start" and approve the plan, and later approve the merge. Each decision is a Radian dialog built from the files on disk: it shows the file, its content hash, the task, and for a start the exact check commands and worker profiles, or for a merge the integration summary. **Cancel** is the initial selection, so Enter alone or Escape records nothing. Approving the PRD creates the task, so you never type task ids or paths. Approving the start also switches that project to Build. A run opens automatically. Dialogs need an interactive terminal; the coordinator can only request them. After the start, the coordinator dispatches the workers; each opens in its own Herdr pane.
 
 The typed commands below remain available:
 
 - **Shift+Tab** toggles Plan/Build in managed sessions only (Tab stays autocomplete; native `/thinking` stays available). Mode changes never approve or start work. Entering Plan blocks new modifying dispatch immediately and asks before pausing live workers.
 - `/radian status`, `/radian start` (optional: runs open automatically), `/radian task add <title>`.
 - `/radian approve|reject <spec|brief|plan|integration> <task> <artifact-path>` — interactive only, with a confirmation showing the artifact hash (and, for integration, the exact candidate, target, checks, review, risks, and gaps). Add `lightweight` after a brief to choose the lightweight-brief path for a small fix.
-- `/radian decide <decision-id> <answer>`, `/radian integrate <task>`, `/radian pause|cancel <assignment>`, `/radian grant-rounds <task> <n>`, `/radian authorize-recovery <assignment>`, `/radian retro`, `/radian capabilities`, `/radian calm on|off`.
+- `/radian decide <decision-id> <answer>`, `/radian integrate <task>`, `/radian pause|cancel <assignment>`, `/radian grant-rounds <task> <n>`, `/radian authorize-recovery <assignment>`, `/radian retro`, `/radian calm on|off`.
 
 The coordinator model can read and search with Radian's confined `read`, `grep`, `find`, and `ls` (same names as Pi's; every path is resolved inside the selected project, links are never followed, and other projects and Radian's private state are out of reach), inspect Git through the fixed read-only `radian_git_inspect` tool (status, log, diff, show with exact commit ids), write drafts under `.radian/planning/` only through `radian_write_artifact` (which refuses any link in the path), call `radian_status`, `radian_dispatch`, and `radian_assemble`, and request decision dialogs with `radian_request_approval`, `radian_request_start`, and `radian_request_integration` (model-only tools; they cannot be called from other tools). It has no shell: every `bash` call is blocked in both modes, because commands that look read-only can still start helpers or write files outside worker containment. It cannot approve anything itself, use Pi's `write`/`edit`, edit production files, or use MCP/codemode, tool search, other extensions', or unknown tools in managed sessions (also when called from inside another tool); only the allowed tools are declared to it. Artifacts that are links are never hashed or approved. Without an interactive terminal, approvals and decisions return `NONINTERACTIVE_APPROVAL_REQUIRED`.
 
@@ -137,21 +133,22 @@ PRD/spec (or a human-chosen lightweight brief) → plan → developer and indepe
 - **Quota exhaustion** preserves work and opens a decision. One retry with the unchanged profile needs your authorization and a reliably reported reset time. No paid spillover, fallback, or background retry.
 - **Unknown termination** (a worker that could not be proven stopped) keeps its capacity slot, blocks replacement until reconciled, stays monitored and counted as live work, is stopped again on supervision loss, and keeps Pi from orderly releasing the watcher when you quit.
 - **Required checks** come only from the approved plan: declare them in a `radian-checks` block (one `id: ["argv", …]` per line). A check the approved plan does not declare, or a different command under the same id, is refused — also after repairs and restarts; changing one needs a newly approved plan revision.
-- **Candidate checks** run on the exact current candidate with source, tests, and config read-only (only declared untracked output directories are writable). The contained launcher runs each approved check command itself, without credentials, and records its exit status; Radian counts a check only from that record, after verified termination and after confirming the checkout still holds exactly the candidate.
+- **Candidate checks** run on the exact current candidate; only declared untracked output directories may be written. The launcher runs each approved check command itself in the worktree and records its exit status; Radian counts a check only from that record, after verified termination and after confirming the checkout still holds exactly the candidate.
 - **Approvals are rechecked at every launch**, including recovery, resume, and quota retry: a rejected, invalidated, edited, or deleted spec/brief/plan stops a new attempt from starting. This holds up to the actual start: an approval change first revokes every launch that has not started yet, and the launcher re-checks the approved artifacts immediately before it starts anything; a worker that had already started keeps running.
 - **Supervision loss** (the watcher exiting or stalling, a heartbeat failure, or the coordinator losing its project lease) stops every live worker the coordinator owns and blocks new dispatch until the session is restarted; nothing restarts automatically.
 - **Integration** requires your approval bound to the exact candidate and target, passing evidence for every required check on that candidate, a review of the same candidate without blocking findings, an unmoved target, and a clean target checkout. Radian never stashes, rebases, squashes, resets, or cherry-picks.
 
-## Capabilities and why workers are blocked
+## How workers run
 
-Before any worker launch, Radian requires recorded verification evidence — bound to the OS major version, runtime version, toolchain, and policy template — for every capability the runtime and role need: native containment (filesystem, process signals, network, dependency audit), independent supervision (watcher, descendant termination, watcher-loss response), the runtime's contained launch, tool restrictions, assignment binding, and cancellation, non-refreshing credential access, the subscription billing path, and owned Herdr panes. Nothing is verified by default, so every launch returns `CAPABILITY_UNVERIFIED` before any credential is read. `/radian capabilities` lists the gaps.
+Each dispatched worker gets its own git worktree and its own Herdr pane next to Pi. Radian's launcher starts the runtime's normal interactive session in that pane:
 
-**Verifying Claude Code** (per project; evidence lives in the project's private state):
+- **Claude Code:** `--model`, `--effort`, the role guide via `--append-system-prompt`, a fresh `--session-id`, the role's tools with `--permission-mode dontAsk`, and no MCP servers.
+- **Codex:** `--model`, `-c model_reasoning_effort`, the role guide as `developer_instructions`, its own `--sandbox` mode by role, and `--ask-for-approval never`.
+- **Pi:** `--provider`, `--model`, `--thinking`, the role guide via `--append-system-prompt`, and the role's tools. Project-local Pi files and extensions are not loaded, so a worker never becomes a coordinator.
 
-- `npm run verify:capabilities -- --tier 1|2|3` (in the harness checkout) prints PASS/FAIL per item and records nothing. Tier 1 checks the sandbox, process and network limits, dependency access, and supervision. Tier 2 runs the real Claude Code under the worker profile with a scoped, read-only copy of its Keychain login; macOS may ask for Keychain access, and no model call is made. Tier 3 runs three tiny Claude Haiku tasks on your plan (binding, reviewer tool restrictions, cancellation, and billing signals) and opens/closes one Herdr pane next to the caller; it must run inside Herdr.
-- `/radian capabilities verify` in an interactive Pi session runs all three tiers, shows the results, and records **only the passed items, only if you choose Record** (Cancel is the initial selection). Recording the billing item confirms you checked your Claude usage page. Machine items are bound to the macOS major version and policy template; runtime items also to the Claude Code version, so upgrading Claude Code or macOS closes the gate until you verify again.
+The first message tells the worker to read its brief, which includes copies of the approved spec and plan, and to write `result.json` from the template in the brief. You can watch, or type to the worker. When a complete result appears, Radian stops the session, confirms it stopped, collects the result, and closes the pane. A worker that stops without a result stays open for you.
 
-What the containment layer does when enabled: a deny-default `sandbox-exec` profile with task-scoped reads and writes, private output and scratch, protected Git metadata, coordinator state, policy and credential projections, no personal credential stores, ordinary outbound networking (no destination isolation is claimed), owned local ports, and the assigned terminal only. Credentials are projected read-only for the selected subscription provider only; workers never refresh them.
+Workers use your own runtime logins. There is no OS sandbox: a worker can read and change files outside its worktree while it runs, limited only by its runtime's tool and permission settings. It still cannot get changes into your branch without your merge approval.
 
 ## Evidence, privacy, and metrics
 
@@ -159,7 +156,7 @@ Run state, approvals, briefs, results, supervision registries, captured runtime 
 
 ## Diagnostics
 
-Refusals are structured blockers with stable codes (for example `APPROVAL_STALE`, `CAPACITY_FULL`, `TARGET_DRIFT`, `CAPABILITY_UNVERIFIED`) and a safe next action. Coordinator guard denials name rules such as `RH-COORD-PRODUCTION-WRITE`; containment diagnostics name rules such as `RH-DENY-PROTECTED`. Nothing is retried, rerouted, or widened automatically.
+Refusals are structured blockers with stable codes (for example `APPROVAL_STALE`, `CAPACITY_FULL`, `TARGET_DRIFT`) and a safe next action. Coordinator guard denials name rules such as `RH-COORD-PRODUCTION-WRITE`. Nothing is retried, rerouted, or widened automatically.
 
 ## Maintaining the harness
 
@@ -173,10 +170,9 @@ See the [development guide](../development.md) for the toolchain, publication sa
 
 ## Known limitations
 
-- `sandbox-exec` is deprecated; availability is not proof of complete containment. Path metadata is readable.
+- Workers are not sandboxed (isolation is deferred past the MVP).
 - Process identity uses sampled `ps` start times; descendant discovery is not exhaustive. Processes found only by working directory are never signalled and make termination `unknown`.
 - Candidate and integration checkouts do not run project filter drivers (for example large-file smudge filters).
-- Worker panes show launcher-rendered event summaries, not the runtimes' interactive UIs; Herdr does not detect them as agents.
 - The managed editor conflicts with any other extension that replaces Pi's editor.
 - Switching projects is exercised offline through Pi's RPC mode (the same session replacement as the terminal UI); the terminal UI itself is not automated. Directory listings and delegated searches re-resolve paths after validation, so only a concurrent change to the project by you (never by the coordinator) could race them.
 - Each namespace-safe file step starts a short-lived Node process (project creation takes about a second).

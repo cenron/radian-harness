@@ -13,13 +13,12 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { RuntimeWorkerDriver } from "../../../src/coordinator/driver.ts";
-import { CapabilityRegistry } from "../../../src/isolation/capabilities.ts";
 import { SupervisionRegistry } from "../../../src/isolation/registry.ts";
 import type { HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
 import { type World, human, plan, world } from "../helpers/coordinator-world.ts";
-import { deps, fakeCodex, native, source, verifyAll } from "../helpers/session-fixture.ts";
+import { deps, fakeCodex, native } from "../helpers/session-fixture.ts";
 
 const DELAY_MS = 1_200;
 
@@ -44,10 +43,8 @@ async function productionWorld(onRun: (w: World) => Promise<void> | void) {
   const w = await world();
   const l = layout();
   const calls: string[][] = [];
-  await verifyAll(new CapabilityRegistry(w.stateDir), "developer");
-  const sessionDeps = { ...deps(l, fakeCodex(l, "bind-and-wait"), calls, true, delayedPane(calls, () => onRun(w))), stateDir: w.stateDir, capabilities: new CapabilityRegistry(w.stateDir), projectionRoot: path.join(l.root, "projections") };
+  const sessionDeps = { ...deps(l, fakeCodex(l, "bind-and-wait"), calls, true, delayedPane(calls, () => onRun(w))), stateDir: w.stateDir };
   w.coordinator.deps.driver = new RuntimeWorkerDriver(sessionDeps);
-  w.coordinator.deps.credentialSourceFor = () => source({ count: 0 });
   w.coordinator.deps.startupMs = 4_000;
   return { w, l, calls, cleanup: () => (removeDir(w.root), removeDir(l.root)) };
 }

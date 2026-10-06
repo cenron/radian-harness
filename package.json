@@ -38,8 +38,7 @@
     "publication-check": "node scripts/publication-check.ts",
     "check": "npm run typecheck && npm test && npm run publication-check",
     "workspace": "node scripts/radian-workspace.ts",
-    "verify": "node scripts/verify.ts",
-    "verify:capabilities": "node scripts/verify-capabilities.ts"
+    "verify": "node scripts/verify.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

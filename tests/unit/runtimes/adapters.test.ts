@@ -1,15 +1,18 @@
+// Runtime adapters: each worker is its runtime's normal interactive session
+// (no print/exec mode), started with the exact model and effort, the role
+// guide as its system prompt, an explicit tool set, and the first task message.
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { evaluateProfile, type ResolvedProfile } from "../../../src/config/provider-policy.ts";
-import { resolveAuthority, type ResolvedAuthority } from "../../../src/contracts/authority.ts";
+import { resolveAuthority } from "../../../src/contracts/authority.ts";
 import { newId, type AssignmentIdentity, type Role } from "../../../src/contracts/identity.ts";
-import type { Projection } from "../../../src/isolation/credentials.ts";
 import { CLAUDE_FORBIDDEN_FLAGS, createClaudeAdapter } from "../../../src/runtimes/claude.ts";
 import { CODEX_FORBIDDEN_FLAGS, createCodexAdapter } from "../../../src/runtimes/codex.ts";
 import type { LaunchInput, RuntimeInstall } from "../../../src/runtimes/contract.ts";
-import { classify, classifyText, sanitizeSummary } from "../../../src/runtimes/errors.ts";
+import { PROHIBITED_RUNTIME_ENV, workerEnv } from "../../../src/runtimes/env.ts";
 import { HerdrTransport, parseCreatedPane, shellCommand, type HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { createPiAdapter } from "../../../src/runtimes/pi.ts";
 import { removeDir, tempDir } from "../helpers/fixture.ts";
@@ -25,22 +28,24 @@ function setup(role: Role) {
   const worktree = path.join(root, "wt");
   const output = path.join(root, "out");
   const scratch = path.join(root, "scratch");
-  for (const d of [worktree, output, scratch, path.join(root, "proj", "agent")]) mkdirSync(d, { recursive: true });
+  for (const d of [worktree, output, scratch]) mkdirSync(d, { recursive: true });
   const ops = role === "reviewer" ? ["read", "git-inspect", "write-report"] : role === "scout" ? ["read", "shell", "network-outbound", "write-report"] : ["read", "edit", "shell", "run-checks", "network-outbound", "write-report"];
   const authority = resolveAuthority({ role, worktree, readRoots: [], writeRoots: role === "reviewer" || role === "scout" ? [] : [worktree], outputDir: output, scratchDir: scratch, operations: ops as never }, { projectRoot: worktree, protectedPaths: [] });
   if (!authority.ok) throw new Error(authority.blocker.message);
   const identity: AssignmentIdentity = { workspace: newId("ws"), project: newId("prj"), run: newId("run"), task: newId("task"), assignment: newId("asg"), attempt: newId("att"), generation: 1, role };
-  const projection: Projection = { dir: path.join(root, "proj"), runtime: "pi", provider: "openai", sourceFingerprint: "x", env: { PI_CODING_AGENT_DIR: path.join(root, "proj", "agent"), CODEX_HOME: path.join(root, "proj", "codex"), CLAUDE_CONFIG_DIR: path.join(root, "proj", "claude") }, readOnlyFiles: [], writableDirs: [] };
-  return { root, authority: authority.value, identity, projection };
+  return { root, authority: authority.value, identity };
 }
+
+const SYSTEM = "You are the Radian developer.\nFollow the brief.";
 
 function input(s: ReturnType<typeof setup>, p: ResolvedProfile, install: RuntimeInstall): LaunchInput {
-  return { identity: s.identity, profile: p, authority: s.authority, install, projection: s.projection, briefFile: path.join(s.authority.outputDir, "brief.md"), resultFile: path.join(s.authority.outputDir, "result.json"), sessionId: "00000000-0000-4000-8000-000000000001" };
+  return { identity: s.identity, profile: p, authority: s.authority, install, systemPrompt: SYSTEM, briefFile: path.join(s.authority.outputDir, "brief.md"), resultFile: path.join(s.authority.outputDir, "result.json"), sessionId: "00000000-0000-4000-8000-000000000001" };
 }
 
-const install = (runtime: "pi" | "codex" | "claude-code"): RuntimeInstall => ({ runtime, executable: `/opt/fixture/${runtime}`, version: "fixture", installRoots: ["/opt/fixture"], helpers: [] });
+const install = (runtime: "pi" | "codex" | "claude-code"): RuntimeInstall => ({ runtime, executable: `/opt/fixture/${runtime}`, version: "fixture" });
+const lastArg = (argv: string[]) => argv[argv.length - 1]!;
 
-test("Claude Code adapter: exact model/effort, fresh session, safe mode, no bypass/bare/fallback, reviewer restricted", () => {
+test("Claude Code adapter: interactive session with exact model/effort, session id, system prompt, tools, first task message", () => {
   for (const role of ["developer", "reviewer"] as const) {
     const s = setup(role);
     try {
@@ -49,15 +54,19 @@ test("Claude Code adapter: exact model/effort, fresh session, safe mode, no bypa
       if (!plan.ok) continue;
       const argv = plan.value.argv;
       const at = (flag: string) => argv[argv.indexOf(flag) + 1];
+      assert.equal(argv[0], "/opt/fixture/claude-code");
+      assert.ok(!argv.includes("-p") && !argv.includes("--print") && !argv.includes("--output-format"), "interactive, not print mode");
       assert.equal(at("--model"), "claude-test-model-1");
       assert.equal(at("--effort"), "high");
       assert.equal(at("--session-id"), "00000000-0000-4000-8000-000000000001");
-      for (const flag of ["-p", "--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands"]) assert.ok(argv.includes(flag), flag);
+      assert.equal(at("--append-system-prompt"), SYSTEM);
+      assert.equal(at("--permission-mode"), "dontAsk");
+      assert.equal(at("--add-dir"), s.authority.outputDir, "the session can write its result outside the worktree");
+      assert.ok(argv.includes("--strict-mcp-config"));
       for (const forbidden of CLAUDE_FORBIDDEN_FLAGS) assert.ok(!argv.includes(forbidden), forbidden);
-      assert.equal(argv.includes("--restricted"), role === "reviewer");
-      assert.deepEqual(plan.value.tools, role === "reviewer" ? ["Read", "Glob", "Grep"] : ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]);
-      assert.ok(!Object.keys(plan.value.env).some((k) => /API_KEY|BASE_URL|AUTH_TOKEN/.test(k)));
-      assert.equal(plan.value.parity.herdrAgentDetection, false);
+      assert.match(lastArg(argv), /brief\.md[\s\S]*result\.json/, "the first message points at the brief and result files");
+      assert.deepEqual(plan.value.tools, role === "reviewer" ? ["Read", "Glob", "Grep", "Write"] : ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]);
+      assert.equal(plan.value.cwd, s.authority.worktree);
     } finally {
       removeDir(s.root);
     }
@@ -80,7 +89,7 @@ test("Anthropic profiles are refused by Pi and Codex adapters; Claude Code refus
   }
 });
 
-test("Codex adapter: exact model/effort, sandbox by role, user config ignored, no bypass flags", () => {
+test("Codex adapter: interactive session with exact model/effort, developer instructions, sandbox by role, no bypass flags", () => {
   for (const role of ["developer", "reviewer"] as const) {
     const s = setup(role);
     try {
@@ -88,28 +97,35 @@ test("Codex adapter: exact model/effort, sandbox by role, user config ignored, n
       assert.ok(plan.ok);
       if (!plan.ok) continue;
       const argv = plan.value.argv;
+      assert.ok(!argv.includes("exec") && !argv.includes("--json"), "interactive, not exec mode");
       assert.equal(argv[argv.indexOf("--model") + 1], "gpt-test-1");
       assert.ok(argv.includes('model_reasoning_effort="high"'));
+      assert.ok(argv.includes(`developer_instructions=${JSON.stringify(SYSTEM)}`));
       assert.equal(argv[argv.indexOf("--sandbox") + 1], role === "reviewer" ? "read-only" : "workspace-write");
-      for (const flag of ["--json", "--ignore-user-config", "--ignore-rules", "--ephemeral"]) assert.ok(argv.includes(flag));
+      assert.equal(argv[argv.indexOf("--ask-for-approval") + 1], "never");
+      assert.equal(argv[argv.indexOf("--cd") + 1], s.authority.worktree);
       for (const forbidden of CODEX_FORBIDDEN_FLAGS) assert.ok(!argv.includes(forbidden), forbidden);
-      assert.equal(plan.value.env.CODEX_HOME, s.projection.env.CODEX_HOME);
+      assert.match(lastArg(argv), /brief\.md/);
     } finally {
       removeDir(s.root);
     }
   }
 });
 
-test("Pi adapter: SDK bridge launch, role tools, and explicit missing parity", () => {
+test("Pi adapter: interactive session with provider/model/thinking, system prompt, role tools, no project-local or extension loading", () => {
   const s = setup("reviewer");
   try {
     const plan = createPiAdapter().buildLaunch(input(s, profile("pi", "openai", "gpt-test-1", "medium"), install("pi")));
     assert.ok(plan.ok);
     if (!plan.ok) return;
-    assert.deepEqual(plan.value.tools, ["read", "grep", "find", "ls"]);
-    assert.ok(plan.value.argv[1]!.endsWith("pi-bridge.ts"));
-    assert.equal(plan.value.parity.interactiveUi, false);
-    assert.equal(plan.value.env.PI_OFFLINE, "1");
+    const argv = plan.value.argv;
+    assert.ok(!argv.includes("-p") && !argv.includes("--print") && !argv.includes("--mode"), "interactive, not print or RPC mode");
+    assert.equal(argv[argv.indexOf("--provider") + 1], "openai");
+    assert.equal(argv[argv.indexOf("--model") + 1], "gpt-test-1");
+    assert.equal(argv[argv.indexOf("--thinking") + 1], "medium");
+    assert.equal(argv[argv.indexOf("--append-system-prompt") + 1], SYSTEM);
+    for (const flag of ["--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates"]) assert.ok(argv.includes(flag), flag);
+    assert.deepEqual(plan.value.tools, ["read", "grep", "find", "ls", "write"]);
   } finally {
     removeDir(s.root);
   }
@@ -122,37 +138,12 @@ test("Pi adapter: SDK bridge launch, role tools, and explicit missing parity", (
   }
 });
 
-test("event parsing: binding evidence, settlement, usage, and classified errors", () => {
-  const claude = createClaudeAdapter();
-  const init = claude.parseEvent(JSON.stringify({ type: "system", subtype: "init", session_id: "s1", model: "claude-test-model-1", apiKeySource: "none", tools: ["Read"] }));
-  assert.equal(init[0]?.kind, "session-started");
-  assert.equal(init[0]?.kind === "session-started" ? init[0].authSource : "", "none");
-  const failed = claude.parseEvent(JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, result: "Claude usage limit reached", usage: { input_tokens: 5, output_tokens: 1 } }));
-  assert.deepEqual(failed.map((e) => e.kind), ["usage", "error", "settled"]);
-  assert.equal(failed[1]?.kind === "error" ? failed[1].error.class : "", "quota");
-  const codex = createCodexAdapter();
-  const reset = new Date(Date.now() + 3_600_000).toISOString();
-  const quota = codex.parseEvent(JSON.stringify({ type: "turn.failed", error: { message: "rate limit exceeded", resets_at: reset } }));
-  assert.equal(quota[0]?.kind === "error" ? quota[0].error.resetAtMs : 0, Date.parse(reset));
-  assert.deepEqual(codex.parseEvent("not json"), []);
-  assert.deepEqual(codex.parseEvent(JSON.stringify({ type: "thread.started", thread_id: "t" })).map((e) => e.kind), ["session-started"]);
-  const pi = createPiAdapter();
-  assert.deepEqual(pi.parseEvent(JSON.stringify({ type: "radian_blocker", code: "EFFORT_UNSUPPORTED", message: "clamped" })).map((e) => e.kind), ["error", "settled"]);
-  assert.deepEqual(pi.parseEvent(JSON.stringify({ type: "agent_settled" })).map((e) => e.kind), ["settled"]);
-});
-
-test("error classification is provider-safe and never invents reset times", () => {
-  assert.equal(classifyText("HTTP 429 Too Many Requests"), "quota");
-  assert.equal(classifyText("401 Unauthorized: token expired"), "authentication");
-  assert.equal(classifyText("Operation not permitted (sandbox)"), "trust-permission");
-  assert.equal(classifyText("ECONNRESET while streaming"), "infrastructure");
-  assert.equal(classifyText("something odd happened"), "unknown");
-  assert.equal(classify("quota exhausted, try again later").resetAtMs, undefined);
-  assert.equal(classify("quota exhausted", { resetsAt: "next week" }).resetAtMs, undefined);
-  const secret = "s" + "k-" + "abcdefghijklmnopqrstuvwx";
-  const home = ["", "Users", "fixture"].join("/");
-  const cleaned = sanitizeSummary(`failed with ${secret} for someone@mail.example at ${home}/x`);
-  assert.ok(!cleaned.includes(secret) && !cleaned.includes("someone@") && !cleaned.includes(home));
+test("worker environment inherits the user's environment without API-key, endpoint, proxy, or Radian variables", () => {
+  const env = workerEnv({ HOME: "/fixture-home", PATH: "/opt/homebrew/bin:/usr/bin", ANTHROPIC_API_KEY: "k", OPENAI_BASE_URL: "u", https_proxy: "p", RADIAN_ATTEMPT: "a" }, { DISABLE_AUTOUPDATER: "1", OPENAI_API_KEY: "never" });
+  assert.equal(env.HOME, "/fixture-home");
+  assert.equal(env.PATH, "/opt/homebrew/bin:/usr/bin");
+  assert.equal(env.DISABLE_AUTOUPDATER, "1");
+  for (const name of [...PROHIBITED_RUNTIME_ENV, "https_proxy", "RADIAN_ATTEMPT"]) assert.ok(!(name in env), name);
 });
 
 test("runtime detection refuses missing runtimes and unreviewed versions", async () => {
@@ -167,8 +158,8 @@ test("runtime detection refuses missing runtimes and unreviewed versions", async
     assert.ok(ok.ok && ok.value.version === "0.160.0");
     const missing = await createClaudeAdapter({ executable: path.join(dir, "absent") }).detect();
     assert.equal(missing.ok ? "ok" : missing.blocker.code, "RUNTIME_UNAVAILABLE");
-    const piLayoutMissing = await createPiAdapter({ executable: fake }).detect();
-    assert.equal(piLayoutMissing.ok ? "ok" : piLayoutMissing.blocker.code, "RUNTIME_UNAVAILABLE");
+    const piWrongVersion = await createPiAdapter({ executable: fake }).detect();
+    assert.equal(piWrongVersion.ok ? "ok" : piWrongVersion.blocker.code, "RUNTIME_VERSION_UNSUPPORTED");
   } finally {
     removeDir(dir);
   }

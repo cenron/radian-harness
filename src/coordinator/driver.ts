@@ -1,7 +1,7 @@
 // Worker driver: the narrow interface the orchestrator uses to run one attempt.
-// The production driver composes the runtime session (preflight, projection,
-// contained launch in an owned pane, semantic binding, verified stop). Tests
-// substitute a fake driver; fake success is never support evidence.
+// The production driver composes the runtime session (preflight, an owned pane
+// running the runtime's interactive session, binding, completion when the
+// worker writes its result, verified stop). Tests substitute a fake driver.
 
 import type { Blocker, Outcome } from "../contracts/blockers.ts";
 import { refuse, success } from "../contracts/blockers.ts";
@@ -9,9 +9,9 @@ import type { ResolvedAuthority } from "../contracts/authority.ts";
 import type { SealedBrief } from "../contracts/brief.ts";
 import type { AssignmentIdentity } from "../contracts/identity.ts";
 import type { ResolvedProfile } from "../config/provider-policy.ts";
-import type { CredentialSource } from "../isolation/credentials.ts";
 import type { ClassifiedError } from "../runtimes/contract.ts";
-import { EventTail, type LaunchedAttempt, type SessionDeps, awaitBinding, launchAttempt, stopAttempt } from "../runtimes/session.ts";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { type LaunchedAttempt, type SessionDeps, awaitBinding, launchAttempt, stopAttempt } from "../runtimes/session.ts";
 import { SupervisionRegistry } from "../isolation/registry.ts";
 
 export interface WorkerLaunchRequest {
@@ -21,8 +21,6 @@ export interface WorkerLaunchRequest {
   brief: SealedBrief;
   briefText: string;
   systemPrompt: string;
-  credentialSource: CredentialSource;
-  minValidityMs: number;
   /**
    * Launch authorization (current approvals, mode, supervision). The driver
    * rechecks it after its awaited preflight steps and at the last boundary
@@ -98,26 +96,25 @@ export class RuntimeWorkerDriver implements WorkerDriver {
     return bound.ok ? success(true) : bound;
   }
 
+  /**
+   * An interactive session does not exit when its task is done: the attempt
+   * settles when the worker's result file is complete (valid JSON, unchanged
+   * for a moment), or when the session exits on its own.
+   */
   async awaitSettled(handle: WorkerHandle, deadlineMs: number, signal?: AbortSignal): Promise<SettledOutcome> {
     const launched = handle.internal as LaunchedAttempt;
-    const adapter = this.deps.adapters[launched.runtime];
-    if (!adapter) return { kind: "exited", exitCode: null };
-    const tail = new EventTail(launched.eventsFile, adapter);
     const registry = new SupervisionRegistry(this.deps.stateDir, launched.identity.assignment);
-    let usage: { inputTokens?: number; outputTokens?: number; source: string } | undefined;
+    let seen: { size: number; mtimeMs: number } | undefined;
     while (Date.now() < deadlineMs && !signal?.aborted) {
-      for (const event of tail.read()) {
-        if (event.kind === "usage") usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens, source: event.source };
-        if (event.kind === "settled") {
-          const settled: SettledOutcome = { kind: "settled", outcome: event.outcome };
-          if (event.error) settled.error = event.error;
-          if (usage) settled.usage = usage;
-          return settled;
-        }
+      if (existsSync(launched.resultFile)) {
+        const stat = statSync(launched.resultFile);
+        const now = { size: stat.size, mtimeMs: stat.mtimeMs };
+        if (seen && seen.size === now.size && seen.mtimeMs === now.mtimeMs && completeJson(launched.resultFile)) return { kind: "settled", outcome: "success" };
+        seen = now;
       }
       const exited = registry.entries().find((e) => e.kind === "exited" && e.attempt === launched.identity.attempt);
       if (exited && exited.kind === "exited") return { kind: "exited", exitCode: exited.exitCode };
-      await sleep(250);
+      await sleep(1000);
     }
     return { kind: "timeout" };
   }
@@ -140,4 +137,13 @@ export function unavailableDriver(reason: string): WorkerDriver {
     stop: async () => ({ termination: "unknown" }),
     checkExecutions: () => [],
   };
+}
+
+function completeJson(file: string): boolean {
+  try {
+    JSON.parse(readFileSync(file, "utf8"));
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -10,12 +10,11 @@ import assert from "node:assert/strict";
 import { readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { success } from "../../../src/contracts/blockers.ts";
-import { CapabilityRegistry } from "../../../src/isolation/capabilities.ts";
 import type { HerdrRunner } from "../../../src/runtimes/herdr.ts";
 import { launchAttempt } from "../../../src/runtimes/session.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
-import { deps, fakeCodex, request, source, verifyAll } from "../helpers/session-fixture.ts";
+import { deps, fakeCodex, request } from "../helpers/session-fixture.ts";
 import { PLAN_TEXT, type World, human, plan, world } from "../helpers/coordinator-world.ts";
 
 function gate() {
@@ -188,10 +187,9 @@ test("R04: unchanged approvals still launch, recover, and resume normally", asyn
   }
 });
 
-test("R04: the production session rechecks the launch authorization before credentials, before the pane, and before delivery", { skip: process.platform === "darwin" ? false : "dependency resolution requires macOS" }, async () => {
+test("R04: the production session rechecks the launch authorization before preparation, before the pane, and before delivery", { skip: process.platform === "darwin" ? false : "dependency resolution requires macOS" }, async () => {
   const l = layout();
   try {
-    await verifyAll(new CapabilityRegistry(l.state), "developer");
     const calls: string[][] = [];
     let revokeAt: "none" | "credentials" | "split" = "credentials";
     let revoked = false;
@@ -206,22 +204,19 @@ test("R04: the production session rechecks the launch authorization before crede
     const d = deps(l, fakeCodex(l, "bind-and-wait"), calls, true, runner);
     const authorize = () => (revoked ? { ok: false as const, blocker: { code: "APPROVAL_MISSING" as const, message: "plan was rejected by the user" } } : success(true as const));
 
-    // Revoked before anything: no credential read, no pane.
+    // Revoked before anything: no pane.
     revoked = true;
-    const reads = { count: 0 };
-    const early = await launchAttempt(d, { ...request(l), credentialSource: source(reads), authorize });
+    const early = await launchAttempt(d, { ...request(l), authorize });
     assert.equal(early.ok ? "ok" : early.blocker.code, "APPROVAL_MISSING");
-    assert.equal(reads.count, 0, "no credential was projected");
     assert.equal(calls.length, 0, "no pane was created");
 
     // Revoked while the pane is being created: the launcher command is never delivered.
     revoked = false;
     revokeAt = "split";
-    const late = await launchAttempt(d, { ...request(l), credentialSource: source(reads), authorize });
+    const late = await launchAttempt(d, { ...request(l), authorize });
     assert.equal(late.ok ? "ok" : late.blocker.code, "APPROVAL_MISSING");
     assert.ok(!calls.some((c) => c[1] === "run"), "nothing was typed into the pane");
     assert.ok(calls.some((c) => c[1] === "close"), "the idle owned pane was closed");
-    assert.deepEqual(readdirSync(path.join(l.root, "projections")).filter((x) => !x.startsWith(".")), [], "the credential projection was destroyed");
   } finally {
     removeDir(l.root);
   }

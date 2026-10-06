@@ -4,10 +4,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { newId, type AssignmentIdentity } from "../../../src/contracts/identity.ts";
-import { CapabilityRegistry, type CapabilityContext } from "../../../src/isolation/capabilities.ts";
-import { type LaunchSpec, launchContained, prepareLaunch, writeSpec } from "../../../src/isolation/launcher.ts";
+import { type LaunchSpec, launchRuntime, prepareLaunch, writeSpec } from "../../../src/isolation/launcher.ts";
 import { type ProcessOps, type ProcessRow, systemProcessOps } from "../../../src/isolation/processes.ts";
-import { PROFILE_TEMPLATE_VERSION } from "../../../src/isolation/profile.ts";
 import { SupervisionRegistry } from "../../../src/isolation/registry.ts";
 import { SupervisionClient } from "../../../src/isolation/supervision.ts";
 import { terminateOwned } from "../../../src/isolation/terminate.ts";
@@ -18,7 +16,7 @@ import { psProbe } from "../../../src/util/process-identity.ts";
 import { removeDir, tempDir } from "../helpers/fixture.ts";
 import { authorityFor, layout } from "../helpers/layout.ts";
 
-const native = process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
+const native = process.platform === "darwin";
 
 class FakeOps implements ProcessOps {
   rows: ProcessRow[];
@@ -182,52 +180,37 @@ function identity(): AssignmentIdentity {
   return { workspace: newId("ws"), project: newId("prj"), run: newId("run"), task: newId("task"), assignment: newId("asg"), attempt: newId("att"), generation: 1, role: "developer" };
 }
 
-test("launcher: refuses tampered specs, unverified capabilities, and prohibited env; registers before binding", { skip: native ? false : "requires macOS sandbox-exec" }, async () => {
+test("launcher: refuses tampered specs; records intent and registers the runtime before binding", { skip: native ? false : "macOS process tools" }, async () => {
   const l = layout();
   try {
-    const authority = authorityFor(l);
-    const context: CapabilityContext = { osVersion: "27.0", runtime: "pi", runtimeVersion: "synthetic", policyTemplate: PROFILE_TEMPLATE_VERSION };
     const spec: LaunchSpec = {
-      schema: "radian.launch/1",
+      schema: "radian.launch/2",
       identity: identity(),
       stateDir: l.state,
-      profile: { authority, dependencies: { readRoots: [], readFiles: [] }, gitPointer: path.join(l.worktree, ".git") },
-      argv: ["/bin/sh", "-c", `echo contained > src/result.txt; echo escape > "${l.outside}/x" 2>/dev/null; exit 0`],
+      argv: ["/bin/sh", "-c", "echo session > src/result.txt; exit 0"],
       env: { PATH: "/usr/bin:/bin", HOME: l.scratch, TMPDIR: l.scratch },
       cwd: l.worktree,
-      requiredCapabilities: ["containment.sandbox-exec.filesystem"],
-      capabilityContext: context,
-      terminal: "none",
     };
     const specFile = path.join(l.state, "launch", "spec.json");
     const hash = writeSpec(specFile, spec);
-    const unverified = prepareLaunch(specFile, hash, undefined);
-    assert.equal(unverified.ok ? "ok" : unverified.blocker.code, "CAPABILITY_UNVERIFIED");
-    await new CapabilityRegistry(l.state).record(HumanChannel.fromUserInput("user-command", "fixture-user", "/radian capability"), { capability: "containment.sandbox-exec.filesystem", status: "verified", context, reference: "synthetic fixture" });
-    const tampered = prepareLaunch(specFile, "sha256:" + "0".repeat(64), undefined);
+    const tampered = prepareLaunch(specFile, "sha256:" + "0".repeat(64));
     assert.equal(tampered.ok ? "ok" : tampered.blocker.code, "POLICY_TAMPERED");
-    const envFile = path.join(l.state, "launch", "env-spec.json");
-    const envHash = writeSpec(envFile, { ...spec, env: { ...spec.env, ANTHROPIC_API_KEY: "x" } });
-    const envBlocked = prepareLaunch(envFile, envHash, undefined);
-    assert.equal(envBlocked.ok ? "ok" : envBlocked.blocker.code, "CUSTOM_ENDPOINT_PROHIBITED");
-    const ttyFile = path.join(l.state, "launch", "tty-spec.json");
-    const ttyHash = writeSpec(ttyFile, { ...spec, terminal: "assigned" });
-    const noTty = prepareLaunch(ttyFile, ttyHash, undefined);
-    assert.equal(noTty.ok ? "ok" : noTty.blocker.code, "CONTAINMENT_UNAVAILABLE");
+    const relativeFile = path.join(l.state, "launch", "relative-spec.json");
+    const relativeHash = writeSpec(relativeFile, { ...spec, argv: ["sh", "-c", "true"] });
+    const relative = prepareLaunch(relativeFile, relativeHash);
+    assert.equal(relative.ok ? "ok" : relative.blocker.code, "POLICY_TAMPERED", "argv must start with an absolute executable");
 
-    const prepared = prepareLaunch(specFile, hash, undefined);
+    const prepared = prepareLaunch(specFile, hash);
     assert.ok(prepared.ok, prepared.ok ? "" : prepared.blocker.message);
     if (!prepared.ok) return;
     let registeredBeforeExit = false;
-    const result = await launchContained(prepared.value, { stdio: "ignore", onRegistered: () => { registeredBeforeExit = prepared.value.registry.processes().length === 1; } });
+    const result = await launchRuntime(prepared.value, { stdio: "ignore", onRegistered: () => { registeredBeforeExit = prepared.value.registry.processes().length === 1; } });
     assert.ok(result.ok && result.value.exitCode === 0);
     assert.ok(registeredBeforeExit, "runtime identity registered before binding could be confirmed");
-    assert.equal(readFileSync(path.join(l.worktree, "src", "result.txt"), "utf8"), "contained\n");
-    assert.ok(!existsSync(path.join(l.outside, "x")), "launched runtime is contained");
+    assert.equal(readFileSync(path.join(l.worktree, "src", "result.txt"), "utf8"), "session\n");
     const entries = prepared.value.registry.entries();
     assert.equal(entries[0]?.kind, "intent");
     assert.equal(prepared.value.registry.unresolvedIntents().length, 0);
-    assert.ok(spawnSync("/bin/test", ["-r", prepared.value.profileFile]).status === 0);
   } finally {
     removeDir(l.root);
   }

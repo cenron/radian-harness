@@ -6,9 +6,7 @@
 // Steps: tool versions, type check, unit tests, integration (offline runtime
 // compatibility) tests, publication checks over the working tree, staged
 // content, committed tree, full commit metadata, package manifest and
-// whitespace, a package archive built into private scratch and inspected, and
-// the preserved offline feasibility suites (default modes only; the opt-in live
-// and real-auth modes are never invoked).
+// whitespace, and a package archive built into private scratch and inspected.
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -93,25 +91,6 @@ try {
   }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
-}
-
-const suites: Array<[string, string[]]> = [
-  ["feasibility-filesystem", ["bash", "tests/feasibility/macos-filesystem.sh"]],
-  ["feasibility-runtime-startup", ["python3", "tests/feasibility/macos-runtime-startup.py"]],
-  ["feasibility-network-loopback", ["python3", "tests/feasibility/macos-network.py"]],
-  ["feasibility-processes", ["python3", "tests/feasibility/macos-processes.py"]],
-  ["feasibility-supervision", ["python3", "tests/feasibility/macos-supervision.py"]],
-  ["feasibility-pi-auth-store", ["python3", "tests/feasibility/macos-pi-auth-store.py"]],
-];
-const skipFeasibility = process.argv.includes("--skip-feasibility");
-for (const [id, argv] of suites) {
-  if (skipFeasibility) {
-    results.push({ id, outcome: "not-run", exitCode: null, detail: "skipped by --skip-feasibility" });
-    continue;
-  }
-  const out = run(argv, { timeoutMs: 600_000 });
-  const lines = (out.stdout + out.stderr).split("\n").filter((l) => /^(PASS|FAIL|SKIP|ok|not ok)|passed|failed/i.test(l.trim()));
-  results.push({ id, outcome: out.status === 0 ? "passed" : out.status === 77 ? "skipped" : "failed", exitCode: out.status, detail: sanitize(`${lines.length} result line(s); ${lines.filter((l) => /^PASS/i.test(l.trim())).length} PASS`) });
 }
 
 const summary = { schema: "radian.verification/1", revision: head, workingTreeDirty: dirty, versions, results };
