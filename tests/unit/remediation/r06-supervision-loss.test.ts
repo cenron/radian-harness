@@ -120,6 +120,9 @@ test("R06: lease renewal refusal or error, and an expired or replaced lease, tri
     writeFileSync(file, JSON.stringify({ ...record, token: "replaced-by-another-session", generation: record.generation + 1 }));
     const outcome = await within(running, 2_000);
     assert.notEqual(outcome, "still running");
+    // The monitor's stop can finish before the next renewal tick; wait (bounded) for the refusal report.
+    const deadline = Date.now() + 2_000;
+    while (!failures.some((f) => f.code === "LEASE_LOST") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
     assert.ok(failures.some((f) => f.code === "LEASE_LOST"), "renewal refusal was reported, not discarded");
     assert.equal(w.driver.stops.length, 1);
     keeper.stop();
