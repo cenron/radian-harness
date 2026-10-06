@@ -8,6 +8,10 @@ declare module "@earendil-works/pi-coding-agent" {
     constructor(tui: unknown, theme: unknown, keybindings: unknown, options?: unknown);
     handleInput(data: string): void;
   }
+  /** Pi's agent directory (PI_CODING_AGENT_DIR or the default). */
+  export function getAgentDir(): string;
+  /** The context files Pi loads for a working directory: agent directory, then ancestors down to cwd. */
+  export function loadProjectContextFiles(options: { cwd: string; agentDir: string }): Array<{ path: string; content: string }>;
 }
 
 declare module "@earendil-works/pi-tui" {

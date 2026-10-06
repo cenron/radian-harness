@@ -1,6 +1,6 @@
 # Workspace-first implementation plan
 
-**Status: authorized for source implementation and offline verification; not started.**
+**Status: authorized for source implementation and offline verification; in progress (see the milestone table).**
 
 The user selected **option B** and authorized uninterrupted execution in the existing Claude Code pane from a fresh harness-source worktree, with implementation commits/pushes. The four independent remediation-review findings are to be revalidated and, if still present, corrected **at the end of feature implementation**, before aggregate acceptance. This supersedes the earlier W02–W06 prerequisite block, not safety requirements or runtime capability gates.
 
@@ -31,7 +31,7 @@ Command syntax is planned, not available today. The workspace is the control roo
 
 | ID | Deliverable | Dependency | Status |
 | --- | --- | --- | --- |
-| W01 | [Supported Pi context contract](01-context-contract.md) | Native session/source checks | pending |
+| W01 | [Supported Pi context contract](01-context-contract.md) | Native session/source checks | complete |
 | W02 | [Empty-workspace installer](02-installation.md) | W01 | pending |
 | W03 | [Dashboard and project-scoped routing](03-dashboard-and-routing.md) | W02 | pending |
 | W04 | [Project creation and registration](04-project-lifecycle.md) | W03 | pending |
