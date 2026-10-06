@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "concurrency": {
+    "maxActiveWorkers": 3
+  },
+  "assignment": {
+    "executionLimitMinutes": 30,
+    "candidateRounds": 3,
+    "automaticRecoveries": 1,
+    "startupTimeoutSeconds": 120
+  },
+  "execution": {
+    "unverifiedCapabilities": "deny",
+    "containment": "required",
+    "network": "ordinary-outbound",
+    "blanketPermissionBypass": false
+  },
+  "supervision": {
+    "leaseSeconds": 30,
+    "terminationGraceSeconds": 10
+  },
+  "interface": {
+    "startMode": "plan",
+    "calmDefault": false
+  }
+}

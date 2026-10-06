@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "default": "pi-default",
+  "profiles": {
+    "pi-default": {
+      "runtime": "pi",
+      "provider": null,
+      "model": null,
+      "effort": "medium",
+      "description": "Default Pi worker for an eligible non-Anthropic subscription provider. Unconfigured until a workspace or project override sets an exact provider and model."
+    },
+    "codex": {
+      "runtime": "codex",
+      "provider": "openai",
+      "model": null,
+      "effort": "medium",
+      "description": "Codex CLI worker using ChatGPT subscription login. Unconfigured until an override sets an exact model."
+    },
+    "claude-code": {
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": null,
+      "effort": "high",
+      "description": "Claude Code worker; the only permitted route for Anthropic models, via the claude.ai subscription. Unconfigured until an override sets an exact model."
+    }
+  },
+  "aliases": {},
+  "rules": [],
+  "selection": {
+    "strategy": "coordinator",
+    "onUnavailable": "block"
+  }
+}

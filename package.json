@@ -12,6 +12,7 @@
     "README.md",
     "config/",
     "src/",
+    "workers/",
     "!src/**/*.test.ts"
   ],
   "pi": {

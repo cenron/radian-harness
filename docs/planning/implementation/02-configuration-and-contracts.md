@@ -1,6 +1,6 @@
 # Milestone 02 — Configuration, roles, and task/result contracts
 
-**Status: pending** · Depends on: 01
+**Status: complete** · Depends on: 01
 
 ## Objective
 
@@ -37,10 +37,19 @@ Mark this milestone and the index complete; commit/push `feat: milestone 02 — 
 
 ## Completion record
 
-- Completed: not yet
-- Implementation decisions: not yet
-- Checks before publication: not yet
-- Deferred verification / limitations: full behavioral verification in milestone 10
+- Completed: 2026-10-06. Shipped `config/harness.json` and `config/dispatch.json`; strict validators and inferred types (`src/contracts/schema.ts`); identity, authority, brief, result, approval, check-evidence, owned-resource, and blocker contracts (`src/contracts/`); provider/runtime policy, runtime facts, dispatch selection, and layered resolution with per-run snapshots (`src/config/`); runtime-neutral `workers/developer.md`, `tester.md`, `reviewer.md`, `scout.md`; unit tests under `tests/unit/config/` and `tests/unit/contracts/`.
+- Implementation decisions:
+  - Validators are hand-written strict combinators (unknown fields rejected) rather than a schema dependency; the TypeScript validators are the authoritative schemas, so no duplicate JSON Schema files were added to `config/schemas/`.
+  - Shipped profiles name runtimes and providers but leave `model: null`. They resolve to `PROFILE_UNCONFIGURED` until a workspace/project override sets an exact model, so no runnable model ID is invented. The shipped default is the Pi profile, with provider also unset until an eligible non-Anthropic subscription provider is configured.
+  - The provider table is code-owned, not user-configurable: `anthropic` (Claude Code only, claude.ai subscription route) and `openai` (Pi ChatGPT OAuth, Codex ChatGPT login). Any other provider is unknown provenance and blocks. Adding providers is a future explicit decision.
+  - Anthropic detection inspects the provider, requested model, resolved model, and every alias name in the chain (`claude|anthropic|opus|sonnet|haiku|fable`, and `anthropic|claude|bedrock|vertex` providers). Pi/Codex pairings return `ANTHROPIC_REQUIRES_CLAUDE_CODE`; Anthropic models through other providers on Claude Code return `PROVIDER_PROVENANCE_UNKNOWN`. Endpoint/key/proxy/billing fields return `CUSTOM_ENDPOINT_PROHIBITED`. `recheckResolvedProfile` repeats the check at later boundaries.
+  - Native aliases (for example Claude Code `opus`), Pi globs, `provider/model` prefixes, and `:thinking` suffixes are not exact IDs and block. Effort values are checked against documented per-runtime lists; Codex's list is marked unverified for adapter preflight. Effort is never clamped.
+  - Rule `use` arrays are candidate sets; `selection.onUnavailable` accepts only `block`. A rejected selection returns its blocker; no other candidate is tried.
+  - Resolution order: shipped → workspace `.radian/config/` → project `.radian/config/`; objects merge by key, arrays/scalars replace; validation runs after each layer; snapshots are frozen with layer hashes, leaf provenance, and a content hash. The explicit authorized assignment profile is applied at selection (`userOverride`/`planAssignment`).
+  - Overrides cannot raise candidate rounds above 3 or automatic recoveries above 1, nor change fail-closed capability policy, required containment, or the blanket-bypass prohibition.
+  - Authority = role limits ∩ task request ∩ project policy. Operations outside role limits are refused rather than silently dropped. Reviewers have read/Git-inspect/report only and model-only network; dependency changes require explicit approved scope; writable roots may not lie inside protected Git/state/policy paths; output/scratch are separate from the worktree.
+- Checks before publication: private denylist **not supplied** (private-term coverage absent); bounded publication check and exact staged-diff review before commit. Milestone-local sanity run: `tsc --noEmit` clean, 22 configuration/contract tests passed (not the milestone 10 run).
+- Deferred verification / limitations: full behavioral verification in milestone 10. Effort lists are documentation-derived, not runtime-verified. Vendor-side model identity remains unverified unless a runtime reports it.
 
 ## Requirements
 
