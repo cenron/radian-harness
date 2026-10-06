@@ -1,2 +1,12 @@
 # Finder metadata is local, not a project artifact.
 .DS_Store
+# Local dependency installs and generated outputs.
+node_modules/
+*.tgz
+coverage/
+# Private run, evidence, and scratch artifacts never belong in this public repository.
+.radian/
+.radian-scratch/
+# Local environment and credential files.
+.env
+.env.*

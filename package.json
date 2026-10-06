@@ -1,0 +1,33 @@
+{
+  "name": "radian-harness",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Pi-native harness for supervised local agentic software engineering (under implementation; no runtime support claimed).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "files": [
+    "README.md",
+    "config/",
+    "src/",
+    "!src/**/*.test.ts"
+  ],
+  "pi": {
+    "extensions": [],
+    "skills": [],
+    "prompts": []
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --test \"tests/integration/**/*.test.ts\"",
+    "publication-check": "node scripts/publication-check.ts",
+    "check": "npm run typecheck && npm test && npm run publication-check"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}
