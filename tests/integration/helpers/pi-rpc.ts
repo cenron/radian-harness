@@ -101,10 +101,28 @@ export class PiRpc {
     return response;
   }
 
-  /** Send a prompt and wait until Pi settles (or the prompt was handled by a command). */
+  /**
+   * Wait until Pi reports the test-only faux model as selected. The probe
+   * extension selects it asynchronously at session start, and until then Pi
+   * may hold a built-in default without credentials; a prompt sent in that
+   * window is rejected ("No API key found for the selected model").
+   */
+  async modelReady(timeoutMs = 30_000, provider = "radian-probe"): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const state = await this.command("get_state", {}, timeoutMs);
+      if ((state.data as { model?: { provider?: string } } | undefined)?.model?.provider === provider) return;
+      if (Date.now() > deadline) throw new Error(`no ${provider} model was selected; last state ${JSON.stringify(state).slice(0, 600)}; stderr: ${this.stderr.join("").slice(-800)}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  /** Send a prompt and wait until Pi settles (or the prompt was handled by a command). A rejected prompt fails loudly. */
   async prompt(message: string, timeoutMs = 30_000): Promise<RpcRecord> {
+    if (!message.startsWith("/")) await this.modelReady(timeoutMs);
     const settledBefore = this.records.filter((r) => r.type === "agent_settled").length;
     const response = await this.command("prompt", { message }, timeoutMs);
+    if (response.success !== true) throw new Error(`Pi rejected the prompt ${JSON.stringify(message.slice(0, 60))}: ${String((response as { error?: unknown }).error ?? "no error given")}`);
     if (response.success === true && (response.data as { disposition?: string } | undefined)?.disposition === "started") {
       await this.wait(() => this.records.filter((r) => r.type === "agent_settled").length > settledBefore, timeoutMs);
     }

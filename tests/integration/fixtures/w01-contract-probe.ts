@@ -24,7 +24,7 @@ export default function probe(pi: any): void {
   let selected: string | undefined;
   let workspace = "";
 
-  pi.on("session_start", (_event: unknown, ctx: any) => {
+  pi.on("session_start", async (_event: unknown, ctx: any) => {
     shared.starts += 1;
     moduleStarts += 1;
     workspace = ctx.cwd;
@@ -34,7 +34,9 @@ export default function probe(pi: any): void {
     const carry = shared.carry;
     shared.carry = undefined;
     if (carry) {
-      if (carry.model) void pi.setModel(carry.model);
+      // Model first (awaited): Pi clamps a thinking level set while no model is selected to "off",
+      // and its setModel resets the level when it completes.
+      if (carry.model) for (let i = 0; i < 100 && !(await pi.setModel(carry.model)); i++) await new Promise((resolve) => setTimeout(resolve, 20));
       pi.setThinkingLevel(carry.thinking);
     }
   });
