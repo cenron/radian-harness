@@ -116,7 +116,7 @@ export function credentialSourceFor(profile: ResolvedProfile): CredentialSource 
   }
 }
 
-function osVersion(): string {
+export function osVersion(): string {
   const result = spawnSync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 5000 });
   return result.status === 0 ? result.stdout.trim() : os.release();
 }

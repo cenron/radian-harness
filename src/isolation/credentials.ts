@@ -205,7 +205,8 @@ export function assertProjectionAllowed(request: Omit<ProjectionRequest, "projec
   return request.capabilities.require([`credential.${profile.runtime}.non-refreshing-access`, `billing.${profile.runtime}.subscription-path`], { ...request.capabilityContext, runtime: profile.runtime });
 }
 
-function layout(runtime: RuntimeKind, dir: string, provider: string, payload: unknown): { files: Array<{ path: string; content: string }>; env: Record<string, string>; writableDirs: string[] } {
+/** The projection file layout per runtime (shared with the capability verification harness). */
+export function projectionLayout(runtime: RuntimeKind, dir: string, provider: string, payload: unknown): { files: Array<{ path: string; content: string }>; env: Record<string, string>; writableDirs: string[] } {
   switch (runtime) {
     case "pi": {
       const agent = path.join(dir, "pi-agent");
@@ -246,7 +247,7 @@ export class CredentialBroker {
     const dir = path.join(request.projectionRoot, `${request.identity.assignment}-${request.identity.attempt}`);
     if (existsSync(dir)) return refuse("OWNERSHIP_AMBIGUOUS", "a projection already exists for this attempt");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const plan = layout(request.profile.runtime, dir, request.profile.provider, record.value.payload);
+    const plan = projectionLayout(request.profile.runtime, dir, request.profile.provider, record.value.payload);
     try {
       for (const file of plan.files) {
         mkdirSync(path.dirname(file.path), { recursive: true, mode: 0o700 });

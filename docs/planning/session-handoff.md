@@ -18,6 +18,11 @@
       - Result: 12/12 clean aggregate integration runs.
     - Possible product follow-up: Radian's `applyCarry` re-applies the model once, and only warns if Pi refuses.
   - **Remaining before live verification:** independent review of the F02/F03 corrections written in this session.
+  - **Capability verification (user-authorized live run, 2026-10-06):** `npm run verify:capabilities -- --tier 1|2|3` and the interactive `/radian capabilities verify` (records only passed items, only on the user's explicit Record choice).
+    - Run from this coordinating session on this Mac: Tier 1 7/7, Tier 2 2/2, Tier 3 5/5 for Claude Code 2.1.285.
+    - Tier 3 used three tiny Haiku tasks, one owned Herdr pane, and the `Claude Code-credentials` Keychain item read only by the host `security` tool. The login was reported as claude.ai / firstParty / `pro`.
+    - **No evidence was recorded by this session**; the user records it per project in Pi.
+    - Pi, Codex, and the `sandbox-exec` deprecation remain open.
   - Typed confirmations (`/radian approve` etc.) still use Pi's `confirm`, where Enter means Yes (noted in 0016).
   - Capabilities are 0/26 verified. Live verification needs separate authorization.
   - The installed session was not restarted or driven; Herdr was used only to read its pane at the user's request.
