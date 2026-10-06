@@ -7,7 +7,7 @@
 // Any failure refuses the launch; there is no unsandboxed fallback.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type AssignmentIdentity, assignmentIdentitySchema } from "../contracts/identity.ts";
@@ -34,6 +34,8 @@ export interface LaunchSpec {
   capabilityContext: CapabilityContext;
   /** "assigned" grants the launcher's own terminal device; "none" grants no terminal. */
   terminal: "assigned" | "none";
+  /** Capture the runtime's JSONL stdout into protected state and render a summary in the pane. */
+  events?: { file: string; runtime: "pi" | "codex" | "claude-code" };
 }
 
 export function specHash(spec: LaunchSpec): string {
@@ -105,23 +107,48 @@ export interface LaunchResult {
  * runtime's PID + start time are registered immediately after spawn and before
  * the coordinator is allowed to confirm assignment binding.
  */
-export async function launchContained(prepared: PreparedLaunch, options: { stdio?: "inherit" | "ignore"; probe?: IdentityProbe; onRegistered?: () => void } = {}): Promise<Outcome<LaunchResult>> {
+export async function launchContained(
+  prepared: PreparedLaunch,
+  options: { stdio?: "inherit" | "ignore"; probe?: IdentityProbe; onRegistered?: () => void; render?: (line: string) => string | undefined; write?: (text: string) => void } = {},
+): Promise<Outcome<LaunchResult>> {
   const { spec, registry } = prepared;
   await registry.append({ kind: "intent", attempt: spec.identity.attempt, label: "runtime" });
+  const capture = spec.events !== undefined;
   const child = spawn(SANDBOX_EXEC, ["-f", prepared.profileFile, "--", ...spec.argv], {
     cwd: spec.cwd,
     env: { ...spec.env, RADIAN_ASSIGNMENT: spec.identity.assignment, RADIAN_ATTEMPT: spec.identity.attempt },
-    stdio: options.stdio ?? "inherit",
+    stdio: capture ? [options.stdio ?? "inherit", "pipe", options.stdio ?? "inherit"] : (options.stdio ?? "inherit"),
   });
   if (child.pid === undefined) return refuse("CONTAINMENT_UNAVAILABLE", "contained runtime failed to start");
+  const closed = new Promise<LaunchResult>((resolve) => child.on("close", (code, signal) => resolve({ exitCode: code, signal })));
+  if (capture && child.stdout) {
+    // Split strictly on LF (not Unicode separators) and keep the raw records in protected state.
+    let buffered = "";
+    const write = options.write ?? ((text: string) => process.stdout.write(text));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      buffered += chunk;
+      let index: number;
+      while ((index = buffered.indexOf("\n")) !== -1) {
+        const line = buffered.slice(0, index).replace(/\r$/, "");
+        buffered = buffered.slice(index + 1);
+        if (line.length === 0) continue;
+        appendFileSync(spec.events!.file, line + "\n", { mode: 0o600 });
+        const rendered = options.render?.(line);
+        if (rendered) write(rendered + "\n");
+      }
+    });
+  }
   const observed = (options.probe ?? psProbe)(child.pid);
   if (observed.state !== "running") {
     // It may already have exited; the intent stays unresolved so termination is "unknown" until reconciled.
-    const exit = await new Promise<LaunchResult>((resolve) => child.on("close", (code, signal) => resolve({ exitCode: code, signal })));
+    const exit = await closed;
+    await registry.append({ kind: "exited", attempt: spec.identity.attempt, exitCode: exit.exitCode, signal: exit.signal });
     return success(exit);
   }
   await registry.append({ kind: "process", attempt: spec.identity.attempt, label: "runtime", identity: { pid: child.pid, start: observed.start }, source: "launcher" });
   options.onRegistered?.();
-  const result = await new Promise<LaunchResult>((resolve) => child.on("close", (code, signal) => resolve({ exitCode: code, signal })));
+  const result = await closed;
+  await registry.append({ kind: "exited", attempt: spec.identity.attempt, exitCode: result.exitCode, signal: result.signal });
   return success(result);
 }

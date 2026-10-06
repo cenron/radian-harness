@@ -13,7 +13,8 @@ export type RegistryEntry =
   | { kind: "intent"; at: string; attempt: string; label: string }
   | { kind: "process"; at: string; attempt: string; label: string; identity: ProcessIdentity; source: "launcher" | "discovered" }
   | { kind: "resource"; at: string; attempt: string; resource: "port" | "service" | "pane" | "projection" | "scratch"; id: string }
-  | { kind: "terminated"; at: string; attempt: string; postcondition: "verified" | "unknown"; survivors: number; discovered: number };
+  | { kind: "terminated"; at: string; attempt: string; postcondition: "verified" | "unknown"; survivors: number; discovered: number }
+  | { kind: "exited"; at: string; attempt: string; exitCode: number | null; signal: string | null };
 
 type WithoutAt<T> = T extends unknown ? Omit<T, "at"> & { at?: string } : never;
 

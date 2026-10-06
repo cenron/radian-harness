@@ -3,6 +3,7 @@
 // Prints a sanitized blocker and exits non-zero when any launch check fails.
 
 import { launchContained, prepareLaunch, terminalDevice } from "./launcher.ts";
+import { rendererFor } from "../runtimes/registry.ts";
 
 const [specFile, specHash] = process.argv.slice(2);
 if (!specFile || !specHash) {
@@ -14,7 +15,8 @@ if (!specFile || !specHash) {
     process.stderr.write(`radian launcher: BLOCKED ${prepared.blocker.code}: ${prepared.blocker.message}\n`);
     process.exitCode = 3;
   } else {
-    const result = await launchContained(prepared.value);
+    const runtime = prepared.value.spec.events?.runtime;
+    const result = await launchContained(prepared.value, runtime ? { render: rendererFor(runtime) } : {});
     if (!result.ok) {
       process.stderr.write(`radian launcher: BLOCKED ${result.blocker.code}: ${result.blocker.message}\n`);
       process.exitCode = 3;

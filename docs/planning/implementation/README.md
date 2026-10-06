@@ -13,7 +13,7 @@ The user authorized a new **Claude Code / Opus 5.5 / high** session to implement
 | 03 | [Durable state, approvals, reservations, and budgets](03-state-and-authority.md) | complete | 02 |
 | 04 | [Worktrees, candidate delivery, and controlled Git](04-worktrees-and-git.md) | complete | 03 |
 | 05 | [Native containment, credential ownership, and supervision](05-containment-and-supervision.md) | complete | 02–04 |
-| 06 | [Pi, Codex, Claude, and Herdr adapters](06-runtime-and-herdr-adapters.md) | pending | 05 |
+| 06 | [Pi, Codex, Claude, and Herdr adapters](06-runtime-and-herdr-adapters.md) | complete | 05 |
 | 07 | [Engineering orchestration, integration, and metrics](07-orchestration-and-metrics.md) | pending | 03–06 |
 | 08 | [Pi coordinator interface](08-pi-interface.md) | pending | 07 |
 | 09 | [Workspace binding, installer, and operational documentation](09-binding-and-installer.md) | pending | 01–08 |
