@@ -233,9 +233,16 @@ export function reduce(previous: RunState, envelope: EventEnvelope): RunState {
     case "task.candidate":
       state.tasks[e.task]!.candidates.push({ round: e.round, candidate: e.candidate });
       break;
-    case "approval.recorded":
+    case "approval.recorded": {
       state.approvals[e.approval.id] = { ...e.approval };
+      // An approval moves its task forward (never backwards): spec/brief → planning, plan → building.
+      const task = e.approval.task ? state.tasks[e.approval.task] : undefined;
+      if (task && e.approval.decision === "approved") {
+        if ((e.approval.kind === "spec" || e.approval.kind === "brief") && (task.phase === "spec_draft" || task.phase === "awaiting_spec_approval")) task.phase = "planning";
+        if (e.approval.kind === "plan" && ["spec_draft", "awaiting_spec_approval", "planning", "awaiting_plan_approval"].includes(task.phase)) task.phase = "building";
+      }
       break;
+    }
     case "approval.invalidated":
       state.approvals[e.approvalId]!.invalidated = { at: envelope.at, reason: e.reason };
       break;

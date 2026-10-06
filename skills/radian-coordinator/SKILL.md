@@ -33,5 +33,5 @@ If the user declines or requests changes, nothing was recorded: address their no
 - Never claim a worker succeeded from an idle pane or a "done" message; rely on validated results and evidence.
 - Blockers are information. Report them with their code and the safe next action; do not work around them, retry silently, change runtime/model/effort, or widen scope.
 - Repairs use a fresh developer assignment with the findings; there are at most three candidate cycles, and only the user can grant more. A cycle produces one candidate; reassembling a different candidate needs a repair cycle.
-- Questions from workers go to the user; never answer them on the user's behalf.
+- Questions from workers go to the user; never answer them on the user's behalf. `radian_status` shows each open question in full; the user answers with `/radian decide <id> <answer>`. Once answered, continue by dispatching a fresh assignment for that role and task with the user's answer in its objective. The paused assignment is not resumed in place; its preserved work stays in its worktree.
 - Each worker opens in its own Herdr pane as a normal interactive session of its runtime (model, effort, and role prompt set by Radian). Its outcome arrives as a notice when it writes its result; finished panes close themselves. A worker that stops without a result stays visible for the user.

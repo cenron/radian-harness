@@ -1097,7 +1097,7 @@ export class Coordinator {
     await this.interrupt(entry, { code: "QUESTION_OPEN", message: `paused by the user: ${reason}` }, async (termination) => {
       await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "paused", termination);
       await this.release(assignment, termination);
-      const blocked = await this.deps.store.block(assignment, "user-pause", `Paused by the user: ${reason}. Resume starts a fresh attempt with preserved work.`);
+      const blocked = await this.deps.store.block(assignment, "user-pause", `Paused by the user: ${reason}. Continue by dispatching a fresh assignment; the preserved work stays in this worktree.`);
       decisionId = blocked.ok ? Object.values(blocked.value.decisions).filter((x) => x.assignment === assignment && x.status === "open").at(-1)?.id : undefined;
     });
     const stopped = await this.stopOnce(entry);

@@ -363,7 +363,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
           if (!channel.ok) return blockerText(channel.blocker);
           const resolved = await run.value.store.resolveDecision(channel.value, decisionId, answer.join(" "));
           updateStatus(ctx);
-          return resolved.ok ? `Decision ${decisionId} resolved. Resume starts a fresh attempt.` : blockerText(resolved.blocker);
+          return resolved.ok ? `Decision ${decisionId} resolved. To continue, ask the coordinator to dispatch a fresh assignment for that work with your answer; the paused assignment's work stays preserved.` : blockerText(resolved.blocker);
         }
         case "integrate": {
           const [task] = rest;
