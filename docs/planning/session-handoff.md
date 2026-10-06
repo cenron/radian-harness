@@ -2,6 +2,17 @@
 
 ## Current checkpoint — resume here
 
+- **Latest (2026-10-06, user-authorized commits/pushes to `main`):**
+  - `7d3d7bf`: coordinator skill fix. The model had invented a task id, so approvals failed with `unknown task`.
+  - `aa14a83` / `b6a5236`: [proposal 0016](../proposals/0016-guided-approvals.md) guided approvals (option A). The coordinator requests PRD/spec, start (plan + Build), and merge dialogs that Radian renders from disk, with Cancel first. Tasks are created on PRD approval. The three approval points are unchanged.
+  - Then the W06 follow-up F03 correction: the guard-to-commit window. See the [W06 record](workspace-first/06-safety-revalidation.md#completion-record).
+  - Offline: typecheck, unit 203/203, integration 12/12, run sequentially. Generic publication checks pass; private-denylist coverage is absent.
+  - Not run: the interactive TUI dialogs in a real terminal, live probes, and the six feasibility suites.
+  - **Remaining before live verification:** independent probing of F02/F04 (open questions in the W06 record), and the unexplained transient W05 integration failure under concurrent load.
+  - Typed confirmations (`/radian approve` etc.) still use Pi's `confirm`, where Enter means Yes (noted in 0016).
+  - Capabilities are 0/26 verified. Live verification needs separate authorization.
+  - The installed session was not restarted or driven; Herdr was used only to read its pane at the user's request.
+
 - Subsequent user-authorized crash fix (commit/push authorized): the Calm resolver installed `renderResult` even when a tool lacked that callback, returning `undefined` instead of leaving Pi's native fallback active. A network-denied offline test of Pi's public `ToolExecutionComponent` reproduced the exact `MouseRegion.render` exception before the fix. The resolver now preserves absent callbacks; unit and native rendering regressions pass for Calm off/on, expanded/partial/error output, and narrow/wide widths. Typecheck and 194 unit tests passed. The first aggregate integration run failed W05's project-context marker assertion while unit tests ran concurrently; W05 passed in isolation and all 12 integration tests passed on the subsequent aggregate run. This transient failure is not explained or fixed by the Calm patch. Generic publication and whitespace checks passed; private-denylist coverage is absent. The installed session was not restarted or driven; the local-development binding will load the fix on the user's next restart/resume.
 
 - The user explicitly authorized merging everything into `main`. The entire `workspace-first` branch was fast-forward merged at `a1ee1d1`, including W01–W07 and the configured worker model/routing policy. The user subsequently authorized committing/pushing `main`, updating the existing development workspace to this checkout, and removing the sibling feature worktree after verifying the new binding. `main` was pushed and remote equality verified at `6d3cd41`. The existing development workspace was then rebound through the supported installer: exactly three actions updated the workspace/project package entries and ownership manifest to the coordinating checkout at `6d3cd41`. Status confirmed the source available, ownership unchanged, and no interrupted operation. The clean, fully merged feature worktree was removed without force; its branch/history remain preserved. No Pi session was restarted and no project task or worker was executed.

@@ -307,6 +307,37 @@ export class RunStore {
     for (const guard of [...this.approvalGuards]) await guard({ task });
   }
 
+  /**
+   * Approval changes whose pre-commit guard has started but whose decision is
+   * not committed yet. A start handed off in that window would escape the
+   * guard, so coordinators wait for these to settle and then authorize
+   * against the committed decision (W06/F03 follow-up). Counted synchronously
+   * before the guards run, so no hand-off can slip between the two.
+   */
+  private approvalChangesInFlight = 0;
+  private settledWaiters: Array<() => void> = [];
+
+  approvalChangeInFlight(): boolean {
+    return this.approvalChangesInFlight > 0;
+  }
+
+  /** Resolves once no approval change is between its guard and its commit (or refusal). */
+  whenApprovalChangesSettled(): Promise<void> {
+    if (this.approvalChangesInFlight === 0) return Promise.resolve();
+    return new Promise((resolve) => this.settledWaiters.push(resolve));
+  }
+
+  private async guardedApprovalChange<T>(task: string | undefined, commit: () => Promise<T>): Promise<T> {
+    this.approvalChangesInFlight += 1;
+    try {
+      await this.beforeApprovalChange(task);
+      return await commit();
+    } finally {
+      this.approvalChangesInFlight -= 1;
+      if (this.approvalChangesInFlight === 0) for (const resolve of this.settledWaiters.splice(0)) resolve();
+    }
+  }
+
   /** The only approval writer. Requires a genuine human channel; model tools and worker input cannot reach it. */
   recordApproval(channel: HumanChannel, approval: Omit<ApprovalRecord, "schema" | "actor" | "channel" | "decidedAt" | "id" | "project" | "run">): Promise<Outcome<RunState>> {
     if (!HumanChannel.isGenuine(channel)) return Promise.resolve(refuse("APPROVAL_NOT_HUMAN", "approvals can only be recorded from explicit user input"));
@@ -325,31 +356,31 @@ export class RunStore {
     if (record.kind === "integration" && (!record.candidate || !record.target)) {
       return Promise.resolve(refuse("AUTHORITY_INVALID", "integration approval must bind the exact candidate and target"));
     }
-    // Spec/brief/plan decisions can make a pending launch stale: revoke those first.
-    const guarded = record.kind === "integration" ? Promise.resolve() : this.beforeApprovalChange(record.task);
-    return guarded.then(() =>
+    const commit = () =>
       this.transact({ kind: "human", id: channel.actorId }, undefined, (s) => {
         if (record.task && !s.tasks[record.task]) return refuse("INVALID_TRANSITION", "unknown task");
         return success([{ type: "approval.recorded", approval: parsed.value }]);
-      }),
-    );
+      });
+    // Spec/brief/plan decisions can make a pending launch stale: revoke those first, and hold new hand-offs until committed.
+    return record.kind === "integration" ? commit() : this.guardedApprovalChange(record.task, commit);
   }
 
   /** Mark approvals stale when their bound artifact changed (current hashes computed from disk). */
   async invalidateChangedApprovals(currentHashes: Record<string, string>): Promise<Outcome<RunState>> {
     const affected = Object.values(this.cached.approvals).some((a) => !a.invalidated && a.decision === "approved" && currentHashes[a.artifact.path] !== undefined && currentHashes[a.artifact.path] !== a.artifact.hash);
-    if (affected) await this.beforeApprovalChange(undefined);
-    return this.transact({ kind: "system", id: "artifact-watch" }, undefined, (s) => {
-      const events: RunEvent[] = [];
-      for (const approval of Object.values(s.approvals)) {
-        if (approval.invalidated || approval.decision !== "approved") continue;
-        const current = currentHashes[approval.artifact.path];
-        if (current !== undefined && current !== approval.artifact.hash) {
-          events.push({ type: "approval.invalidated", approvalId: approval.id, reason: "approved artifact changed" });
+    const commit = () =>
+      this.transact({ kind: "system", id: "artifact-watch" }, undefined, (s) => {
+        const events: RunEvent[] = [];
+        for (const approval of Object.values(s.approvals)) {
+          if (approval.invalidated || approval.decision !== "approved") continue;
+          const current = currentHashes[approval.artifact.path];
+          if (current !== undefined && current !== approval.artifact.hash) {
+            events.push({ type: "approval.invalidated", approvalId: approval.id, reason: "approved artifact changed" });
+          }
         }
-      }
-      return success(events);
-    });
+        return success(events);
+      });
+    return affected ? this.guardedApprovalChange(undefined, commit) : commit();
   }
 
   // --- Rounds and assignments -----------------------------------------------

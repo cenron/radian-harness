@@ -40,7 +40,7 @@ The user's flow becomes: open Pi in the workspace, select a project, develop the
 
 ## Known interaction: open F03 race
 
-An independent W06 review probe found that an approval decision committed after the coordinator's pre-commit guard has run can still let a not-yet-bound launcher start: the guard runs before the run-lock wait, and the launcher's start gate checks artifact contents, not decisions. Guided approvals use the same `recordApproval` path and must not be described as fixing it. It remains a blocker for live verification and needs its own failing regression and correction.
+An independent W06 review probe found that an approval decision committed after the coordinator's pre-commit guard has run can still let a not-yet-bound launcher start: the guard runs before the run-lock wait, and the launcher's start gate checks artifact contents, not decisions. Guided approvals use the same `recordApproval` path and must not be described as fixing it. It remained a blocker for live verification. It was later exposed red and corrected separately; see the [W06 record](../planning/workspace-first/06-safety-revalidation.md#completion-record).
 
 ## Implementation and verification
 
@@ -72,4 +72,4 @@ Implemented in this checkout by the coordinating Claude Code session (Opus 5.5) 
 - **Offline runs.** Typecheck passed; unit 202/202 and integration 12/12, run sequentially.
 - **Not run.** Interactive TUI dialogs in a real terminal were not exercised; the user's next interactive session is the first real use. No live model, auth, or provider probe was run.
 - **Follow-up, not changed here.** The typed `/radian approve|reject|integrate|decide|grant-rounds|authorize-recovery` confirmations still use Pi's `confirm`, where Enter on the initial selection means "Yes". A stray Enter right after typing such a command can confirm it.
-- **Still open.** The F03 race above is unchanged. Capability verification remains outstanding.
+- **Still open.** This change did not touch the F03 race; it was corrected separately afterwards. Capability verification remains outstanding.

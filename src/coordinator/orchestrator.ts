@@ -432,6 +432,11 @@ export class Coordinator {
     // Exact-candidate checks are executed by the contained launcher itself; their records are the evidence.
     const checkRuns = plan.purpose === "candidate-check" ? brief.value.brief.requiredChecks.map((c) => ({ id: c.id, argv: [...c.argv] })) : undefined;
     const checkTimeoutMs = checkRuns ? d.store.remainingMs(assignment) : 0;
+    // An approval change whose pre-commit revocation already ran (before this attempt was a
+    // pending start) may still be waiting to commit: wait, then authorize against the committed
+    // decision. Nothing awaits between this authorization and registering the pending start,
+    // so every later change revokes it before committing (W06/F03 follow-up).
+    while (d.store.approvalChangeInFlight()) await d.store.whenApprovalChangesSettled();
     const ready = authorize();
     if (!ready.ok) return notStarted(ready.blocker);
     if (attempt.automatic) d.metrics.record("recovery", { task: a.task, assignment, role: a.role, outcome: "automatic" });

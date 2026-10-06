@@ -35,3 +35,12 @@ Baseline: the assembled feature source at `af4b45e` (W05 checkpoint). Each regre
 
 - **Re-run:** the full unit suite, including the original R01–R08 remediation suites, W01–W05 suites, isolation, and workflow tests: `npm test` 187/187 (typecheck exit 0). Shared-contract suites (R03/R04/R05/R06/R07/R08, launcher, registry) were re-run after each fix.
 - **Limitations (not downgrades):** a worker whose runtime already started before an approval change keeps running (the guarantee is that nothing *new* starts; it is unchanged from R04). The start gate re-hashes artifacts only up to the instant the launcher records its intent. Directory creation safety relies on macOS `O_NOFOLLOW_ANY` and a helper process per mkdir; other platforms refuse. Simultaneous watcher-and-coordinator loss and real runtime descendants remain unverified, as before. Independent follow-up review is still required before any live verification.
+- **Independent follow-up review (2026-10-06, on `main`):**
+  - **F01:** source reviewed; no counterexample found.
+  - **F03:** a gap remained. The pre-commit guard ran before the run-lock wait, so an attempt handed off after the guard but before the commit escaped revocation. The launcher's start gate re-hashes contents only, so a rejected decision on unchanged content passed it. An ephemeral probe, then the production-path regression `tests/unit/remediation/f03-guard-commit-window.test.ts`, showed the runtime starting after the rejection committed (`intent`, `process` recorded; red).
+    - Correction: the run store counts approval changes between guard and commit (incremented synchronously before the guards run). `runAttempt` waits for them to settle, then performs its final authorization and registers the pending start with no await in between. Every later change therefore revokes the start before committing. Green 1/1, repeated 3/3. With only the coordinator wait removed the regression is red again.
+    - Recovery, resume, and quota retry use the same `runAttempt` path.
+  - **F02 and F04:** fixes read but not yet independently probed. Open questions:
+    - F02: does integration refuse when no dispatch recorded the required checks, and can an older approved plan revision still be used after a newer one?
+    - F04: after a loss whose re-stop is also unknown, coordinator monitoring stops, leaving the watcher as the only backstop.
+  - **Status:** W06 is not yet independently cleared.
