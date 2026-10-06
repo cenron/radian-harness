@@ -2,7 +2,7 @@
 
 A Pi-native harness under implementation for agentic software engineering, maintained outside the workspaces where it is used.
 
-**Status: all ten implementation milestones are complete and verified offline ([verification report](docs/research/implementation-verification.md)). No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
+**Status: the original implementation and first remediation have offline evidence, but [independent review](docs/research/remediation-follow-up-review.md) found remaining safety failures. [Workspace-first implementation](docs/planning/workspace-first/README.md) is authorized, with final safety revalidation/correction before aggregate acceptance ([verification history](docs/research/implementation-verification.md)). No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
 
 | Runtime | Implemented | Offline evidence | Launch |
 | --- | --- | --- | --- |
@@ -26,7 +26,8 @@ A Pi-native harness under implementation for agentic software engineering, maint
 
 ## Planning documents
 
-- **[Implementation table of contents and milestones](docs/planning/implementation/README.md)** — authorized sequence, completion tracking, and commit/push contract.
+- **[Workspace-first implementation plan](docs/planning/workspace-first/README.md)** — current W01–W07 sequence, same-interface project control, final safety corrections, and offline verification.
+- [Original implementation milestones](docs/planning/implementation/README.md) — historical completion records; do not replay.
 - **[Start here for the next session](docs/planning/session-handoff.md)** — current authorization, saved evidence, and handoff.
 - [Initial proposal and open decisions](docs/proposals/0001-direction.md)
 - [Multi-runtime workers and task-based dispatch](docs/proposals/0002-worker-dispatch.md)

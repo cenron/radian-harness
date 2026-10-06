@@ -1,8 +1,12 @@
 # Implementation verification and capability checkpoint
 
-**Status: review remediation R01–R07 corrected and aggregate offline verification passed (2026-10-06). Independent follow-up review is still required before any live verification. Worker-runtime support and release readiness: NOT READY.** Every worker launch remains disabled because no runtime capability has recorded verification evidence; live runtime, authentication, refresh, cancellation, and Herdr behavior were not exercised (not authorized).
+**Status: first remediation aggregate offline verification passed (2026-10-06); independent follow-up review found remaining safety blockers. Worker-runtime support and release readiness: NOT READY.** Every worker launch remains disabled because no runtime capability has recorded verification evidence; live runtime, authentication, refresh, cancellation, and Herdr behavior were not exercised (not authorized).
 
-## Review remediation checkpoint (current)
+## Independent follow-up qualification
+
+The [independent review at `6d71988`](remediation-follow-up-review.md) reproduced typecheck, 146/146 unit tests, 5/5 integration tests, and the full offline verification pass, but additional disposable-fixture probes exposed four acceptance failures: outside-directory creation on a refused planning write, lost check argv after repair, stale approval authorization before delivery/start, and retained unknown attempts omitted from later supervision loss/shutdown. Thus the test results below stand as historical evidence, but full correction/safety clearance is not accepted. The final safety gate is unresolved. The user subsequently authorized revalidating/correcting these findings at the end of workspace-first implementation in W06, followed by W07 aggregate verification; the earlier feature-prerequisite block is superseded. No executable source was changed by this review. Independent follow-up review remains required before live verification.
+
+## First review remediation checkpoint (historical evidence)
 
 A review of `e28d3db` found seven safety defects that the milestone 10 run below did not exercise. That run remains a historical record of the earlier tree; it is not retroactively corrected proof. Per-finding red/green evidence, design choices, and residual limitations are in the [remediation plan and progress index](../planning/remediation/README.md#completion-records).
 

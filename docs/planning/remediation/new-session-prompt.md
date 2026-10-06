@@ -1,4 +1,6 @@
-# Prompt for the review-remediation session
+# Historical prompt for the first review-remediation session
+
+This first pass finished at `6d71988`; do not replay this prompt. Current user-authorized work follows the [workspace-first plan and prompt](../workspace-first/README.md), including final F01–F04 revalidation/correction in W06. The original instructions below are preserved as historical scope/evidence.
 
 Open the **harness-source checkout** in **Claude Code**, select **Opus 5.5 / high** through documented native controls, and use its supported claude.ai subscription path. Do not run Opus through Pi, enable paid extra usage, change authentication, or substitute another profile. The installed sandbox project is not the source checkout and is not the test target for this pass.
 
