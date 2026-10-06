@@ -2,7 +2,7 @@
 
 A Pi-native harness under implementation for agentic software engineering, maintained outside the workspaces where it is used.
 
-**Status: the original implementation and first remediation have offline evidence, but [independent review](docs/research/remediation-follow-up-review.md) found remaining safety failures. [Workspace-first implementation](docs/planning/workspace-first/README.md) is authorized, with final safety revalidation/correction before aggregate acceptance ([verification history](docs/research/implementation-verification.md)). No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
+**Status: [workspace-first](docs/planning/workspace-first/README.md) source implementation (install into an empty workspace, then create, select, and switch projects in one Pi interface) and the corrections for the [independent review](docs/research/remediation-follow-up-review.md)'s remaining findings have offline evidence on the `workspace-first` branch ([verification history](docs/research/implementation-verification.md)); an independent follow-up review is pending. No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
 
 | Runtime | Implemented | Offline evidence | Launch |
 | --- | --- | --- | --- |

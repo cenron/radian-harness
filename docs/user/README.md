@@ -20,41 +20,52 @@ Adapters accept only the reviewed runtime versions. A different version returns 
 
 ## Install into a workspace
 
-A workspace is a folder you create that contains project repositories. Radian keeps its own records in `<workspace>/.radian/` and adds one owned package entry to each **explicitly registered** project's `.pi/settings.json`. It never edits `AGENTS.md`, personal Pi settings or keybindings, credentials, or other settings entries, and it never binds repositories you did not name.
-
-Every mutating command previews first and applies only the exact plan you reviewed:
+A workspace is a folder you create to hold your projects. It need not be a Git repository and may start empty. Radian keeps its records in `<workspace>/.radian/`, adds one owned package entry to the workspace's own `.pi/settings.json` (so Pi started at the workspace root loads Radian), and adds one owned entry to each **explicitly registered** project's `.pi/settings.json` for direct project entry. It never edits `AGENTS.md`, personal Pi settings or keybindings, credentials, or other settings entries, never binds repositories you did not name, never grants Pi trust, and never installs tools globally.
 
 ```sh
-# from the Radian checkout
-npm run workspace -- install --workspace ~/work/my-workspace \
-  --project ~/work/my-workspace/project-a=refs/heads/main \
-  --local .
-# review the plan, then apply exactly that plan
-npm run workspace -- install … --apply sha256:<plan-hash>
+mkdir my-workspace && cd my-workspace
+/path/to/radian-harness/install.sh   # shows the target, previews the plan, applies only that plan after you confirm
+pi                                   # Pi asks once whether to trust the workspace; Radian opens its dashboard
 ```
 
+`install.sh` targets the current directory unless you pass `--workspace <dir>`, checks Node ≥ 22.18, Git ≥ 2.42, and Pi 1.0.2 read-only (missing tools block; nothing is installed), and applies only after you confirm the exact previewed plan in a terminal, or with `--apply <plan-hash>` non-interactively. The same operations are available as `npm run workspace -- install|update|remove|status|recover --workspace <dir> …`; every mutating command previews first and applies only the exact plan you reviewed (`--apply sha256:<plan-hash>`).
+
 - `--local <harness>` binds a local development checkout (Pi loads it in place; edits affect later loads). `--source git:<repo>@<40-hex-commit>` or `--source npm:<name>@<x.y.z>` binds a pinned release. Unpinned sources are refused.
-- `--project <repo>=<refs/heads/branch>` registers a repository root inside the workspace with an **explicit protected target**. Radian never assumes `main`.
+- `--project <repo>=<refs/heads/branch>` (optional) registers an existing repository root inside the workspace with an **explicit protected target** at install time; normally you add projects from Pi (below).
 - `status --workspace <dir>` reports the source, projects, owned entries (unchanged/modified/missing), owned files, active runs, and interrupted operations.
 - `update` changes the source between runs. Locally modified owned entries are preserved and reported. Paused runs keep their recorded harness version and configuration until you approve a migration.
 - `remove` deletes only unchanged owned material. Runs, evidence, metrics, worktrees, workspace overrides, the harness checkout, projects, and credentials are retained. It is refused while any run is active or paused, a coordinator is live, or capacity is reserved.
 - `recover` completes an interrupted operation: steps already at their planned result or still at their expected prior state proceed; anything else is reported and left alone.
+- Installations made before workspace-first (project-first `radian.manifest/1`) keep working; `status` reports them as legacy, and a previewed `install` migrates the manifest (adding the workspace entry, keeping project identities, bindings, and state). An active or unverifiable run blocks migration and updates.
+- All installer writes go through link-refusing, namespace-safe file operations: a directory or file swapped for a link mid-operation is refused without changing anything outside the workspace.
 
-The installer does not grant Pi project trust. Open each project in Pi and approve trust yourself.
+## Projects in the workspace
+
+Pi stays at the workspace root in one interface and one process; Radian switches the conversation, not Pi's working directory.
+
+- `/projects` lists explicitly registered projects (missing or moved ones are marked) with their targets and runs; `/projects <name>` selects one. `/workspace` returns to the dashboard.
+- `/new-project <name> [--branch <branch>]` creates a minimal project after you confirm the exact plan: a new Git repository on the confirmed branch (`main` is offered as the default), one initial commit by your configured Git identity containing only `README.md`, `.gitignore` (which ignores only the machine-specific direct-entry binding), and `.radian/planning/README.md`; then the ignored binding and the registration. No dependencies, frameworks, hooks, remotes, specifications, approvals, or workers. Git runs without hooks, templates, filters, signing, or your global configuration; a missing Git identity blocks instead of being invented. Interrupted creation is journaled: `/new-project --recover` finishes it, never deleting the directory and never committing your edits.
+- `/add-project <path> --target refs/heads/<branch>` registers an existing repository with an explicit commit-backed protected target (a picker is offered if you omit it); nothing is committed and dirty work is preserved.
+- Each project has its own conversation, instructions (`AGENTS.md` as Pi would load them at the project root), Plan/Build mode, approvals, run, and tool scope. Selecting a project at an idle moment starts or restores only that project's conversation; queued input never moves between projects, and your model and thinking level stay as they were. A project's own `.pi` extensions, skills, prompts, settings, and MCP servers are not loaded in the workspace interface (Radian tells you); use direct entry with Pi's own trust for them.
+- Background work continues when you switch: results for another project wait for it (you get a notice without its content), and quitting Pi stops or leaves unfed only work Radian owns, under the verified/unknown rules below.
+- Direct entry still works: start Pi inside a registered project to use it on its own (with its own Pi trust decision). One Pi process holds a project's context at a time; a second one is refused.
+- With no project selected only workspace status and confined workspace reads are available. A recognized but invalid workspace (unreadable registry, moved record, unregistered directory) is blocked: every tool is refused until you fix it.
 
 ### Workspace layout
 
 ```text
+<workspace>/.pi/settings.json               owned Radian package entry (loads Radian at the root)
 <workspace>/.radian/workspace.json          workspace identity (owned)
 <workspace>/.radian/manifest.json           ownership manifest (owned)
 <workspace>/.radian/config/                 your workspace overrides (yours)
 <workspace>/.radian/state/projects.json     explicit project registry (owned)
 <workspace>/.radian/state/capacity/         workspace-wide worker reservations
-<workspace>/.radian/projects/<id>/state/    runs, approvals, supervision, metrics (private)
+<workspace>/.radian/projects/<id>/state/    runs, approvals, supervision, metrics, context reference and lock (private)
 <workspace>/.radian/projects/<id>/exchange/ worker briefs and results
 <workspace>/.radian/projects/<id>/worktrees/ owned worktrees (outside your checkout)
 <project>/.radian/config/                   optional project overrides (yours)
 <project>/.radian/planning/                 coordinator planning drafts (specs, briefs, plans)
+<project>/.pi/settings.json                 owned direct-entry binding (ignored in new projects)
 ```
 
 ## Configuration
@@ -76,14 +87,14 @@ Provider rules (proposal 0015): Anthropic models (Opus, Sonnet, Haiku, Fable, an
 
 ## Using Radian in Pi
 
-Start Pi inside a Herdr pane in a registered project. Managed sessions start in **PLAN**; the status line shows PLAN/BUILD, live workers, and Calm.
+Start Pi at the workspace root (or inside a registered project for direct entry). Worker runs additionally need Pi to run inside a Herdr pane. Project sessions start in **PLAN**; the status line shows PLAN/BUILD, the project, live workers, Calm, and workspace capacity.
 
 - **Shift+Tab** toggles Plan/Build in managed sessions only (Tab stays autocomplete; native `/thinking` stays available). Mode changes never approve or start work. Entering Plan blocks new modifying dispatch immediately and asks before pausing live workers.
 - `/radian status`, `/radian start`, `/radian task add <title>`.
 - `/radian approve|reject <spec|brief|plan|integration> <task> <artifact-path>` — interactive only, with a confirmation showing the artifact hash (and, for integration, the exact candidate, target, checks, review, risks, and gaps). Add `lightweight` after a brief to choose the lightweight-brief path for a small fix.
 - `/radian decide <decision-id> <answer>`, `/radian integrate <task>`, `/radian pause|cancel <assignment>`, `/radian grant-rounds <task> <n>`, `/radian authorize-recovery <assignment>`, `/radian retro`, `/radian capabilities`, `/radian calm on|off`.
 
-The coordinator model can read and search (Pi's `read`, `grep`, `find`, `ls`), inspect Git through the fixed read-only `radian_git_inspect` tool (status, log, diff, show with exact commit ids), write drafts under `.radian/planning/` only through `radian_write_artifact` (which refuses any link in the path), and call `radian_status`, `radian_dispatch`, and `radian_assemble`. It has no shell: every `bash` call is blocked in both modes, because commands that look read-only can still start helpers or write files outside worker containment. It cannot approve anything, use Pi's `write`/`edit`, edit production files, or use MCP/codemode or unknown tools in managed sessions. Artifacts that are links are never hashed or approved. Without an interactive terminal, approvals and decisions return `NONINTERACTIVE_APPROVAL_REQUIRED`.
+The coordinator model can read and search with Radian's confined `read`, `grep`, `find`, and `ls` (same names as Pi's; every path is resolved inside the selected project, links are never followed, and other projects and Radian's private state are out of reach), inspect Git through the fixed read-only `radian_git_inspect` tool (status, log, diff, show with exact commit ids), write drafts under `.radian/planning/` only through `radian_write_artifact` (which refuses any link in the path), and call `radian_status`, `radian_dispatch`, and `radian_assemble`. It has no shell: every `bash` call is blocked in both modes, because commands that look read-only can still start helpers or write files outside worker containment. It cannot approve anything, use Pi's `write`/`edit`, edit production files, or use MCP/codemode, tool search, other extensions', or unknown tools in managed sessions (also when called from inside another tool); only the allowed tools are declared to it. Artifacts that are links are never hashed or approved. Without an interactive terminal, approvals and decisions return `NONINTERACTIVE_APPROVAL_REQUIRED`.
 
 **Calm** hides routine successful tool output (one muted line per call) through Pi's tool renderers. Errors, partial output, expanded views, messages, approvals, blockers, and questions stay visible. Execution, model context, logs, and exports are unchanged.
 
@@ -96,9 +107,10 @@ PRD/spec (or a human-chosen lightweight brief) → plan → developer and indepe
 - **Recovery:** one automatic fresh-context recovery after a verified infrastructure failure; more need `/radian authorize-recovery`.
 - **Questions** pause the assignment until you decide; it resumes in a fresh attempt.
 - **Quota exhaustion** preserves work and opens a decision. One retry with the unchanged profile needs your authorization and a reliably reported reset time. No paid spillover, fallback, or background retry.
-- **Unknown termination** (a worker that could not be proven stopped) keeps its capacity slot and blocks replacement until reconciled.
+- **Unknown termination** (a worker that could not be proven stopped) keeps its capacity slot, blocks replacement until reconciled, stays monitored and counted as live work, is stopped again on supervision loss, and keeps Pi from orderly releasing the watcher when you quit.
+- **Required checks** come only from the approved plan: declare them in a `radian-checks` block (one `id: ["argv", …]` per line). A check the approved plan does not declare, or a different command under the same id, is refused — also after repairs and restarts; changing one needs a newly approved plan revision.
 - **Candidate checks** run on the exact current candidate with source, tests, and config read-only (only declared untracked output directories are writable). The contained launcher runs each approved check command itself, without credentials, and records its exit status; Radian counts a check only from that record, after verified termination and after confirming the checkout still holds exactly the candidate.
-- **Approvals are rechecked at every launch**, including recovery, resume, and quota retry: a rejected, invalidated, edited, or deleted spec/brief/plan stops a new attempt from starting.
+- **Approvals are rechecked at every launch**, including recovery, resume, and quota retry: a rejected, invalidated, edited, or deleted spec/brief/plan stops a new attempt from starting. This holds up to the actual start: an approval change first revokes every launch that has not started yet, and the launcher re-checks the approved artifacts immediately before it starts anything; a worker that had already started keeps running.
 - **Supervision loss** (the watcher exiting or stalling, a heartbeat failure, or the coordinator losing its project lease) stops every live worker the coordinator owns and blocks new dispatch until the session is restarted; nothing restarts automatically.
 - **Integration** requires your approval bound to the exact candidate and target, passing evidence for every required check on that candidate, a review of the same candidate without blocking findings, an unmoved target, and a clean target checkout. Radian never stashes, rebases, squashes, resets, or cherry-picks.
 
@@ -133,3 +145,5 @@ See the [development guide](../development.md) for the toolchain, publication sa
 - Candidate and integration checkouts do not run project filter drivers (for example large-file smudge filters).
 - Worker panes show launcher-rendered event summaries, not the runtimes' interactive UIs; Herdr does not detect them as agents.
 - The managed editor conflicts with any other extension that replaces Pi's editor.
+- Switching projects is exercised offline through Pi's RPC mode (the same session replacement as the terminal UI); the terminal UI itself is not automated. Directory listings and delegated searches re-resolve paths after validation, so only a concurrent change to the project by you (never by the coordinator) could race them.
+- Each namespace-safe file step starts a short-lived Node process (project creation takes about a second).

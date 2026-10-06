@@ -2,6 +2,23 @@
 
 **Status: first remediation aggregate offline verification passed (2026-10-06); independent follow-up review found remaining safety blockers. Worker-runtime support and release readiness: NOT READY.** Every worker launch remains disabled because no runtime capability has recorded verification evidence; live runtime, authentication, refresh, cancellation, and Herdr behavior were not exercised (not authorized).
 
+## Workspace-first checkpoint (2026-10-06, implementation branch `workspace-first`)
+
+Source implementation of the [workspace-first plan](../planning/workspace-first/README.md) (W01–W05), final safety revalidation (W06), and aggregate offline verification (W07). Details, per-finding red/green evidence, and limitations are in the milestone records.
+
+| Item | Value |
+| --- | --- |
+| Tested revision / tree | `bb46659` / `96bee7e4020945002d145ff8207b10a65dbc45f3` (clean working tree) |
+| Command | `node scripts/verify.ts` (`npm run verify`), exit 0 |
+| Typecheck | clean |
+| Unit | 191 pass, 0 fail, 0 skipped |
+| Integration | 11 pass, 0 fail, 0 skipped (6 native offline Pi probes with a local faux provider) |
+| Publication | clean for generic patterns (staged, working tree, tree, 24 commits' metadata, package manifest, whitespace); **private denylist not supplied — private-term coverage absent** |
+| Package archive | 101 files, 0 outside the boundary |
+| Offline feasibility | 34 / 10 / 5 / 3 / 3 / 2 PASS |
+
+F01–F04 from the [independent follow-up review](remediation-follow-up-review.md) were still present on the assembled feature source, were exposed by failing production-path regressions, corrected, and shown passing ([W06](../planning/workspace-first/06-safety-revalidation.md#completion-record)). A first aggregate attempt failed one timing-dependent R06 assertion under load; the test now waits boundedly for the same report ([W07](../planning/workspace-first/07-verification.md#completion-record)). Not run: live/real-auth/refresh/endpoint/Herdr/TUI/target-installation modes and ShellCheck. **Runtime support and release readiness: NOT READY**; independent follow-up review is required before live verification.
+
 ## Independent follow-up qualification
 
 The [independent review at `6d71988`](remediation-follow-up-review.md) reproduced typecheck, 146/146 unit tests, 5/5 integration tests, and the full offline verification pass, but additional disposable-fixture probes exposed four acceptance failures: outside-directory creation on a refused planning write, lost check argv after repair, stale approval authorization before delivery/start, and retained unknown attempts omitted from later supervision loss/shutdown. Thus the test results below stand as historical evidence, but full correction/safety clearance is not accepted. The final safety gate is unresolved. The user subsequently authorized revalidating/correcting these findings at the end of workspace-first implementation in W06, followed by W07 aggregate verification; the earlier feature-prerequisite block is superseded. No executable source was changed by this review. Independent follow-up review remains required before live verification.

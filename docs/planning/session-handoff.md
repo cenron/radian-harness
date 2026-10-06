@@ -1,4 +1,10 @@
-# Session handoff — workspace-first implementation authorized, runtime support not ready
+# Session handoff — workspace-first implemented (offline), awaiting independent review; runtime support not ready
+
+## Workspace-first status (latest)
+
+W01–W07 are complete on the `workspace-first` branch (pushed to `origin/workspace-first`, not merged into `main`): empty non-Git workspace installation, `/projects`, `/workspace`, `/new-project`, `/add-project`, same-process project selection with isolated context, and process-wide background ownership. F01–F04 were reproduced red and corrected in W06. Aggregate offline verification passed on tree `96bee7e4…` (191 unit, 11 integration including native offline Pi probes, publication/package checks, six feasibility suites); the private denylist is still absent. See the [plan](workspace-first/README.md) and [W07 record](workspace-first/07-verification.md#completion-record).
+
+**Next:** an independent follow-up review of the workspace-first source and the W06 corrections. Live capability verification, target-workspace installation, main merge, and release remain unauthorized; every worker launch stays disabled.
 
 ## Current follow-up
 
@@ -10,7 +16,7 @@ The review of `e28d3db` found seven safety defects: coordinator command-helper e
 
 The user separately performed a local development installation/UI smoke check in a disposable project. Package/skill loading, Plan/Build, Calm/status, and the unverified-capability display were exercised. This is not runtime/authentication/containment/workflow verification. Do not modify or restart that installed session as part of remediation; local source bindings may pick up edits on later loads.
 
-## Workspace-first implementation — authorized, not started
+## Workspace-first authorization (historical; now implemented — see the status above)
 
 The user selected option B: an empty workspace is the Pi control root, `/new-project` creates a minimal Git + Radian project, and project selection/work stays in the same Pi interface with isolated project context. The [plan](workspace-first/README.md) and [handoff prompt](workspace-first/new-session-prompt.md) define W01–W07. The user authorized cleaning/committing/pushing the planning checkpoint, preparing a fresh source worktree, and handing it to the existing Claude Code pane for uninterrupted implementation, offline verification, and focused implementation-branch commits/pushes. W01 is a hard supported-public-API gate; W02–W05 build the feature; W06 rechecks and fixes any still-present F01–F04 findings; W07 verifies the final tree. Do not silently substitute separate project Pi processes, global working-directory changes, or weaker guards. Target installation, live tests, capability enablement, main-branch merge, and release publication remain unauthorized.
 

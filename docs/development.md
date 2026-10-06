@@ -76,6 +76,10 @@ No open-source license has been selected for this repository yet; `package.json`
 - Development dependencies (`typescript`, Apache-2.0; `@types/node`, MIT) are installed, not vendored.
 - Platform documentation (Pi, Herdr, runtime CLIs) is referenced, not copied.
 
+## Native offline tests
+
+Integration tests that need Pi 1.0.2 start a real `pi --mode rpc` with an isolated HOME and agent directory, `PI_OFFLINE`, and a test-only extension (`tests/integration/fixtures/probe-model.ts`) that registers pi-ai's public faux provider; every model request is logged so tests can assert exactly which transcript, instructions, and working directory reached the model. The one-run `--approve` flag stands in for the user's trust decision; nothing is written to a trust store. These tests skip (never pass) when Pi 1.0.2 is absent.
+
 ## Layout
 
 See [proposal 0013](proposals/0013-repository-layout.md). Directories are added only when they hold real files:

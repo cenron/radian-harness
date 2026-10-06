@@ -1,6 +1,6 @@
 # Workspace-first implementation plan
 
-**Status: authorized for source implementation and offline verification; in progress (see the milestone table).**
+**Status: W01–W07 complete for source implementation and offline verification on the `workspace-first` branch (tested tree `96bee7e4…`); F01–F04 were reproduced and corrected in W06. Runtime/release support: NOT READY; independent follow-up review required before any live verification.**
 
 The user selected **option B** and authorized uninterrupted execution in the existing Claude Code pane from a fresh harness-source worktree, with implementation commits/pushes. The four independent remediation-review findings are to be revalidated and, if still present, corrected **at the end of feature implementation**, before aggregate acceptance. This supersedes the earlier W02–W06 prerequisite block, not safety requirements or runtime capability gates.
 
@@ -37,7 +37,7 @@ Command syntax is planned, not available today. The workspace is the control roo
 | W04 | [Project creation and registration](04-project-lifecycle.md) | W03 | complete |
 | W05 | [Activation and background ownership](05-project-activation.md) | W04 | complete |
 | W06 | [Final safety revalidation and remaining corrections](06-safety-revalidation.md) | W01–W05 | complete |
-| W07 | [Aggregate verification and publication checkpoint](07-verification.md) | W06 | pending |
+| W07 | [Aggregate verification and publication checkpoint](07-verification.md) | W06 | complete |
 
 Execute in order using the [session prompt](new-session-prompt.md). W01 is a hard supported-API gate: if safe same-interface isolation cannot be demonstrated, record a blocker and stop rather than substitute option A. W06 rechecks the findings on the assembled feature source; W07 cannot complete with an unresolved safety finding.
 

@@ -25,9 +25,10 @@ No release, tag, or package publication is authorized yet. Before Radian is adve
 - [ ] Calm hides only routine successful output; execution, context, input order, and exports unchanged.
 - [ ] Approvals impossible from model tools, worker reports, RPC, or noninteractive modes.
 
-## Installer
+## Installer and workspace
 
-- [ ] Preview/install/status/update/remove/recover on disposable workspaces, including existing settings, local edits, active runs, symlinks, moved and duplicate bindings, and interrupted operations.
+- [ ] Preview/install/status/update/remove/recover on disposable workspaces, including empty non-Git workspaces, existing settings, local edits, active runs, symlinks, moved and duplicate bindings, interrupted operations, and previewed migration of project-first manifests.
+- [ ] Same-interface project creation, registration, selection, restore, and restart with isolated context, verified in the interactive terminal (**live**), in addition to the offline RPC evidence.
 
 ## Metrics and provenance
 
