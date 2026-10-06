@@ -65,6 +65,9 @@ test("Claude Code adapter: interactive session with exact model/effort, session 
       assert.ok(argv.includes("--strict-mcp-config"));
       for (const forbidden of CLAUDE_FORBIDDEN_FLAGS) assert.ok(!argv.includes(forbidden), forbidden);
       assert.match(lastArg(argv), /brief\.md[\s\S]*result\.json/, "the first message points at the brief and result files");
+      // A live run lost the first message: `--add-dir <directories...>` took it as another directory.
+      const optionBeforePrompt = argv[argv.length - 3];
+      assert.ok(!["--add-dir", "--tools", "--allowedTools", "--allowed-tools", "--disallowedTools", "--mcp-config", "--betas", "--plugin-dir"].includes(optionBeforePrompt!), `a list-valued option (${optionBeforePrompt}) must not precede the first message`);
       assert.deepEqual(plan.value.tools, role === "reviewer" ? ["Read", "Glob", "Grep", "Write"] : ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]);
       assert.equal(plan.value.cwd, s.authority.worktree);
     } finally {

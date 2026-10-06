@@ -58,6 +58,10 @@ export function createClaudeAdapter(options: { executable?: string } = {}): Runt
         "--append-system-prompt",
         input.systemPrompt,
         "--strict-mcp-config",
+        // List-valued options (--add-dir, --tools, --allowedTools) must never directly precede the
+        // first message, or Claude Code reads the message as another list item.
+        "--add-dir",
+        input.authority.outputDir,
         "--tools",
         tools.value.join(","),
         "--allowedTools",
@@ -66,8 +70,6 @@ export function createClaudeAdapter(options: { executable?: string } = {}): Runt
         "dontAsk",
         "--settings",
         settings,
-        "--add-dir",
-        input.authority.outputDir,
         initialPrompt(input),
       ];
       if (argv.some((arg) => (CLAUDE_FORBIDDEN_FLAGS as readonly string[]).includes(arg))) return refuse("CAPABILITY_MISSING", "a forbidden Claude Code flag was produced");
