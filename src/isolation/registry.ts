@@ -21,8 +21,8 @@ export type RegistryEntry =
   | { kind: "resource"; at: string; attempt: string; resource: "port" | "service" | "pane" | "projection" | "scratch"; id: string }
   | { kind: "terminated"; at: string; attempt: string; postcondition: "verified" | "unknown"; survivors: number; discovered: number }
   | { kind: "exited"; at: string; attempt: string; exitCode: number | null; signal: string | null }
-  /** No launcher may start anything for this attempt after this record (written before termination checks). */
-  | { kind: "revoked"; at: string; attempt: string }
+  /** No launcher may start anything for this attempt after this record (written before termination checks or approval changes). */
+  | { kind: "revoked"; at: string; attempt: string; reason?: string }
   /** An approved candidate check the launcher itself ran under containment (execution evidence, R03). */
   | { kind: "check"; at: string; attempt: string; id: string; exitCode: number | null; signal: string | null; timedOut: boolean };
 
@@ -59,11 +59,21 @@ export class SupervisionRegistry {
     return this.entries().some((e) => e.kind === "revoked" && e.attempt === attempt);
   }
 
-  /** Record a registration intent unless the attempt was revoked (atomically). Returns false when revoked. */
-  async appendIntent(attempt: string, label: string): Promise<boolean> {
+  /**
+   * Record a registration intent unless the attempt was revoked (atomically).
+   * An optional start gate (for example: the approved artifacts still match)
+   * is evaluated under the same lock; if it fails the attempt is revoked.
+   * Returns false when nothing may start.
+   */
+  async appendIntent(attempt: string, label: string, gate?: () => string | undefined): Promise<boolean> {
     ensureDir(this.dir);
     return withLock(path.join(this.dir, "lock"), "supervision registry", () => {
       if (this.revoked(attempt)) return false;
+      const failed = gate?.();
+      if (failed !== undefined) {
+        appendDurable(this.file(), JSON.stringify({ kind: "revoked", at: iso(this.clock.now()), attempt, reason: failed }));
+        return false;
+      }
       appendDurable(this.file(), JSON.stringify({ kind: "intent", at: iso(this.clock.now()), attempt, label }));
       return true;
     });

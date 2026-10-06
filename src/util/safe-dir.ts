@@ -54,6 +54,9 @@ export interface SafeDirHooks {
   beforeMutate?: (dir: string, ops: readonly SafeOp[]) => void;
 }
 
+/** Process-wide test seam with the same timing as `SafeDirHooks.beforeMutate` (regression fixtures only). */
+export const safeDirTestSeam: SafeDirHooks = {};
+
 function errnoBlocker(error: unknown, what: string): Outcome<never> {
   switch ((error as NodeJS.ErrnoException).code) {
     case "ELOOP":
@@ -107,6 +110,7 @@ export function runInVerifiedDir(dir: string, ops: readonly SafeOp[], hooks: Saf
   if (!id.ok) return id;
   if (expected && (expected.dev !== id.value.dev || expected.ino !== id.value.ino)) return refuse("PATH_OUTSIDE_SCOPE", "the directory is not the one Radian created or validated earlier; nothing was changed");
   hooks.beforeMutate?.(dir, ops);
+  safeDirTestSeam.beforeMutate?.(dir, ops);
   const result = spawnSync(process.execPath, [HELPER, id.value.dev, id.value.ino, dir, JSON.stringify(ops)], { cwd: dir, env: { PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 20_000 });
   if (result.error) {
     return (result.error as NodeJS.ErrnoException).code === "ENOENT" ? refuse("PATH_OUTSIDE_SCOPE", "the directory changed before it could be used; nothing was changed") : refuse("PATH_INVALID", "the safe file helper could not start");

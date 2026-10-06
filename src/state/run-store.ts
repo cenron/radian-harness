@@ -287,6 +287,26 @@ export class RunStore {
     );
   }
 
+  private readonly approvalGuards: Array<(change: { task: string | undefined }) => Promise<void>> = [];
+
+  /**
+   * Register a guard that runs before any product-approval decision or
+   * invalidation is committed. Coordinators use it to revoke not-yet-started
+   * launches first, so a launcher either started while the approval was still
+   * current or never starts (W06/F03).
+   */
+  onBeforeApprovalChange(guard: (change: { task: string | undefined }) => Promise<void>): () => void {
+    this.approvalGuards.push(guard);
+    return () => {
+      const index = this.approvalGuards.indexOf(guard);
+      if (index >= 0) this.approvalGuards.splice(index, 1);
+    };
+  }
+
+  private async beforeApprovalChange(task: string | undefined): Promise<void> {
+    for (const guard of [...this.approvalGuards]) await guard({ task });
+  }
+
   /** The only approval writer. Requires a genuine human channel; model tools and worker input cannot reach it. */
   recordApproval(channel: HumanChannel, approval: Omit<ApprovalRecord, "schema" | "actor" | "channel" | "decidedAt" | "id" | "project" | "run">): Promise<Outcome<RunState>> {
     if (!HumanChannel.isGenuine(channel)) return Promise.resolve(refuse("APPROVAL_NOT_HUMAN", "approvals can only be recorded from explicit user input"));
@@ -305,14 +325,20 @@ export class RunStore {
     if (record.kind === "integration" && (!record.candidate || !record.target)) {
       return Promise.resolve(refuse("AUTHORITY_INVALID", "integration approval must bind the exact candidate and target"));
     }
-    return this.transact({ kind: "human", id: channel.actorId }, undefined, (s) => {
-      if (record.task && !s.tasks[record.task]) return refuse("INVALID_TRANSITION", "unknown task");
-      return success([{ type: "approval.recorded", approval: parsed.value }]);
-    });
+    // Spec/brief/plan decisions can make a pending launch stale: revoke those first.
+    const guarded = record.kind === "integration" ? Promise.resolve() : this.beforeApprovalChange(record.task);
+    return guarded.then(() =>
+      this.transact({ kind: "human", id: channel.actorId }, undefined, (s) => {
+        if (record.task && !s.tasks[record.task]) return refuse("INVALID_TRANSITION", "unknown task");
+        return success([{ type: "approval.recorded", approval: parsed.value }]);
+      }),
+    );
   }
 
   /** Mark approvals stale when their bound artifact changed (current hashes computed from disk). */
-  invalidateChangedApprovals(currentHashes: Record<string, string>): Promise<Outcome<RunState>> {
+  async invalidateChangedApprovals(currentHashes: Record<string, string>): Promise<Outcome<RunState>> {
+    const affected = Object.values(this.cached.approvals).some((a) => !a.invalidated && a.decision === "approved" && currentHashes[a.artifact.path] !== undefined && currentHashes[a.artifact.path] !== a.artifact.hash);
+    if (affected) await this.beforeApprovalChange(undefined);
     return this.transact({ kind: "system", id: "artifact-watch" }, undefined, (s) => {
       const events: RunEvent[] = [];
       for (const approval of Object.values(s.approvals)) {

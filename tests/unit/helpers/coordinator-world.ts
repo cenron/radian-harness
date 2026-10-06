@@ -23,13 +23,16 @@ import { RunStore } from "../../../src/state/run-store.ts";
 import { systemClock } from "../../../src/util/clock.ts";
 import { CalmPreference } from "../../../src/ui/calm.ts";
 import { registerRadian } from "../../../src/ui/controller.ts";
-import { type ProjectSession, artifactHash } from "../../../src/ui/session.ts";
+import { type ProjectSession, artifactContent, artifactHash } from "../../../src/ui/session.ts";
 import { makeRepo, tempDir } from "./fixture.ts";
 import { type FakeCtxState, FakeHost, context, fakeRuntime } from "./pi-host.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKERS = path.resolve(HERE, "../../../workers");
 export const human = () => HumanChannel.fromUserInput("user-command", "fixture-user", "/radian approve");
+
+/** The approved plan used by coordinator fixtures; it declares the task's required check. */
+export const PLAN_TEXT = '# Plan\nSynthetic plan.\n\n```radian-checks\nunit: ["npm", "test"]\n```\n';
 
 export type Behaviour = {
   bind?: "ok" | "fail";
@@ -168,7 +171,7 @@ export async function world() {
   fixture.write("src/a.ts", "export const a = 1;\n");
   fixture.write("tests/a.test.ts", "// test\n");
   fixture.write("docs/spec.md", "# Spec\nSynthetic behavior.\n");
-  fixture.write("docs/plan.md", "# Plan\nSynthetic plan.\n");
+  fixture.write("docs/plan.md", PLAN_TEXT);
   const base = await fixture.commitAll("base");
   const repo = await openRepository(projectDir);
   if (!repo.ok) throw new Error("repo");
@@ -208,6 +211,7 @@ export async function world() {
     clock: systemClock,
     // The production hasher: confined, link-refusing reads (R02).
     artifactHash: (relative) => artifactHash(projectDir, relative),
+    artifactContent: (relative) => artifactContent(projectDir, relative),
     roleGuide: (role) => readFileSync(path.join(WORKERS, `${role}.md`), "utf8"),
     credentialSourceFor: () => ({ runtime: "codex", provider: "openai", describe: "unused by fake driver", read: async () => ({ ok: false, blocker: { code: "CREDENTIAL_UNAVAILABLE", message: "fake" } }) }),
     supervisionHealthy: () => success(true as const),

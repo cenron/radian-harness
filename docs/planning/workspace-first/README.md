@@ -36,7 +36,7 @@ Command syntax is planned, not available today. The workspace is the control roo
 | W03 | [Dashboard and project-scoped routing](03-dashboard-and-routing.md) | W02 | complete |
 | W04 | [Project creation and registration](04-project-lifecycle.md) | W03 | complete |
 | W05 | [Activation and background ownership](05-project-activation.md) | W04 | complete |
-| W06 | [Final safety revalidation and remaining corrections](06-safety-revalidation.md) | W01–W05 | pending |
+| W06 | [Final safety revalidation and remaining corrections](06-safety-revalidation.md) | W01–W05 | complete |
 | W07 | [Aggregate verification and publication checkpoint](07-verification.md) | W06 | pending |
 
 Execute in order using the [session prompt](new-session-prompt.md). W01 is a hard supported-API gate: if safe same-interface isolation cannot be demonstrated, record a blocker and stop rather than substitute option A. W06 rechecks the findings on the assembled feature source; W07 cannot complete with an unresolved safety finding.

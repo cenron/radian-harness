@@ -29,6 +29,8 @@ export interface WorkerLaunchRequest {
    * before the launch command is delivered; a refusal there starts nothing.
    */
   authorize?: () => Outcome<true>;
+  /** Revision-bound start gate checked by the launcher before anything starts (W06/F03). */
+  startGate?: { projectRoot: string; artifacts: Array<{ kind: string; path: string; hash: string }> };
   /** Exact-candidate checks the contained launcher runs itself before the runtime (R03). */
   checks?: { runs: Array<{ id: string; argv: string[] }>; timeoutMs: number };
 }

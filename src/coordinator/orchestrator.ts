@@ -61,6 +61,12 @@ export interface CoordinatorDeps {
   clock: Clock;
   /** Current content hash of an approved artifact (repository-relative path), computed from disk. */
   artifactHash: (relativePath: string) => string | undefined;
+  /**
+   * Current content of an approved artifact, read without following links.
+   * Required-check definitions come only from the approved plan's content;
+   * without this reader, required checks are refused.
+   */
+  artifactContent?: (relativePath: string) => string | undefined;
   roleGuide: (role: Role) => string;
   credentialSourceFor: (profile: ResolvedProfile) => CredentialSource;
   /** Watcher and coordinator-lease health; polled at launch and while owned work is alive. */
@@ -116,8 +122,10 @@ interface TaskEvidence {
   candidate?: CandidateRef & { round: number };
   /** Check IDs the approved plan requires for this task; integration is refused until each passes. */
   requiredChecks?: string[];
-  /** Argument vector first declared for each required check; a changed definition is refused. */
+  /** Argument vector for each required check, as declared by the approved plan named in `checkDefinitionsPlan`. */
   requiredCheckArgv?: Record<string, string[]>;
+  /** Content hash of the human-approved plan the definitions came from (their approval provenance). */
+  checkDefinitionsPlan?: string;
   /** Only coordinator-bound evidence (assignment, attempt, tree, approved argv) is recorded here. */
   checks: CheckEvidence[];
   review?: { candidate: string; blockingFindings: number; outcome: WorkerResult["outcome"]; findings: number };
@@ -150,9 +158,45 @@ export class Coordinator {
   /** Latched on supervision or lease loss: no new dispatch from this coordinator. */
   private halted: Blocker | undefined;
   private monitor: NodeJS.Timeout | undefined;
+  /**
+   * Attempts handed to the driver whose runtime has not been confirmed bound:
+   * a product-approval change revokes their start before it is committed
+   * (W06/F03), so nothing new begins under the old approval.
+   */
+  private readonly pendingStarts = new Map<string, { assignment: string; task: string; authorize: () => Outcome<true> }>();
+  /** Pending starts revoked by an approval change (or a failed recheck) before they were known to have begun. */
+  private readonly approvalRevoked = new Set<string>();
 
   constructor(deps: CoordinatorDeps) {
     this.deps = deps;
+    deps.store.onBeforeApprovalChange?.((change) => this.revokePendingStarts(change.task));
+  }
+
+  /**
+   * Revoke every not-yet-bound start of a task (all tasks when undefined)
+   * under the supervision registry lock — the same lock the launcher holds
+   * when it records an intent — and stop attempts the driver already returned.
+   * Called before an approval change is committed.
+   */
+  async revokePendingStarts(task: string | undefined, reason = "a product approval changed before the attempt started"): Promise<void> {
+    for (const [attempt, pending] of [...this.pendingStarts]) {
+      if (task !== undefined && pending.task !== task) continue;
+      await new SupervisionRegistry(this.deps.paths.stateDir, pending.assignment).revoke(attempt);
+      this.approvalRevoked.add(attempt);
+      const entry = this.handles.get(pending.assignment);
+      if (entry && entry.handle.identity.attempt === attempt) void this.stopForApproval(pending.assignment, entry, reason).catch(() => undefined);
+    }
+  }
+
+  /** Stop and account for an attempt whose start authorization became stale; never a recovery trigger. */
+  private stopForApproval(assignment: string, entry: AttemptEntry, reason: string): Promise<void> {
+    const blocker: Blocker = { code: "APPROVAL_STALE", message: `${reason}; nothing new starts under the old approval`, nextAction: "Review the change, then dispatch again under the current approvals." };
+    return this.interrupt(entry, blocker, async (termination) => {
+      const attempt = entry.handle.identity.attempt;
+      const began = new SupervisionRegistry(this.deps.paths.stateDir, assignment).entries().some((e) => e.attempt === attempt && (e.kind === "intent" || e.kind === "process"));
+      await this.deps.store.endAttempt(assignment, attempt, began ? "cancelled" : "not-started", termination);
+      await this.release(assignment, termination);
+    });
   }
 
   private evidenceFile(task: string): string {
@@ -169,19 +213,43 @@ export class Coordinator {
   }
 
   /**
-   * Record the required checks for a task (from the approved plan); never
-   * reduced silently, and a check's argument vector cannot be redefined.
+   * The required checks declared by the task's human-approved plan revision
+   * (the `radian-checks` block of the plan artifact whose approval the plan
+   * hash names). The artifact is re-read and re-hashed, so a definition has
+   * approval provenance only if it is in the approved content itself.
    */
-  setRequiredChecks(task: string, checks: ReadonlyArray<{ id: string; argv: readonly string[] }>): Outcome<true> {
-    const evidence = this.evidence(task);
-    const argv = { ...(evidence.requiredCheckArgv ?? {}) };
+  approvedCheckDefinitions(task: string, planHash: string): Outcome<{ plan: string; checks: Record<string, string[]> }> {
+    const approval = requireApproval(this.deps.store.state, { task, kind: "plan" }, { artifactHash: planHash });
+    if (!approval.ok) return approval;
+    const content = this.deps.artifactContent?.(approval.value.artifact.path);
+    if (content === undefined) return refuse("APPROVAL_STALE", "the approved plan cannot be read safely; its check definitions cannot be verified");
+    if (Coordinator.artifactDigest(content) !== planHash) return refuse("APPROVAL_STALE", "the approved plan changed; its check definitions need a new approval");
+    const parsed = parseCheckDefinitions(content);
+    return parsed.ok ? success({ plan: planHash, checks: parsed.value }) : parsed;
+  }
+
+  /**
+   * Record the required checks for a task. Every requested check must be
+   * declared, with exactly the same argument vector, by the human-approved plan
+   * revision the assignment is bound to; the task then requires every check
+   * that plan declares. A first-seen vector is not approval, and a changed
+   * definition needs an approved plan revision. Definitions persist across
+   * candidate assembly, restarts, and context restores.
+   */
+  setRequiredChecks(task: string, checks: ReadonlyArray<{ id: string; argv: readonly string[] }>, planHash: string): Outcome<true> {
+    const approved = this.approvedCheckDefinitions(task, planHash);
+    if (!approved.ok) return approved;
+    const declared = approved.value.checks;
+    if (Object.keys(declared).length === 0) return refuse("APPROVAL_MISSING", "the approved plan declares no required checks", "Add a radian-checks block to the plan and ask the user to approve the revision.");
     for (const check of checks) {
-      const known = argv[check.id];
-      if (known && !sameArgv(known, check.argv)) return refuse("CANDIDATE_MISMATCH", `required check '${check.id}' was already defined with a different command`, "Keep the approved check definition, or ask the user to approve a revised plan.");
-      argv[check.id] = [...check.argv];
+      const definition = declared[check.id];
+      if (!definition) return refuse("CANDIDATE_MISMATCH", `required check '${check.id}' is not declared by the approved plan`, "Use the plan's declared checks, or ask the user to approve a revised plan.");
+      if (!sameArgv(definition, check.argv)) return refuse("CANDIDATE_MISMATCH", `required check '${check.id}' does not match the approved plan's command`, "Keep the approved check definition, or ask the user to approve a revised plan.");
     }
-    evidence.requiredChecks = [...new Set([...(evidence.requiredChecks ?? []), ...checks.map((c) => c.id)])].sort();
-    evidence.requiredCheckArgv = argv;
+    const evidence = this.evidence(task);
+    evidence.requiredChecks = Object.keys(declared).sort();
+    evidence.requiredCheckArgv = declared;
+    evidence.checkDefinitionsPlan = approved.value.plan;
     this.saveEvidence(task, evidence);
     return success(true);
   }
@@ -194,7 +262,7 @@ export class Coordinator {
     }
     if (!plan.requiredChecks?.length) return refuse("CANDIDATE_MISMATCH", "a candidate check needs the plan's required checks");
     if (plan.requiredChecks.some((c) => !/^[A-Za-z0-9._-]{1,128}$/.test(c.id) || c.argv.length === 0)) return refuse("CONFIG_INVALID", "check ids must be simple names and every check needs an argument vector");
-    const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks);
+    const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks, plan.artifacts.plan);
     if (!recorded.ok) return recorded;
     const roots = await validateCheckOutputRoots(this.deps.repo, current.commit, plan.writeRoots);
     if (!roots.ok) return roots;
@@ -225,7 +293,7 @@ export class Coordinator {
       const checkable = await this.validateCandidateCheck(plan);
       if (!checkable.ok) return checkable;
     } else if (plan.requiredChecks?.length) {
-      const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks);
+      const recorded = this.setRequiredChecks(plan.task, plan.requiredChecks, plan.artifacts.plan);
       if (!recorded.ok) return recorded;
     }
 
@@ -369,6 +437,8 @@ export class Coordinator {
     if (attempt.automatic) d.metrics.record("recovery", { task: a.task, assignment, role: a.role, outcome: "automatic" });
     d.metrics.record("assignment-started", { task: a.task, assignment, role: a.role, runtime: prepared.profile.runtime, model: prepared.profile.model, effort: prepared.profile.effort, round: a.round });
 
+    // From here until binding, an approval change revokes this start before it is committed.
+    this.pendingStarts.set(attempt.id, { assignment, task: a.task, authorize });
     const launched = await d.driver.launch({
       identity,
       profile: prepared.profile,
@@ -379,9 +449,13 @@ export class Coordinator {
       credentialSource: d.credentialSourceFor(prepared.profile),
       minValidityMs: d.store.remainingMs(assignment) + d.startupMs + checkTimeoutMs,
       authorize,
+      // The launcher re-hashes every approved artifact immediately before anything starts.
+      startGate: { projectRoot: d.repo.root, artifacts: brief.value.brief.approvals.map((x) => ({ kind: x.kind, path: x.artifact.path, hash: x.artifact.hash })) },
       ...(checkRuns ? { checks: { runs: checkRuns, timeoutMs: checkTimeoutMs } } : {}),
     });
     if (launched.kind === "refused") {
+      this.pendingStarts.delete(attempt.id);
+      this.approvalRevoked.delete(attempt.id);
       d.metrics.record("preflight-blocked", { task: a.task, assignment, role: a.role, outcome: launched.blocker.code });
       return notStarted(launched.blocker);
     }
@@ -394,12 +468,16 @@ export class Coordinator {
     // Supervision may have been lost while the launch was in flight: the new attempt is stopped with the rest.
     const afterLaunch = this.halted ? { ok: false as const, blocker: this.halted } : d.supervisionHealthy();
     if (!afterLaunch.ok) await this.supervisionLost(afterLaunch.blocker);
+    // An approval changed while the launch was in flight: its start was revoked; stop and account for it.
+    if (!entry.abort.signal.aborted && this.approvalRevoked.has(attempt.id)) await this.stopForApproval(assignment, entry, "a product approval changed during the launch");
     if (entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (launched.kind === "uncertain") return this.finishFailure(assignment, "infrastructure", `launch delivery was not confirmed: ${launched.blocker.message}`);
 
     const bound = await this.interruptible(entry, d.driver.awaitBinding(handle, Date.now() + d.startupMs + checkTimeoutMs, entry.abort.signal));
     if (bound === INTERRUPTED || entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (!bound.ok) return this.finishFailure(assignment, "infrastructure", bound.blocker.message);
+    // Bound: the runtime started under then-current approvals (later changes do not stop running work).
+    this.pendingStarts.delete(attempt.id);
     const binding = await d.store.bindAttempt(identity);
     if (entry.abort.signal.aborted) return this.interrupted(assignment, entry);
     if (!binding.ok) return this.finishFailure(assignment, "infrastructure", binding.blocker.message);
@@ -448,6 +526,8 @@ export class Coordinator {
 
   /** A launch refused before anything could start: end the attempt verified as not-started and release what it held. */
   private async endBeforeLaunch(assignment: string, attempt: string, worktree: string | undefined, reservation: string, blocker: Blocker): Promise<AssignmentOutcome> {
+    this.pendingStarts.delete(attempt);
+    this.approvalRevoked.delete(attempt);
     await this.deps.store.endAttempt(assignment, attempt, "not-started", "verified");
     if (worktree) await this.deps.worktrees.markRetired(worktree, attempt);
     await this.deps.capacity.release(reservation, "terminated");
@@ -477,6 +557,8 @@ export class Coordinator {
   private async release(assignment: string, termination: "verified" | "unknown"): Promise<void> {
     const entry = this.handles.get(assignment) ?? this.unresolved.get(assignment);
     if (!entry) return;
+    this.pendingStarts.delete(entry.handle.identity.attempt);
+    this.approvalRevoked.delete(entry.handle.identity.attempt);
     this.handles.delete(assignment);
     if (termination === "verified") {
       this.unresolved.delete(assignment);
@@ -548,9 +630,9 @@ export class Coordinator {
       d.metrics.record("supervision-gap", { outcome: blocker.code });
     }
     const lost = this.halted;
-    const outcomes: Array<{ assignment: string; attempt: string; termination: "verified" | "unknown" }> = [];
-    await Promise.all(
-      [...this.handles.entries()].map(([assignment, entry]) =>
+    const outcomes: Array<{ assignment: string; attempt: string; termination: "verified" | "unknown"; retained?: true }> = [];
+    await Promise.all([
+      ...[...this.handles.entries()].map(([assignment, entry]) =>
         this.interrupt(entry, lost, async (termination) => {
           outcomes.push({ assignment, attempt: entry.handle.identity.attempt, termination });
           await d.store.endAttempt(assignment, entry.handle.identity.attempt, "infrastructure", termination);
@@ -558,7 +640,12 @@ export class Coordinator {
           await d.store.block(assignment, "supervision", `Supervision was lost (${lost.code}: ${lost.message}). Owned work was stopped; termination ${termination}. Work is preserved; nothing restarts automatically.`);
         }),
       ),
-    );
+      // Retained work whose earlier stop was unverified may still be alive: stop it again (W06/F04).
+      ...[...this.unresolved.entries()].map(async ([assignment, entry]) => {
+        const termination = await this.retryRetained(assignment, entry);
+        outcomes.push({ assignment, attempt: entry.handle.identity.attempt, termination, retained: true });
+      }),
+    ]);
     try {
       ensureDir(path.join(d.paths.stateDir, "supervision"));
       atomicWriteJson(path.join(d.paths.stateDir, "supervision", "coordinator-loss.json"), { schema: "radian.coordinator-loss/1", reason: lost.code, message: lost.message, at: new Date(d.clock.now()).toISOString(), outcomes });
@@ -568,18 +655,46 @@ export class Coordinator {
     if (this.handles.size === 0) this.stopMonitoring();
   }
 
-  /** Poll supervision and lease health while this coordinator owns live attempts. */
+  /**
+   * Stop retained (unknown-termination) work again. The stop is shared by
+   * concurrent callers; the attempt was already ended, so it is never
+   * finalized twice; a verified stop releases its slot and worktree once.
+   */
+  private async retryRetained(assignment: string, entry: AttemptEntry): Promise<"verified" | "unknown"> {
+    const stopped = await this.stopOnce(entry);
+    if (this.unresolved.get(assignment) === entry) await this.release(assignment, stopped.termination);
+    return stopped.termination;
+  }
+
+  /** Poll supervision and lease health while this coordinator owns live or retained (possibly alive) attempts. */
   private ensureMonitoring(): void {
     if (this.monitor) return;
     this.monitor = setInterval(() => {
-      if (this.handles.size === 0) {
+      if (this.handles.size === 0 && this.unresolved.size === 0) {
         this.stopMonitoring();
         return;
       }
       const healthy = this.halted ? { ok: false as const, blocker: this.halted } : this.deps.supervisionHealthy();
-      if (!healthy.ok) void this.supervisionLost(healthy.blocker).catch(() => undefined);
+      if (!healthy.ok) {
+        void this.supervisionLost(healthy.blocker).catch(() => undefined);
+        return;
+      }
+      // An approved artifact can change without a recorded decision: recheck starts that are not yet bound.
+      for (const [attempt, pending] of this.pendingStarts) {
+        if (this.approvalRevoked.has(attempt) || !this.handles.has(pending.assignment)) continue;
+        const current = pending.authorize();
+        if (!current.ok) void this.revokeOne(attempt, pending, current.blocker.message).catch(() => undefined);
+      }
     }, Math.max(10, this.deps.safetyIntervalMs ?? 1000));
     this.monitor.unref();
+  }
+
+  private async revokeOne(attempt: string, pending: { assignment: string }, reason: string): Promise<void> {
+    if (this.approvalRevoked.has(attempt)) return;
+    this.approvalRevoked.add(attempt);
+    await new SupervisionRegistry(this.deps.paths.stateDir, pending.assignment).revoke(attempt);
+    const entry = this.handles.get(pending.assignment);
+    if (entry && entry.handle.identity.attempt === attempt) await this.stopForApproval(pending.assignment, entry, reason);
   }
 
   /** Stop active monitoring (session shutdown). */
@@ -720,9 +835,16 @@ export class Coordinator {
     const recorded = await d.store.recordCandidate(task, candidate);
     if (!recorded.ok) return recorded;
     await d.store.setPhase(task, "verifying");
-    // A new candidate makes all earlier evidence historical.
+    // A new candidate makes earlier outcomes and reviews historical; the approved check definitions stay.
     const previous = this.evidence(task);
-    this.saveEvidence(task, { candidate: { ...candidate, round: t.roundsUsed }, checks: [], risks: [], ...(previous.requiredChecks ? { requiredChecks: previous.requiredChecks } : {}) });
+    this.saveEvidence(task, {
+      candidate: { ...candidate, round: t.roundsUsed },
+      checks: [],
+      risks: [],
+      ...(previous.requiredChecks ? { requiredChecks: previous.requiredChecks } : {}),
+      ...(previous.requiredCheckArgv ? { requiredCheckArgv: previous.requiredCheckArgv } : {}),
+      ...(previous.checkDefinitionsPlan ? { checkDefinitionsPlan: previous.checkDefinitionsPlan } : {}),
+    });
     d.metrics.record("candidate-assembled", { task, round: t.roundsUsed });
     return success({ ...candidate, round: t.roundsUsed });
   }
@@ -886,9 +1008,17 @@ export class Coordinator {
     return { attempts, reclaimed, retained: retained.map((r) => r.id), worktreeIssues };
   }
 
-  /** Live assignments with a running attempt handle in this coordinator process. */
-  liveAssignments(): Array<{ assignment: string; role: Role }> {
-    return [...this.handles.entries()].map(([assignment, entry]) => ({ assignment, role: entry.handle.identity.role }));
+  /**
+   * Owned execution in this coordinator process: live attempts plus retained
+   * attempts whose termination is unknown (they may still be alive). Used for
+   * interface counts and to decide that shutdown must not orderly release the
+   * watcher (W06/F04).
+   */
+  liveAssignments(): Array<{ assignment: string; role: Role; retained?: true }> {
+    return [
+      ...[...this.handles.entries()].map(([assignment, entry]) => ({ assignment, role: entry.handle.identity.role })),
+      ...[...this.unresolved.entries()].filter(([assignment]) => !this.handles.has(assignment)).map(([assignment, entry]) => ({ assignment, role: entry.handle.identity.role, retained: true as const })),
+    ];
   }
 
   /** Pause a running attempt at the user's request: stop and verify, preserve work, and block for a later resume decision. */
@@ -910,6 +1040,46 @@ export class Coordinator {
   static artifactDigest(content: string): string {
     return hashJson({ content });
   }
+}
+
+/**
+ * Parse a plan's required-check declarations:
+ *
+ *   ```radian-checks
+ *   unit: ["npm", "test"]
+ *   ```
+ *
+ * One `id: [argv…]` per line (JSON array of non-empty strings); `#` comments
+ * and blank lines are ignored. Malformed or duplicate declarations refuse.
+ */
+export function parseCheckDefinitions(content: string): Outcome<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  const lines = content.split(/\r?\n/);
+  let inside = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!inside) {
+      if (trimmed === "```radian-checks") inside = true;
+      continue;
+    }
+    if (trimmed === "```") {
+      inside = false;
+      continue;
+    }
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const match = /^([A-Za-z0-9._-]{1,128}):\s*(\[.*\])$/.exec(trimmed);
+    let argv: unknown;
+    try {
+      argv = match ? JSON.parse(match[2]!) : undefined;
+    } catch {
+      argv = undefined;
+    }
+    if (!match || !Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) return refuse("CONFIG_INVALID", "the plan's radian-checks block has a malformed declaration");
+    if (out[match[1]!]) return refuse("CONFIG_INVALID", `the plan declares check '${match[1]}' more than once`);
+    out[match[1]!] = argv as string[];
+  }
+  if (inside) return refuse("CONFIG_INVALID", "the plan's radian-checks block is not closed");
+  return success(out);
 }
 
 function sameArgv(a: readonly string[], b: readonly string[]): boolean {

@@ -206,6 +206,7 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
     project: session.binding.project,
     clock: systemClock,
     artifactHash: (relative) => artifactHash(session.repo.root, relative),
+    artifactContent: (relative) => artifactContent(session.repo.root, relative),
     roleGuide: (role: Role) => readFileSync(path.join(workerDocs, `${role}.md`), "utf8"),
     credentialSourceFor,
     supervisionHealthy,
@@ -235,6 +236,12 @@ export async function startRun(session: ProjectSession): Promise<Outcome<NonNull
 export function artifactHash(projectRoot: string, relative: string): string | undefined {
   const read = readConfined(projectRoot, relative);
   return read.ok ? Coordinator.artifactDigest(read.value) : undefined;
+}
+
+/** Content of an approved artifact, read without following any link (required-check provenance). */
+export function artifactContent(projectRoot: string, relative: string): string | undefined {
+  const read = readConfined(projectRoot, relative);
+  return read.ok ? read.value : undefined;
 }
 
 export function shortHash(hash: string): string {

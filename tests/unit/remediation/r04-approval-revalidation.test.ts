@@ -16,7 +16,7 @@ import { launchAttempt } from "../../../src/runtimes/session.ts";
 import { removeDir } from "../helpers/fixture.ts";
 import { layout } from "../helpers/layout.ts";
 import { deps, fakeCodex, request, source, verifyAll } from "../helpers/session-fixture.ts";
-import { type World, human, plan, world } from "../helpers/coordinator-world.ts";
+import { PLAN_TEXT, type World, human, plan, world } from "../helpers/coordinator-world.ts";
 
 function gate() {
   let open!: () => void;
@@ -56,7 +56,7 @@ test("R04: approvals revoked or artifacts changed after prepare block the launch
         w.fixture.write("docs/plan.md", "# Plan\nChanged.\n");
         await w.store.invalidateChangedApprovals({ "docs/plan.md": w.coordinator.deps.artifactHash("docs/plan.md")! });
         assert.ok(w.store.state.approvals[id]!.invalidated);
-        w.fixture.write("docs/plan.md", "# Plan\nSynthetic plan.\n");
+        w.fixture.write("docs/plan.md", PLAN_TEXT);
       }
       w.driver.script("developer", { edit: { "src/a.ts": "launched anyway\n" } });
       const outcome = await w.coordinator.runAttempt(prepared.value.assignment, p, prepared.value);

@@ -11,15 +11,19 @@
 // hard links to files elsewhere; only then is it truncated and written, so a
 // refused write changes nothing.
 //
-// Limits: missing parent directories are created with mkdir, which resolves
-// its parent path again. If a validated parent is replaced by a link in that
-// window, an empty directory can be created at the link's target; the
-// following no-follow verification refuses the write and no content is written
-// there. Content replacement is in place (truncate, then write), not an atomic
-// rename. Without kernel O_NOFOLLOW_ANY support (non-macOS, or a failed
+// Missing parent directories are created through util/safe-dir.ts: each mkdir
+// runs in a helper whose working directory must be exactly the parent inode
+// validated by a link-refusing open, and acts on a single name relative to it.
+// A parent replaced by a link before that mkdir is detected and nothing is
+// created anywhere (W06/F01: earlier versions used a path-based mkdir that
+// could create an empty directory at the link's target).
+//
+// Limits: content replacement is in place (truncate, then write), not an
+// atomic rename. Without kernel O_NOFOLLOW_ANY support (non-macOS, or a failed
 // self-test) every confined operation is refused rather than downgraded.
 
 import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
+import { ensureDirConfined } from "./safe-dir.ts";
 import os from "node:os";
 import path from "node:path";
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
@@ -106,7 +110,7 @@ export interface ConfinedHooks {
 
 /**
  * Create or replace `anchor/relative` without following any link. Missing
- * parents are created (mode 0700) one level at a time and verified.
+ * parents are created (mode 0700) one level at a time inside verified parents.
  */
 export function writeConfined(anchor: string, relative: string, content: string | Buffer, hooks: ConfinedHooks = {}): Outcome<string> {
   const anchored = checkAnchor(anchor);
@@ -121,11 +125,9 @@ export function writeConfined(anchor: string, relative: string, content: string 
       stat = lstatSync(dir);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") return refuse("PATH_INVALID", "a parent directory cannot be inspected");
-      try {
-        mkdirSync(dir, { mode: 0o700 });
-      } catch (made) {
-        if ((made as NodeJS.ErrnoException).code !== "EEXIST") return refuse("PATH_INVALID", "a parent directory cannot be created");
-      }
+      // Never a path-based mkdir: the verified-directory helper creates the single missing name.
+      const made = ensureDirConfined(anchor, path.relative(anchor, dir).split(path.sep).join("/"), 0o700);
+      if (!made.ok) return made;
       try {
         stat = lstatSync(dir);
       } catch {

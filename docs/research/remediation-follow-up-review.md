@@ -2,6 +2,8 @@
 
 **Date: 2026-10-06. Result: safety dependency NOT CLEARED.**
 
+> **Later status (workspace-first W06, implementation branch):** each finding below was re-exposed with a failing production-path regression on the assembled workspace-first source, corrected, and shown passing; see the [W06 completion record](../planning/workspace-first/06-safety-revalidation.md#completion-record). This review is preserved unchanged as the baseline. Clearance still requires an independent follow-up review of the W06 corrections.
+
 This review was user-authorized after the Claude remediation session finished. It reviewed the implementation and reporting commits without changing source, tests, capabilities, or installed workspaces. This review initially authorized documentation updates only. The user subsequently authorized committing/pushing the planning checkpoint and workspace-first source implementation in a fresh Claude worktree, with the four findings revalidated/corrected at the end (W06) before aggregate acceptance (W07). No source fix was performed by this reviewing session.
 
 ## Revision and evidence boundary

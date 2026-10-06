@@ -76,6 +76,8 @@ export interface AttemptRequest {
    * at the last boundary before the launcher command is delivered.
    */
   authorize?: () => Outcome<true>;
+  /** Revision-bound start gate the launcher re-checks immediately before anything starts (W06/F03). */
+  startGate?: { projectRoot: string; artifacts: Array<{ kind: string; path: string; hash: string }> };
 }
 
 export interface PreflightResult {
@@ -229,6 +231,7 @@ async function prepareLaunchAttempt(deps: SessionDeps, request: AttemptRequest):
     events: { file: eventsFile, runtime: request.profile.runtime },
   };
   if (request.checks) spec.checks = { runs: request.checks.runs, timeoutMs: request.checks.timeoutMs, logDir: a.outputDir, env: checkEnv };
+  if (request.startGate) spec.startGate = request.startGate;
   const specFile = path.join(launchDir, "spec.json");
   const hash = writeSpec(specFile, spec);
 

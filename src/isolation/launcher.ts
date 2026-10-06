@@ -17,7 +17,8 @@ import { appendFileSync, closeSync, existsSync, openSync, readFileSync, writeFil
 import path from "node:path";
 import { type Outcome, refuse, success } from "../contracts/blockers.ts";
 import { type AssignmentIdentity, assignmentIdentitySchema } from "../contracts/identity.ts";
-import { canonicalJson, sha256 } from "../util/canonical.ts";
+import { canonicalJson, hashJson, sha256 } from "../util/canonical.ts";
+import { readConfined } from "../util/confined-fs.ts";
 import { type IdentityProbe, psProbe } from "../util/process-identity.ts";
 import { atomicWrite } from "../state/fsutil.ts";
 import { type CapabilityContext, type CapabilityId, CapabilityRegistry } from "./capabilities.ts";
@@ -44,6 +45,25 @@ export interface LaunchSpec {
   events?: { file: string; runtime: "pi" | "codex" | "claude-code" };
   /** Approved candidate checks the launcher runs (contained, no credentials) before the runtime starts. */
   checks?: { runs: CheckRun[]; timeoutMs: number; logDir: string; env: Record<string, string> };
+  /**
+   * Revision-bound start authorization (W06/F03): every product-approval
+   * artifact this attempt was authorized against, re-hashed (without following
+   * links) under the registry lock immediately before each intent. A changed
+   * or unreadable artifact revokes the attempt; nothing starts.
+   */
+  startGate?: { projectRoot: string; artifacts: Array<{ kind: string; path: string; hash: string }> };
+}
+
+/** Undefined when every approved artifact still has its authorized content; otherwise why not. */
+export function startGateFailure(spec: Pick<LaunchSpec, "startGate">): string | undefined {
+  const gate = spec.startGate;
+  if (!gate) return undefined;
+  for (const artifact of gate.artifacts) {
+    const read = readConfined(gate.projectRoot, artifact.path);
+    if (!read.ok) return `approved ${artifact.kind} artifact is unreadable at start`;
+    if (hashJson({ content: read.value }) !== artifact.hash) return `approved ${artifact.kind} artifact changed before start`;
+  }
+  return undefined;
 }
 
 export interface CheckRun {
@@ -145,7 +165,7 @@ export async function launchContained(
       if (!(await runContainedCheck(prepared, prepared.checkProfileFile, run, deadline, options.probe ?? psProbe))) return revokedLaunch();
     }
   }
-  if (!(await registry.appendIntent(spec.identity.attempt, "runtime"))) return revokedLaunch();
+  if (!(await registry.appendIntent(spec.identity.attempt, "runtime", () => startGateFailure(spec)))) return revokedLaunch();
   const capture = spec.events !== undefined;
   const child = spawn(SANDBOX_EXEC, ["-f", prepared.profileFile, "--", ...spec.argv], {
     cwd: spec.cwd,
@@ -197,7 +217,7 @@ async function runContainedCheck(prepared: PreparedLaunch, profileFile: string, 
   const checks = spec.checks!;
   const attempt = spec.identity.attempt;
   const label = `check:${run.id}`;
-  if (!(await registry.appendIntent(attempt, label))) return false;
+  if (!(await registry.appendIntent(attempt, label, () => startGateFailure(spec)))) return false;
   const log = openSync(path.join(checks.logDir, `check-${run.id}.log`), "w", 0o600);
   let child;
   try {

@@ -1,6 +1,6 @@
 # Review remediation plan — seven safety findings
 
-**Status: first remediation execution completed (2026-10-06), but independent safety clearance BLOCKED. Targeted/aggregate tests passed on the committed tree; follow-up review reproduced four additional acceptance failures. No runtime capability is enabled or verified; runtime/release support remains NOT READY.**
+**Status: first remediation execution completed (2026-10-06); the four follow-up failures (F01–F04) were reproduced red and corrected in [workspace-first W06](../workspace-first/06-safety-revalidation.md) on the workspace-first branch. Independent follow-up review of those corrections is still required. No runtime capability is enabled or verified; runtime/release support remains NOT READY.**
 
 The [independent follow-up review](../../research/remediation-follow-up-review.md) at `6d71988` reproduced 146/146 unit tests, 5/5 integration tests, and full offline verification, but exposed F01–F04: outside mkdir on planning-write refusal, lost required check argv after repair, stale approval authorization before delivery/start, and retained unknown-termination attempts omitted from later supervision loss/shutdown. The records below preserve the original red/green evidence; they are not passing evidence for these new cases. The user subsequently authorized revalidating/correcting these findings in [workspace-first W06](../workspace-first/06-safety-revalidation.md), **after** W02–W05 feature implementation and before W07 aggregate acceptance. This supersedes the earlier feature-prerequisite block, not the final safety gate. Do not replay this historical prompt; follow the workspace-first plan.
 
@@ -30,11 +30,11 @@ Update this table as work proceeds. `Complete` requires implemented correction p
 | ID | Finding / deliverable | Priority | Status | Regression / completion record |
 | --- | --- | --- | --- | --- |
 | R01 | Coordinator command-helper escape | P1 | complete | [record](#r01-record) |
-| R02 | Planning write symlink escape | P1 | follow-up F01 scheduled in W06 | [historical record](#r02-record) |
-| R03 | Exact tested candidate identity | P1 | follow-up F02 scheduled in W06 | [historical record](#r03-record) |
-| R04 | Approval revalidation at launch/recovery/resume | P1 | follow-up F03 scheduled in W06 | [historical record](#r04-record) |
-| R05 | Partial-launch reconciliation and retained ownership | P1 | shared follow-up F04 scheduled in W06 | [historical record](#r05-record) |
-| R06 | Active watcher/coordinator-lease loss response | P1 | follow-up F04 scheduled in W06 | [historical record](#r06-record) |
+| R02 | Planning write symlink escape | P1 | follow-up F01 corrected in workspace-first W06 (red → green) | [historical record](#r02-record); [W06](../workspace-first/06-safety-revalidation.md#completion-record) |
+| R03 | Exact tested candidate identity | P1 | follow-up F02 corrected in W06 (red → green) | [historical record](#r03-record); [W06](../workspace-first/06-safety-revalidation.md#completion-record) |
+| R04 | Approval revalidation at launch/recovery/resume | P1 | follow-up F03 corrected in W06 (red → green) | [historical record](#r04-record); [W06](../workspace-first/06-safety-revalidation.md#completion-record) |
+| R05 | Partial-launch reconciliation and retained ownership | P1 | shared follow-up F04 corrected in W06 (red → green) | [historical record](#r05-record); [W06](../workspace-first/06-safety-revalidation.md#completion-record) |
+| R06 | Active watcher/coordinator-lease loss response | P1 | follow-up F04 corrected in W06 (red → green) | [historical record](#r06-record); [W06](../workspace-first/06-safety-revalidation.md#completion-record) |
 | R07 | Durable, non-model-controlled candidate-cycle accounting | P2 | complete (recorded targeted evidence) | [record](#r07-record) |
 | R08 | Aggregate offline verification, reporting, and publication | gate | tests passed; safety exit gate blocked | [historical record](#r08-record) |
 
