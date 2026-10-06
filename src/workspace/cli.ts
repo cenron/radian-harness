@@ -2,7 +2,7 @@
 // applies only with `--apply <plan-hash>` naming the exact plan the user
 // reviewed; lack of interaction never implies authorization.
 //
-//   install --workspace <dir> --project <repo>=<refs/heads/branch> ... (--local <harness> | --source <pinned-spec>) [--apply <hash>]
+//   install --workspace <dir> [--project <repo>=<refs/heads/branch> ...] (--local <harness> | --source <pinned-spec>) [--apply <hash>]
 //   update  --workspace <dir> (--local <harness> | --source <pinned-spec>) [--apply <hash>]
 //   remove  --workspace <dir> [--apply <hash>]
 //   status  --workspace <dir>
@@ -10,6 +10,7 @@
 
 import type { Outcome } from "../contracts/blockers.ts";
 import { type OperationPlan, type Source, applyPlan, planInstall, planRemove, planUpdate, recover, status } from "./installer.ts";
+import { type Prerequisites, checkPrerequisites } from "./prerequisites.ts";
 
 export interface ParsedCommand {
   command: "install" | "update" | "remove" | "status" | "recover";
@@ -47,7 +48,6 @@ export function parseCommand(argv: readonly string[]): ParsedCommand | { error: 
   }
   if (!workspace) return { error: "--workspace is required; Radian never guesses a target" };
   if ((command === "install" || command === "update") && !source) return { error: "--local <harness> or --source <pinned-spec> is required" };
-  if (command === "install" && projects.length === 0) return { error: "register at least one project explicitly with --project" };
   const out: ParsedCommand = { command: command as ParsedCommand["command"], workspace, projects };
   if (source) out.source = source;
   if (apply) out.apply = apply;
@@ -57,7 +57,7 @@ export function parseCommand(argv: readonly string[]): ParsedCommand | { error: 
 export function renderPlan(plan: OperationPlan): string[] {
   return [
     `Plan ${plan.operation} for ${plan.workspace}`,
-    ...plan.actions.map((a) => `  - ${a.description} [${a.before.state === "absent" ? "new" : "replace"} → ${a.after.state === "absent" ? "delete" : "write"}]`),
+    ...(plan.actions.length === 0 ? ["  (no changes)"] : plan.actions.map((a) => `  - ${a.description} [${a.before.state === "absent" ? "new" : "replace"} → ${a.after.state === "absent" ? "delete" : "write"}]`)),
     ...plan.conflicts.map((c) => `  ! conflict: ${c}`),
     ...plan.notes.map((n) => `  note: ${n}`),
     `Plan hash: ${plan.hash}`,
@@ -65,7 +65,12 @@ export function renderPlan(plan: OperationPlan): string[] {
   ];
 }
 
-export async function runCommand(cmd: ParsedCommand): Promise<{ exitCode: number; lines: string[] }> {
+export interface RunOptions {
+  /** Local prerequisite check (Node, Git, Pi); injectable for tests. */
+  prerequisites?: () => Outcome<Prerequisites>;
+}
+
+export async function runCommand(cmd: ParsedCommand, options: RunOptions = {}): Promise<{ exitCode: number; lines: string[] }> {
   if (cmd.command === "status") {
     const s = status(cmd.workspace);
     return s.ok ? { exitCode: 0, lines: [JSON.stringify(s.value, null, 2)] } : { exitCode: 2, lines: [`BLOCKED ${s.blocker.code}: ${s.blocker.message}`] };
@@ -74,6 +79,10 @@ export async function runCommand(cmd: ParsedCommand): Promise<{ exitCode: number
     const r = recover(cmd.workspace);
     if (!r.ok) return { exitCode: 2, lines: [`BLOCKED ${r.blocker.code}: ${r.blocker.message}`] };
     return { exitCode: r.value.conflicts.length ? 1 : 0, lines: [`recovered ${r.value.completed} action(s)`, ...r.value.conflicts.map((c) => `  ! ${c}`)] };
+  }
+  if (cmd.command === "install" || cmd.command === "update") {
+    const prereq = (options.prerequisites ?? checkPrerequisites)();
+    if (!prereq.ok) return { exitCode: 2, lines: [`BLOCKED ${prereq.blocker.code}: ${prereq.blocker.message}${prereq.blocker.nextAction ? ` — ${prereq.blocker.nextAction}` : ""}`, "Nothing was written. Radian never installs tools globally."] };
   }
   let planned: Outcome<OperationPlan>;
   if (cmd.command === "install") planned = await planInstall({ workspaceRoot: cmd.workspace, source: cmd.source!, projects: cmd.projects });

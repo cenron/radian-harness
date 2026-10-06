@@ -13,6 +13,7 @@
   },
   "files": [
     "README.md",
+    "install.sh",
     "config/",
     "src/",
     "workers/",

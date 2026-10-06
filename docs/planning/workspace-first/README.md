@@ -32,7 +32,7 @@ Command syntax is planned, not available today. The workspace is the control roo
 | ID | Deliverable | Dependency | Status |
 | --- | --- | --- | --- |
 | W01 | [Supported Pi context contract](01-context-contract.md) | Native session/source checks | complete |
-| W02 | [Empty-workspace installer](02-installation.md) | W01 | pending |
+| W02 | [Empty-workspace installer](02-installation.md) | W01 | complete |
 | W03 | [Dashboard and project-scoped routing](03-dashboard-and-routing.md) | W02 | pending |
 | W04 | [Project creation and registration](04-project-lifecycle.md) | W03 | pending |
 | W05 | [Activation and background ownership](05-project-activation.md) | W04 | pending |

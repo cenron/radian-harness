@@ -27,6 +27,7 @@ export const FORBIDDEN_PACKAGE_PATTERNS: ReadonlyArray<readonly [string, RegExp]
 export const PACKAGE_CONTENT_ALLOWLIST: readonly RegExp[] = [
   /^package\.json$/,
   /^README\.md$/,
+  /^install\.sh$/,
   /^LICENSE(\.md)?$/,
   /^NOTICE(\.md)?$/,
   /^config\//,

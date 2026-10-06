@@ -81,6 +81,14 @@ export const BLOCKER_CODES = [
   "INSTALL_CONFLICT",
   "LOCAL_MODIFICATION",
   "INTERRUPTED_OPERATION",
+  "PREREQUISITE_MISSING",
+  // workspace navigation and project selection
+  "WORKSPACE_BLOCKED",
+  "NO_PROJECT_SELECTED",
+  "PROJECT_UNAVAILABLE",
+  "CONTEXT_LOCKED",
+  "SESSION_BUSY",
+  "GIT_IDENTITY_MISSING",
 ] as const;
 
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
