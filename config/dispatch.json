@@ -1,31 +1,130 @@
 {
   "version": 1,
-  "default": "pi-default",
+  "default": "developer-standard",
   "profiles": {
     "pi-default": {
       "runtime": "pi",
-      "provider": null,
-      "model": null,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
       "effort": "medium",
-      "description": "Default Pi worker for an eligible non-Anthropic subscription provider. Unconfigured until a workspace or project override sets an exact provider and model."
+      "description": "Compatibility profile for standard OpenAI work through Pi; subscription access is user-confirmed, runtime capability verification is still required."
     },
     "codex": {
       "runtime": "codex",
       "provider": "openai",
-      "model": null,
+      "model": "gpt-6.1-sol",
       "effort": "medium",
-      "description": "Codex CLI worker using ChatGPT subscription login. Unconfigured until an override sets an exact model."
+      "description": "Compatibility profile for explicitly selected Codex CLI work through ChatGPT subscription login; never an automatic fallback."
     },
     "claude-code": {
       "runtime": "claude-code",
       "provider": "anthropic",
-      "model": null,
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Compatibility profile for standard Claude work through Claude Code's subscription path; never route Anthropic models through Pi or Codex."
+    },
+    "scout-fast": {
+      "runtime": "pi",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "description": "Bounded file discovery, interface summaries, and evidence gathering; not substantive safety analysis."
+    },
+    "tester-fast": {
+      "runtime": "pi",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "description": "Execute prescribed checks and report evidence; test design and nontrivial diagnosis use tester-analysis instead."
+    },
+    "tester-analysis": {
+      "runtime": "pi",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Regression design and substantive failure diagnosis; select before launch, not as automatic escalation."
+    },
+    "tester-analysis-codex": {
+      "runtime": "codex",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Explicit Codex counterpart to tester-analysis; not a fallback when Pi is unavailable."
+    },
+    "developer-standard": {
+      "runtime": "pi",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Routine implementation and bounded fixes; default OpenAI runtime is Pi. High-risk work requires explicit plan/profile approval."
+    },
+    "developer-codex": {
+      "runtime": "codex",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Explicit Codex counterpart to developer-standard; not an automatic runtime fallback."
+    },
+    "reviewer-standard": {
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Independent ordinary correctness and maintainability review through Claude Code only."
+    },
+    "safety-review": {
+      "runtime": "claude-code",
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
       "effort": "high",
-      "description": "Claude Code worker; the only permitted route for Anthropic models, via the claude.ai subscription. Unconfigured until an override sets an exact model."
+      "description": "Explicitly assigned review of containment, authentication, approval validity, lifecycle, or integration safety; never automatic effort escalation."
     }
   },
   "aliases": {},
-  "rules": [],
+  "rules": [
+    {
+      "id": "scouting",
+      "roles": ["scout"],
+      "when": "Bounded file discovery, interface summaries, or evidence gathering without substantive safety analysis.",
+      "use": ["scout-fast"],
+      "why": "Use the lighter model for narrowly scoped discovery."
+    },
+    {
+      "id": "mechanical-testing",
+      "roles": ["tester"],
+      "when": "Run already prescribed checks and report their results; no regression design or nontrivial failure diagnosis.",
+      "use": ["tester-fast"],
+      "why": "Mechanical test execution does not require the strongest model."
+    },
+    {
+      "id": "test-analysis",
+      "roles": ["tester"],
+      "when": "Design regression tests or investigate failures. Prefer Pi; choose Codex only explicitly in the approved assignment.",
+      "use": ["tester-analysis", "tester-analysis-codex"],
+      "why": "Use a substantive reasoning profile for test design and diagnosis; candidates are choices, not a fallback chain."
+    },
+    {
+      "id": "development",
+      "roles": ["developer"],
+      "when": "Routine implementation or bounded fixes. Prefer Pi; choose Codex only explicitly in the approved assignment. High-risk changes require explicit plan/profile approval.",
+      "use": ["developer-standard", "developer-codex"],
+      "why": "Use the standard coding profile without blanket high-effort assignments or automatic runtime substitution."
+    },
+    {
+      "id": "ordinary-review",
+      "roles": ["reviewer"],
+      "when": "Ordinary correctness and maintainability review, excluding containment, authentication, approval validity, lifecycle, and integration safety.",
+      "use": ["reviewer-standard"],
+      "why": "Use an independent Claude perspective without assigning Opus to every review."
+    },
+    {
+      "id": "safety-review",
+      "roles": ["reviewer"],
+      "when": "Explicitly assigned safety-critical review of containment, authentication, approval validity, lifecycle, or integration safety.",
+      "use": ["safety-review"],
+      "why": "Reserve Opus/high for identified high-risk review, selected before launch rather than automatically escalated."
+    }
+  ],
   "selection": {
     "strategy": "coordinator",
     "onUnavailable": "block"

@@ -74,12 +74,28 @@ Shipped defaults live in the harness `config/`. Overrides merge in this order: s
 
 `harness.json` (defaults): `concurrency.maxActiveWorkers` 3 (workspace-wide, all roles and runs), `assignment.executionLimitMinutes` 30, `assignment.candidateRounds` 3 (cannot be raised), `assignment.automaticRecoveries` 1 (cannot be raised), `assignment.startupTimeoutSeconds`, `supervision.leaseSeconds`, `supervision.terminationGraceSeconds`, `interface.calmDefault`. Fail-closed execution policy fields cannot be weakened.
 
-`dispatch.json` holds named profiles (`runtime`, `provider`, `model`, `effort`), `aliases` (`"@name"` references), and routing `rules` whose `use` lists are **candidate sets for the coordinator to choose from, never fallback chains**. `selection.onUnavailable` accepts only `block`. Shipped profiles have `model: null` and are unusable until you configure an exact model:
+`dispatch.json` holds named profiles (`runtime`, `provider`, `model`, `effort`), `aliases` (`"@name"` references), and routing `rules` whose `use` lists are **candidate sets for the coordinator to choose from, never fallback chains**. `selection.onUnavailable` accepts only `block`. The configured starting policy is:
+
+| Profile | Model | Runtime | Effort |
+|---|---|---|---|
+| `scout-fast` | `gpt-6-luna` | Pi | low |
+| `tester-fast` | `gpt-6-luna` | Pi | low |
+| `tester-analysis` | `gpt-6.1-sol` | Pi | medium |
+| `tester-analysis-codex` | `gpt-6.1-sol` | Codex | medium |
+| `developer-standard` (default) | `gpt-6.1-sol` | Pi | medium |
+| `developer-codex` | `gpt-6.1-sol` | Codex | medium |
+| `reviewer-standard` | `claude-sonnet-5-5` | Claude Code | medium |
+| `safety-review` | `claude-opus-5-5` | Claude Code | high |
+
+Compatibility names `pi-default`, `codex`, and `claude-code` remain configured for standard work. Model access was user-confirmed; the policy is not a measured quality/usage ranking and does not establish entitlement for other installations or runtime capability/billing verification. Worker execution remains fail-closed on missing verification.
+
+Rule conditions are coordinator guidance, not an automatic classifier. Each assignment must explicitly select its rule/profile with a rationale, assign a profile in the approved plan, or use a human override. With no selection, **every role uses the global `developer-standard` default**. Use `tester-fast` only for prescribed check execution; regression design and nontrivial diagnosis use `tester-analysis`. Safety-critical review uses `safety-review`. Pi is preferred for OpenAI; Codex counterparts are explicit choices, never fallback chains. Model/runtime changes or effort escalation require explicit approval.
+
+For example, an override can explicitly change the global default to Codex:
 
 ```json
 {
-  "default": "codex",
-  "profiles": { "codex": { "model": "<exact-model-id>" } }
+  "default": "developer-codex"
 }
 ```
 
