@@ -137,5 +137,31 @@ export async function resolveDependencies(executable: string, extraRoots: readon
       queue.push({ file: realpathSync(found), executableDir, inheritedRpaths: rpaths });
     }
   }
+  // OpenSSL-linked interpreters read their configuration at startup. Grant only
+  // the configuration and certificate store, never the OPENSSLDIR private/ tree.
+  for (const lib of [...files]) {
+    if (!/libcrypto\.\d+\.dylib$/.test(lib)) continue;
+    const config = await opensslConfig(lib);
+    if (!config) {
+      missing.push(`OpenSSL configuration for ${path.basename(lib)}`);
+      continue;
+    }
+    for (const name of ["openssl.cnf", "cert.pem", "ct_log_list.cnf"]) {
+      const candidate = path.join(config, name);
+      if (existsSync(candidate)) files.add(realpathSync(candidate));
+    }
+    if (existsSync(path.join(config, "certs"))) roots.add(realpathSync(path.join(config, "certs")));
+  }
   return { executable: real, readRoots: [...roots].sort(), readFiles: [...files].sort(), missing };
+}
+
+/** OPENSSLDIR reported by the openssl tool installed beside a libcrypto, if any. */
+async function opensslConfig(libcrypto: string): Promise<string | undefined> {
+  const tool = path.join(path.dirname(path.dirname(libcrypto)), "bin", "openssl");
+  if (!existsSync(tool)) return undefined;
+  const result = await run(tool, ["version", "-d"], { env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, timeoutMs: 10_000 });
+  if (!succeeded(result)) return undefined;
+  const match = /OPENSSLDIR:\s*"([^"]+)"/.exec(result.stdout.toString("utf8"));
+  if (!match?.[1] || !existsSync(match[1])) return undefined;
+  return realpathSync(match[1]);
 }

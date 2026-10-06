@@ -62,6 +62,8 @@ export interface RuntimeLaunchPlan {
   cwd: string;
   /** Additional read roots beyond the authority (install trees, bridge script directory). */
   readRoots: string[];
+  /** Individual files the runtime must read (for example the bridge's package.json). */
+  readFiles?: string[];
   /** Exact tool set the runtime exposes for this role. */
   tools: string[];
   /** Explicit statement of what parity this launch path does and does not provide. */

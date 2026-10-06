@@ -1,6 +1,6 @@
 # Native macOS feasibility — initial filesystem probes
 
-**Status: feasibility testing stopped by user instruction. Preserved preliminary evidence only; no worker runtime is yet validated for supported use. Implementation is now authorized separately by [proposal 0014](../proposals/0014-unattended-implementation.md).**
+**Status: feasibility testing stopped by user instruction. Preserved preliminary evidence only; no worker runtime is yet validated for supported use. Implementation was authorized separately by [proposal 0014](../proposals/0014-unattended-implementation.md); its offline verification is recorded in the [implementation verification report](implementation-verification.md).**
 
 ## Baseline and scope
 

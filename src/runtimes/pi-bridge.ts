@@ -27,6 +27,12 @@ interface BridgeConfig {
   prompt: string;
   sessionId: string;
   catalogFile: string;
+  /**
+   * Verification only: perform every setup and verification step, resolve the
+   * credential through the read-only store, emit the session record, and exit
+   * without sending any prompt. Used by offline compatibility checks.
+   */
+  verifyOnly?: boolean;
 }
 
 type Listener = (event: Record<string, unknown>) => void;
@@ -95,13 +101,13 @@ const readOnlyStore = {
 };
 
 const pi = (await import(config.piEntry)) as PiModule;
-const runtime = await pi.ModelRuntime.create({
+const runtime = (await pi.ModelRuntime.create({
   credentials: readOnlyStore,
   modelsPath: null,
   allowModelNetwork: false,
   refreshOnCreate: false,
   modelsStorePath: config.catalogFile,
-});
+})) as Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>> & { getAuth?(provider: string): Promise<unknown> };
 
 const provider = runtime.getProvider(config.provider) as { auth?: { oauth?: { isSubscription?: boolean } } } | undefined;
 if (!provider) block("PROVIDER_PROVENANCE_UNKNOWN", "provider is not known to this Pi version");
@@ -142,6 +148,20 @@ if (session.thinkingLevel !== config.effort) block("EFFORT_UNSUPPORTED", "Pi cla
 if (JSON.stringify(active) !== JSON.stringify([...config.tools].sort())) block("CAPABILITY_MISSING", "Pi's active tool set differs from the role's tool set");
 
 emit({ type: "radian_session", sessionId: config.sessionId, provider: config.provider, model: config.model, thinkingLevel: session.thinkingLevel, tools: active });
+
+if (config.verifyOnly) {
+  // Resolve request auth through the read-only store. An expiring credential makes
+  // Pi call modify() for refresh, which the store refuses: report it, never refresh.
+  try {
+    await runtime.getAuth?.(config.provider);
+  } catch {
+    session.dispose();
+    block("CREDENTIAL_EXPIRED", "credential would require refresh; the read-only store refused it");
+  }
+  emit({ type: "radian_verified" });
+  session.dispose();
+  process.exit(0);
+}
 
 session.subscribe((event) => {
   switch (event.type) {

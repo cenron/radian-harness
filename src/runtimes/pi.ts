@@ -99,6 +99,8 @@ export function createPiAdapter(options: { executable?: string } = {}): RuntimeA
         },
         cwd: input.authority.worktree,
         readRoots: [path.dirname(bridge), ...input.install.installRoots],
+        // Node reads the nearest package.json to determine the bridge's module type.
+        readFiles: [path.join(path.dirname(path.dirname(path.dirname(bridge))), "package.json")],
         tools: tools.value,
         parity: { interactiveUi: false, herdrAgentDetection: false, notes: "Pi SDK bridge using public package-root exports with a read-only credential store; no Pi TUI, no Herdr Pi-agent detection" },
       });

@@ -1,6 +1,6 @@
 # Milestone 10 — Final automated verification and capability checkpoint
 
-**Status: pending** · Depends on: 01–09
+**Status: complete** · Depends on: 01–09
 
 ## Objective
 
@@ -53,12 +53,12 @@ Update this file, the index, verification report, README, and handoff. Run exact
 
 ## Completion record
 
-- Completed: not yet
-- Verified source/config revisions: not yet
-- Automated results: not yet
-- Not run / capability gaps: not yet
-- Publication/remote checkpoint: not yet
-- Release/runtime support assessment: unverified until this record is completed; live coverage is not authorized by this plan
+- Completed: 2026-10-06. Added the final verification runner (`scripts/verify.ts`, `npm run verify`), offline runtime compatibility tests (`tests/integration/runtime-compat.test.ts`, `npm run test:integration`), a macOS `behavior` CI job (type check, unit, and integration tests), the Pi bridge verify-only mode and a network-deny option for verification fixtures, and the [verification report](../../research/implementation-verification.md). Updated README, handoff, and the user guide's references.
+- Verified source/config revisions: base commit `fed4562` plus the staged milestone 10 code changes, Git index tree `5ad0aa77357d795e4b2c8ce9f71601f7d50d12d1`; the milestone 10 commit adds only reporting/status documentation on top of that tree. Toolchain: Node v25.9.0, TypeScript 7.0.2, Git 2.56.0, macOS 27.0.1; runtimes present for offline checks only: Pi 1.0.2, Codex CLI 0.160.0, Claude Code 2.1.285, Herdr 0.9.1.
+- Automated results: type check passed; unit tests 114/114 passed (0 skipped); integration tests 5/5 passed (0 skipped); publication check (staged, working tree, `HEAD` tree, full commit metadata, package manifest, whitespace) passed with the private denylist not supplied; package archive (90 files) entirely inside the package-content boundary; offline feasibility regressions passed (filesystem 34, runtime startup 10, loopback network 5, processes 3, supervision 3, Pi credential store 2). Defects fixed during verification: narrow OpenSSL configuration reads for Pi's Node interpreter and the bridge's `package.json` read; no assertion weakened and no containment relaxed otherwise.
+- Not run / capability gaps: live model tasks, real authentication/refresh/expiry, provider endpoints, the opt-in live Pi task prototype, `--real-auth` readiness checks, real Herdr pane operations, interactive Pi TUI behavior (only an isolated `--help` extension load ran), Codex/Claude sandbox composition, actual-runtime cancellation and supervision loss, ShellCheck (not installed), and private-denylist scanning (not supplied). None of the 26 runtime capabilities has recorded evidence, so all worker launches stay disabled.
+- Publication/remote checkpoint: bounded publication check before commit and on the committed tree/metadata before push; remote inclusion verified after push. Remote CI for the milestone 10 commit (including the first `behavior` job run) is reported in the final session summary, not in this record.
+- Release/runtime support assessment: **not ready** — implementation and offline verification complete; live, separately authorized evidence for every runtime, a private-denylist scan, and an owner-selected license remain release gates. No release, tag, package publication, or target installation was performed.
 
 ## Requirements
 

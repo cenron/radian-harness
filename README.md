@@ -2,7 +2,13 @@
 
 A Pi-native harness under implementation for agentic software engineering, maintained outside the workspaces where it is used.
 
-**Status: implementation in progress under the authorized milestone plan. The harness, installer, and Pi interface are implemented, but no worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence. No release exists.**
+**Status: all ten implementation milestones are complete and verified offline ([verification report](docs/research/implementation-verification.md)). No worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence, which requires separately authorized live testing. Release readiness: not ready. No release exists.**
+
+| Runtime | Implemented | Offline evidence | Launch |
+| --- | --- | --- | --- |
+| Pi (non-Anthropic subscription profiles) | SDK bridge with read-only credentials | Public SDK compatibility, refresh/API-key/clamp refusal in a network-denied sandbox | disabled |
+| Codex CLI | `codex exec --json` adapter | Emitted flags match the installed CLI | disabled |
+| Claude Code (only route for Anthropic models) | `claude -p` stream-json adapter | Emitted flags match the installed CLI | disabled |
 
 - **[User and operations guide](docs/user/README.md)** — installing into a workspace, configuration, the Pi interface, workflow, budgets, capabilities, diagnostics, and limitations.
 - [Release acceptance checklist](docs/user/release-acceptance.md) and [development guide](docs/development.md).
@@ -37,9 +43,10 @@ A Pi-native harness under implementation for agentic software engineering, maint
 - [Repository layout](docs/proposals/0013-repository-layout.md)
 - [Unattended implementation authorization](docs/proposals/0014-unattended-implementation.md)
 - [Anthropic workers through Claude Code only](docs/proposals/0015-anthropic-runtime-policy.md)
+- [Implementation verification and capability checkpoint](docs/research/implementation-verification.md)
 - [Feasibility evidence and known gaps](docs/research/feasibility-results.md)
 - [Technical research notes](docs/research/reference-notes.md)
 
-Confirmed decisions are distinguished from recommendations in each proposal. Proposal 0014 authorizes implementation and milestone commits/pushes, superseding feasibility-only restrictions; proposal 0012 retains the product decisions. Full verification is scheduled at the end, while publication checks precede every push. Worker-runtime support must pass its validation gates before it is advertised.
+Confirmed decisions are distinguished from recommendations in each proposal. Proposal 0014 authorized implementation and milestone commits/pushes; proposal 0012 retains the product decisions. Worker-runtime support must pass its validation gates before it is advertised.
 
 Repository: `git@github.com:cenron/radian-harness.git`

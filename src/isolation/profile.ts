@@ -38,6 +38,8 @@ export interface ProfileInput {
   terminal?: string;
   /** Worktree Git pointer file, which workers must not rewrite. */
   gitPointer?: string;
+  /** Verification fixtures only: deny all networking (production workers need model connectivity). */
+  denyNetwork?: boolean;
 }
 
 export interface GeneratedProfile {
@@ -99,9 +101,11 @@ export function generateProfile(input: ProfileInput): Outcome<GeneratedProfile> 
     lines.push(`(allow file-read* file-write* file-ioctl (literal ${q(input.terminal)}))`);
   }
   // Approved ordinary outbound networking; no destination isolation is claimed.
-  lines.push(`(allow network-outbound (remote ip "*:*"))`);
-  lines.push(`(allow network-outbound (remote unix-socket (literal ${q(DNS_SOCKET)})))`);
-  for (const port of a.ports) {
+  if (!input.denyNetwork) {
+    lines.push(`(allow network-outbound (remote ip "*:*"))`);
+    lines.push(`(allow network-outbound (remote unix-socket (literal ${q(DNS_SOCKET)})))`);
+  }
+  for (const port of input.denyNetwork ? [] : a.ports) {
     lines.push(`(allow network-bind (local ip "localhost:${port}"))`);
     lines.push(`(allow network-inbound (local ip "localhost:${port}"))`);
   }

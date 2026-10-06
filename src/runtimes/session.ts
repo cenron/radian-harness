@@ -153,6 +153,7 @@ export async function launchAttempt(deps: SessionDeps, request: AttemptRequest):
   if (!env.ok) return fail(env);
 
   const deps2 = await resolveDependencies(plan.value.argv[0]!, [...install.installRoots, ...plan.value.readRoots]);
+  deps2.readFiles = [...new Set([...deps2.readFiles, ...(plan.value.readFiles ?? [])])];
   for (const helper of install.helpers) {
     const resolved = await resolveDependencies(helper);
     deps2.readFiles = [...new Set([...deps2.readFiles, ...resolved.readFiles])];
