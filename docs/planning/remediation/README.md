@@ -1,6 +1,6 @@
 # Review remediation plan — seven safety findings
 
-**Status: R01–R07 corrected with targeted red/green regression evidence (2026-10-06); R08 aggregate verification and reporting follow in the next checkpoint. No runtime capability is enabled or verified by this work.**
+**Status: complete (2026-10-06). R01–R07 corrected with targeted red/green regression evidence; R08 aggregate offline verification passed on the committed tree. Independent follow-up review is required before any live verification. No runtime capability is enabled or verified by this work; runtime/release support remains NOT READY.**
 
 The user requested this plan after reviewing the implementation and completing a local installation/UI smoke check. That smoke check confirms package loading and presentation only, not worker containment, authentication, billing, or workflow correctness. The seven findings below concern implemented safety properties, not merely missing live-runtime evidence.
 
@@ -27,14 +27,14 @@ Update this table as work proceeds. `Complete` requires implemented correction p
 
 | ID | Finding / deliverable | Priority | Status | Regression / completion record |
 | --- | --- | --- | --- | --- |
-| R01 | Coordinator command-helper escape | P1 | corrected, pending R08 | [record](#r01-record) |
-| R02 | Planning write symlink escape | P1 | corrected, pending R08 | [record](#r02-record) |
-| R03 | Exact tested candidate identity | P1 | corrected, pending R08 | [record](#r03-record) |
-| R04 | Approval revalidation at launch/recovery/resume | P1 | corrected, pending R08 | [record](#r04-record) |
-| R05 | Partial-launch reconciliation and retained ownership | P1 | corrected, pending R08 | [record](#r05-record) |
-| R06 | Active watcher/coordinator-lease loss response | P1 | corrected, pending R08 | [record](#r06-record) |
-| R07 | Durable, non-model-controlled candidate-cycle accounting | P2 | corrected, pending R08 | [record](#r07-record) |
-| R08 | Aggregate offline verification, reporting, and publication | gate | pending | not yet |
+| R01 | Coordinator command-helper escape | P1 | complete | [record](#r01-record) |
+| R02 | Planning write symlink escape | P1 | complete | [record](#r02-record) |
+| R03 | Exact tested candidate identity | P1 | complete | [record](#r03-record) |
+| R04 | Approval revalidation at launch/recovery/resume | P1 | complete | [record](#r04-record) |
+| R05 | Partial-launch reconciliation and retained ownership | P1 | complete | [record](#r05-record) |
+| R06 | Active watcher/coordinator-lease loss response | P1 | complete | [record](#r06-record) |
+| R07 | Durable, non-model-controlled candidate-cycle accounting | P2 | complete | [record](#r07-record) |
+| R08 | Aggregate offline verification, reporting, and publication | gate | complete | [record](#r08-record) |
 
 Implement in table order. R05 and R06 share lifecycle/cleanup contracts; retain coherent interfaces and re-run both suites when either changes. R03 and R07 share candidate lifecycle accounting; re-run their regressions together. Each record must include tests, red/green outcome, design choice, date, residual limitations, and verification revision/tree. Git history supplies commit identities; do not embed a commit's own hash into itself.
 
@@ -172,7 +172,7 @@ Implement in table order. R05 and R06 share lifecycle/cleanup contracts; retain 
 
 ## Completion records
 
-Records are written as each finding's targeted regression turns green. "Corrected, pending R08" means the correction and its targeted red/green evidence exist; aggregate verification and the verified revision/tree are recorded under R08. No record grants runtime support.
+Records were written as each finding's targeted regression turned green (first as "corrected, pending R08") and marked complete after the R08 aggregate run. No record grants runtime support.
 
 ### R01 record
 
@@ -229,3 +229,12 @@ Records are written as each finding's targeted regression turns green. "Correcte
 - **Design choice:** `candidateCycle` (run store) derives the cycle from durable task state only: developer/tester work toward a candidate joins the current cycle until that cycle has a candidate; the first such assignment afterwards starts the next cycle; checks and reviews stay in the current cycle; scouts are unaffected; at the cap only recorded human grants allow another cycle; an open accounting decision blocks new candidate work. `createAssignment` applies it under the run lock (so concurrent repairs start exactly one cycle) and refuses a stale projection (`expectedRound`). `recordCandidate` accepts one candidate per cycle (the same commit is idempotent). `newCandidateRound` is accepted but ignored (documented as legacy in the tool schema and contracts). Infrastructure recovery is a new attempt of the same assignment and never reaches cycle accounting. The cap and cycle identity are event-sourced, so a reopened store replays them.
 - **Green:** after three cycles, developers and testers with omitted/`false`/`true` flags are refused (`ROUNDS_EXHAUSTED`) with no launch, while a review of the existing candidate still runs; a reopened store refuses a fourth cycle; one human grant allows exactly one more cycle; same-cycle developer/developer/tester collaboration used one cycle; three concurrent repairs started exactly one new cycle; reassembling a different candidate in the same cycle is refused; infrastructure recovery kept cycle 1 and used the assignment's single recovery; an open accounting decision blocked candidate work until resolved.
 - **Residual limitations:** reassembly is refused even when the earlier candidate was never evaluated (any changed candidate needs a repair cycle); the classification that opens an accounting decision is still invoked by coordinator code, not by any model-callable tool. Guidance updated in `skills/radian-coordinator/SKILL.md` and `docs/user/README.md`.
+
+### R08 record
+
+- **Date:** 2026-10-06. **Verified tree:** Git index tree `5e075f950869b4b569ef767869e0fba1a109fa53`, committed unchanged as `41b0f3f` and pushed to `origin/main`; the working tree's executable content matched the index during the run.
+- **Interactions:** `tests/unit/remediation/r08-interactions.test.ts` (4 tests, passing) — approval revoked during an uncertain launch; watcher loss during partial-launch cleanup (verified and unknown termination); candidate mutation followed by repair-cycle accounting; a planning artifact swapped for a link after approval. The coordinator test fixture now hashes artifacts with the production link-refusing reader.
+- **Aggregate:** `npm run typecheck` exit 0; `npm test` exit 0 (146/146, 0 skipped); `npm run test:integration` exit 0 (5/5, 0 skipped); `npm run verify` exit 0 (typecheck, unit, integration, publication check, 91-file package archive, and six offline feasibility suites all passed). Publication coverage: generic patterns only — the private denylist was not supplied, so private-term coverage is absent. Not run: live/real-auth/Herdr/target-installation modes (not authorized) and ShellCheck (not installed).
+- **Publication:** staged content and metadata reviewed; publication and whitespace checks clean before the implementation commit and on its committed tree and unpushed metadata; pushed without force. Concurrent, separately prepared workspace-first planning files and their handoff section were left uncommitted and untouched.
+- **Report:** [verification report](../../research/implementation-verification.md) remediation checkpoint, with the milestone 10 run preserved as history.
+- **Remaining:** independent follow-up review of these corrections; then the separate user decisions listed in the handoff. Runtime/release support NOT READY; all launches disabled.

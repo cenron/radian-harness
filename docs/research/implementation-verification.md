@@ -1,6 +1,59 @@
 # Implementation verification and capability checkpoint
 
-**Status: automated implementation verification completed for milestones 01–10. Worker-runtime support and release readiness: NOT READY.** Every worker launch remains disabled because no runtime capability has recorded verification evidence, and live runtime, authentication, refresh, cancellation, and Herdr behavior were not exercised (not authorized by the plan).
+**Status: review remediation R01–R07 corrected and aggregate offline verification passed (2026-10-06). Independent follow-up review is still required before any live verification. Worker-runtime support and release readiness: NOT READY.** Every worker launch remains disabled because no runtime capability has recorded verification evidence; live runtime, authentication, refresh, cancellation, and Herdr behavior were not exercised (not authorized).
+
+## Review remediation checkpoint (current)
+
+A review of `e28d3db` found seven safety defects that the milestone 10 run below did not exercise. That run remains a historical record of the earlier tree; it is not retroactively corrected proof. Per-finding red/green evidence, design choices, and residual limitations are in the [remediation plan and progress index](../planning/remediation/README.md#completion-records).
+
+| Item | Value |
+| --- | --- |
+| Date | 2026-10-06 |
+| Reviewed baseline | `e28d3db` (milestone 10) |
+| Verified code tree | Git index tree `5e075f950869b4b569ef767869e0fba1a109fa53`, committed unchanged as `41b0f3f` (remediation implementation). The working tree's source, tests, scripts, configuration, workers, and skills matched the index exactly during the run; this checkpoint commit adds only reporting and status documentation. |
+| Command | `npm run typecheck`, `npm test`, `npm run test:integration`, then `node scripts/verify.ts` (`npm run verify`) |
+| Toolchain | Node v25.9.0, TypeScript 7.0.2, Git 2.56.0, macOS 27.0.1 |
+| Runtimes present (help/version/offline only) | Pi 1.0.2, Codex CLI 0.160.0, Claude Code 2.1.285, Herdr 0.9.1 |
+
+| Step | Outcome | Exit | Detail |
+| --- | --- | --- | --- |
+| `npm run typecheck` | passed | 0 | clean |
+| `npm test` (unit) | passed | 0 | 146 tests, 146 pass, 0 fail, 0 skipped, 0 cancelled (114 before remediation; includes 32 new regression and interaction tests in `tests/unit/remediation/`) |
+| `npm run test:integration` | passed | 0 | 5 tests, 5 pass, 0 skipped (help-only CLI flag checks, isolated offline Pi extension load, offline Pi SDK bridge under a network-denied sandbox) |
+| `npm run verify` — typecheck, unit, integration | passed | 0 | same counts as above |
+| `npm run verify` — publication check (staged, working tree, `HEAD` tree, full commit metadata, package manifest, whitespace) | passed | 0 | 0 findings for covered generic patterns; **private denylist not supplied — private-term coverage absent** |
+| `npm run verify` — package archive | passed | 0 | 91 files, none outside the package-content boundary |
+| `npm run verify` — offline feasibility regressions (filesystem, runtime startup default mode, loopback networking, process ownership, synthetic supervision, Pi read-only credential store) | passed | 0 each | 34, 10, 5, 3, 3, and 2 PASS lines |
+| Pre-commit publication check of staged content; post-commit check of the `41b0f3f` tree and unpushed metadata | passed | 0 | 0 findings; whitespace 0 issues; denylist absent |
+
+Not run: live model tasks for any runtime, every `--real-auth` readiness option, the opt-in live Pi task prototype, token refresh, provider endpoint probes, real Herdr pane operations, installation into target workspaces, and ShellCheck (not installed). No skipped tests. Native-only tests (`sandbox-exec`, `O_NOFOLLOW_ANY`) ran on this macOS host; on other hosts they report skips, not passes.
+
+### Per-finding regression evidence
+
+Each regression was run against the code before its fix (red) and after (green); "baseline" for R05–R07 is the tree after the preceding corrections, where those defects were still present.
+
+| Finding | Red (before) | Green (after) |
+| --- | --- | --- |
+| R01 coordinator command-helper escape | 34 of 50 shell commands accepted across Plan/Build, including all four reviewed examples | every `bash` call blocked; `radian_git_inspect` runs fixed vectors with no planted helper firing (positive control fires) |
+| R02 planning-write symlink escape | all six linked forms written through; Pi `write` to planning allowed; linked artifact hashed for approval | all refused with protected and outside files unchanged; parent/destination substitution refused by the kernel open; linked artifacts not approvable |
+| R03 exact tested candidate | tampered checkout accepted as evidence; whole tree writable; unknown termination and bare worker claims accepted | outcomes only from launcher-executed approved checks on a verified exact checkout after verified termination; source read-only (natively confirmed) |
+| R04 approval revalidation | launches completed after rejection, during a capacity wait, and before recovery | refused at every boundary (before reservation, after setup, inside the session before credentials/pane/delivery) for initial, recovery, resume, and quota retry; nothing leaked |
+| R05 partial-launch ownership | failed delivery treated as verified non-execution; interrupted registration reported verified; delayed launcher started the runtime | uncertain launches stopped and verified before release; unknown keeps ownership; revoked delayed launchers start nothing |
+| R06 watcher/lease loss | unhealthy supervision did not stop live work; no loss response; released lease renewable; renewal results discarded | all live work stopped within the bound and blocked; halt latched; renewal failures reported; released or expired leases not renewed |
+| R07 cycle accounting | fourth cycle via omitted/false flags; flagged developers consumed cycles; second candidate per cycle; ambiguous classification ignored | cycles derived from durable state under lock; flag ignored; one candidate per cycle; cap, grants, replay, and accounting decisions enforced |
+
+Cross-finding interactions (`tests/unit/remediation/r08-interactions.test.ts`), all passing: approval revoked during an uncertain launch (stopped, verified, no recovery starts); watcher loss during partial-launch cleanup (one shared stop, no recovery, ownership per termination); candidate mutation in a check followed by repair (evidence refused, exactly one new cycle, reverified); a planning artifact swapped for a link after approval (launch refused until a regular file with the approved content returns).
+
+### Remaining gaps after remediation
+
+- Runtime support remains **not ready** and every launch stays disabled: no capability evidence is recorded and none was created by this work.
+- Remaining limitations of the corrections are listed per finding in the completion records (for example: no execution record exists for live runtimes yet; check time precedes binding and is not charged to the execution budget; a delayed launcher process may run briefly before it reads the revocation; detection of a stalled watcher is bounded by status staleness; simultaneous watcher-and-coordinator loss and actual-runtime descendants are unverified).
+- An independent follow-up review of these corrections is required before live verification is considered.
+- Earlier blockers stand: live isolated capability verification per runtime/profile, a private denylist, a license choice, the long-term containment mechanism given `sandbox-exec` deprecation, and the Pi SDK bridge's missing TUI/Herdr-detection parity.
+
+## Historical milestone 10 run (pre-remediation)
+
+The remainder of this report is the original milestone 10 verification of tree `5ad0aa77…`. It did not exercise the seven defects above and is preserved unchanged as history.
 
 ## What was verified
 

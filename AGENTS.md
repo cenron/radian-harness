@@ -1,8 +1,8 @@
 # Repository working agreement
 
-## Current phase: review remediation plan prepared
+## Current phase: review remediation complete, awaiting independent review
 
-- The original implementation milestones are complete but a subsequent review found seven safety defects. Read `docs/planning/remediation/README.md` and its `new-session-prompt.md` before any further implementation. Execute the remediation only when the user starts that scoped prompt; preparing this plan does not enable runtime capabilities or authorize live tests. The remediation execution contract supersedes the original milestone order/test-deferral rules for this pass only.
+- The original implementation milestones are complete; a subsequent review found seven safety defects, now corrected with regression evidence and aggregate offline verification (see `docs/planning/remediation/README.md`). Do not replay the remediation. An independent follow-up review is required before any live verification; the remediation did not enable runtime capabilities or authorize live tests.
 - Read `docs/planning/session-handoff.md`, proposals 0014–0015, and `docs/planning/implementation/README.md` for historical implementation context. Proposal 0014 supersedes feasibility-only authorization and later-push restrictions; proposal 0012 remains the product decision checkpoint.
 - The user stopped feasibility testing and authorized a new Claude Code Opus 5.5/high session to implement the milestone plan without routine interaction. Confirm that model/effort through native session state; if unavailable, stop rather than fall back or change authentication/effort.
 - Original milestones 01–10 and their commits/pushes are historical and must not be replayed. In a user-started remediation session, follow R01–R08, record red/green evidence and truthful completion/blockers, then commit/push only the authorized focused remediation/checkpoint after publication checks. No force-push, release/tag/package publication, or unrelated Git changes.

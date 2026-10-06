@@ -1,10 +1,11 @@
-# Session handoff — review remediation planned, runtime support not ready
+# Session handoff — review remediation complete, runtime support not ready
 
 ## Current follow-up
 
-The user requested a concrete Claude Code plan/prompt to correct seven implementation-review findings. Read the [remediation plan and progress index](remediation/README.md) and [start prompt](remediation/new-session-prompt.md). The plan is prepared, not implemented; execute it only in a user-started scoped remediation session. That prompt authorizes source fixes, offline regression/full verification, and remediation checkpoint commits/pushes, not live tasks, capability enablement, target-workspace operations, or unrelated features.
+The review of `e28d3db` found seven safety defects: coordinator command-helper escape, planning-write symlink escape, unchecked tested-candidate identity, launch-time approval revocation gaps, partial-launch ownership release, missing active watcher-loss response, and model-controlled round accounting. A user-started Claude Code (Opus 5.5/high, claude.ai subscription) remediation session corrected all seven on 2026-10-06 with failing-then-passing regressions, then ran aggregate offline verification. See the [remediation plan and completion records](remediation/README.md) and the [verification report](../research/implementation-verification.md).
 
-The review of `e28d3db` found coordinator command-helper escape, planning-write symlink escape, unchecked tested-candidate identity, launch-time approval revocation gaps, partial-launch ownership release, missing active watcher-loss response, and model-controlled round accounting. Earlier passing tests did not exercise these defects; implementation safety verification must be qualified pending correction and follow-up review.
+- Implementation commit `41b0f3f` (verified tree `5e075f95…`) and the following report/checkpoint commit are pushed to `origin/main`. Typecheck, 146 unit tests, 5 integration tests, publication/package checks, and six offline feasibility suites passed; the private denylist is still absent.
+- **Next:** an independent follow-up review of the corrections. Do not begin live verification, enable capabilities, or install into workspaces without separate explicit user authorization.
 
 The user separately performed a local development installation/UI smoke check in a disposable project. Package/skill loading, Plan/Build, Calm/status, and the unverified-capability display were exercised. This is not runtime/authentication/containment/workflow verification. Do not modify or restart that installed session as part of remediation; local source bindings may pick up edits on later loads.
 
@@ -20,7 +21,7 @@ The original unattended implementation authorization ([proposal 0014](../proposa
 
 1. Read AGENTS.md, this handoff, proposals 0012–0015, the [verification report](../research/implementation-verification.md), and the [user guide](../user/README.md).
 2. Check live Git status/history; preserve unrelated or unfinished work.
-3. If the user has started the remediation prompt, follow R01–R08 without replaying original milestones, using offline fixtures only. Otherwise await that start instruction. After remediation, await separate user decisions on the open items: authorizing live, isolated capability verification per runtime/profile (and how evidence is recorded), supplying a private denylist, choosing a license, the long-term containment mechanism given `sandbox-exec` deprecation, and acceptance of the Pi SDK bridge's missing TUI/Herdr-detection parity.
+3. Remediation R01–R08 is complete; do not replay it or the original milestones. Await the independent follow-up review and separate user decisions on the open items: authorizing live, isolated capability verification per runtime/profile (and how evidence is recorded), supplying a private denylist, choosing a license, the long-term containment mechanism given `sandbox-exec` deprecation, and acceptance of the Pi SDK bridge's missing TUI/Herdr-detection parity.
 4. Do not mark capabilities verified from synthetic or offline evidence.
 
 ## Saved repository checkpoint
