@@ -47,6 +47,8 @@ export interface ProcessRuntime {
   active: ActiveView | undefined;
   /** Notices for owners whose view is not current, delivered when that project is shown again. */
   inbox: Map<string, OwnerNotice[]>;
+  /** A view switch in progress in this process; overlapping switches are refused. */
+  switching: boolean;
 }
 
 const KEY = Symbol.for("radian.workspace-runtime/1");
@@ -55,7 +57,7 @@ export function processRuntime(): ProcessRuntime {
   const store = globalThis as unknown as Record<symbol, ProcessRuntime | undefined>;
   let runtime = store[KEY];
   if (!runtime) {
-    runtime = { schema: 1, generation: 0, owners: new Map(), pending: undefined, active: undefined, inbox: new Map() };
+    runtime = { schema: 1, generation: 0, owners: new Map(), pending: undefined, active: undefined, inbox: new Map(), switching: false };
     store[KEY] = runtime;
   }
   return runtime;

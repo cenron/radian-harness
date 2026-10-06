@@ -149,6 +149,10 @@ export class FakePiProcess {
   readonly shutdownReasons: string[] = [];
   busy = false;
   pending = false;
+  /** Make the next session replacement report cancellation (another extension vetoed it) or throw. */
+  nextSwitch: "cancel" | "throw" | undefined;
+  /** Resolves when a replacement may proceed (to hold one switch open while another is attempted). */
+  gate: Promise<void> | undefined;
   thinking = "medium";
   model: unknown = { provider: "fake", id: "model-1" };
 
@@ -202,6 +206,11 @@ export class FakePiProcess {
   }
 
   private async replace(reason: "new" | "resume", target: FakeSession, setup?: (sm: HostWritableSessionManager) => Promise<void>, withSession?: (ctx: HostContext) => Promise<void>): Promise<{ cancelled: boolean }> {
+    if (this.gate) await this.gate;
+    const outcome = this.nextSwitch;
+    this.nextSwitch = undefined;
+    if (outcome === "cancel") return { cancelled: true };
+    if (outcome === "throw") throw new Error("synthetic session creation failure");
     await this.host.emit("session_shutdown", { reason }, this.ctx());
     this.shutdownReasons.push(reason);
     // Pi resets thinking on a new session and restores the saved level on resume (W01).

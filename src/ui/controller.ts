@@ -356,7 +356,8 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     async projectsCommand(args, ctx) {
       const v = view;
       if (v.kind === "unmanaged") return "Radian is inactive here.";
-      if (v.kind === "blocked") return blockerText(v.blocker);
+      // Navigation stays available from a conversation whose project became unavailable (the workspace itself is valid).
+      if (v.kind === "blocked" && (!v.workspaceRoot || !loadWorkspace(v.workspaceRoot).ok)) return blockerText(v.blocker);
       const root = workspaceRootOf(v)!;
       const loaded = loadWorkspace(root);
       if (!loaded.ok) return blockerText(loaded.blocker);
@@ -414,7 +415,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     async workspaceCommand(_args, ctx) {
       const v = view;
       if (v.kind === "unmanaged") return "Radian is inactive here.";
-      if (v.kind === "blocked") return blockerText(v.blocker);
+      if (v.kind === "blocked" && (!v.workspaceRoot || !loadWorkspace(v.workspaceRoot).ok)) return blockerText(v.blocker);
       if (v.kind === "dashboard") return workspaceStatusText(v.workspace);
       return returnToDashboard(v, ctx);
     },

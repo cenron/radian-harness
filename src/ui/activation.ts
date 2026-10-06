@@ -245,6 +245,7 @@ export function createActivation(deps: ActivationDeps) {
 
   const switchable = (ctx: HostContext): Outcome<true> => {
     if (!ctx.newSession || !ctx.switchSession) return refuse("SESSION_BUSY", "switching projects needs an interactive command context");
+    if (processRuntime().switching) return refuse("SESSION_BUSY", "another project switch is in progress");
     if (!ctx.isIdle() || ctx.hasPendingMessages?.()) return refuse("SESSION_BUSY", "Pi is still working or has queued input", "Wait for the current turn to finish (or cancel it), then select again; queued input never moves to another project.");
     return success(true);
   };
@@ -270,6 +271,7 @@ export function createActivation(deps: ActivationDeps) {
     const notice = `Project ${entry.name} selected (same Pi session, workspace root unchanged).${notes.length ? ` Project-local Pi resources are not loaded here: ${notes.join(", ")}. Use direct entry with Pi's own trust to use them.` : ""}${opened.value.run ? " Its run and background work were retained." : ""}`;
     const ref = readContextReference(ws, entry.project);
     let result: { cancelled: boolean };
+    processRuntime().switching = true;
     try {
       if (ref && resumable(ws, ref)) {
         carry(ws, entry.project, ref.contextId, ctx);
@@ -292,6 +294,8 @@ export function createActivation(deps: ActivationDeps) {
       processRuntime().pending = undefined;
       if (!(v.kind === "project" && v.project.binding.project === entry.project)) releaseViewLock(ws.root, entry.project, probe);
       return text(blocker("SESSION_BUSY", `Pi could not switch: ${(error as Error).message}`));
+    } finally {
+      processRuntime().switching = false;
     }
     if (result.cancelled) {
       processRuntime().pending = undefined;
@@ -310,7 +314,16 @@ export function createActivation(deps: ActivationDeps) {
     const ready = switchable(ctx);
     if (!ready.ok) return text(ready.blocker);
     carry(loaded.value, undefined, undefined, ctx);
-    const result = await ctx.newSession!({ withSession: async (next) => next.ui.notify("Workspace dashboard. Background project work continues; /projects lists projects.", "info") });
+    let result: { cancelled: boolean };
+    processRuntime().switching = true;
+    try {
+      result = await ctx.newSession!({ withSession: async (next) => next.ui.notify("Workspace dashboard. Background project work continues; /projects lists projects.", "info") });
+    } catch (error) {
+      processRuntime().pending = undefined;
+      return text(blocker("SESSION_BUSY", `Pi could not switch: ${(error as Error).message}`));
+    } finally {
+      processRuntime().switching = false;
+    }
     if (result.cancelled) {
       processRuntime().pending = undefined;
       return "Cancelled; the previous view is unchanged.";
