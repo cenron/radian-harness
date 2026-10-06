@@ -1,6 +1,6 @@
 # Milestone 08 — Pi coordinator interface
 
-**Status: pending** · Depends on: 07
+**Status: complete** · Depends on: 07
 
 ## Objective
 
@@ -40,10 +40,19 @@ Mark this milestone/index complete; commit/push `feat: milestone 08 — Pi coord
 
 ## Completion record
 
-- Completed: not yet
-- Implementation decisions: not yet
-- Checks before publication: not yet
-- Deferred verification / limitations: public-API compatibility and final UI contract verification
+- Completed: 2026-10-06. Thin package entry `extensions/radian.ts` (with ambient declarations for host-provided packages in `extensions/host-modules.d.ts`) over `src/ui/`: interface controller with user commands, model-callable tools, mode switching, human-only decisions, status and widgets (`controller.ts`), composition root for managed sessions and runs (`session.ts`), managed editor (`editor.ts`), Calm renderer and preference (`calm.ts`), coordinator tool guard (`guard.ts`), and structural host types (`pi-host.ts`). Workspace layout conventions (`src/workspace/layout.ts`) and an updated binding check (`src/state/binding.ts`); coordinator `pause`, live-assignment listing, and required-check evidence. `package.json` now declares the extension, the `pi-package` keyword, and optional `"*"` peer dependencies for Pi's host packages. Tests in `tests/unit/ui/`.
+- Documentation read before relying on APIs: installed Pi 1.0.2 extensions, TUI, keybindings, slash commands, packages, and security docs; the plan-mode, modal-editor, minimal-mode, and built-in-tool-renderer examples; exported `ExtensionAPI`, `ToolRenderers`, `InputSource`, `ExtensionContext`, and `CustomEditor` declarations; and the extension runner's shortcut-conflict rules.
+- Implementation decisions:
+  - Shift+Tab: Pi reserves `shift+tab` for `app.thinking.cycle`, so an extension shortcut would be skipped. Radian instead installs, only in managed sessions, a subclass of Pi's public `CustomEditor` (the documented modal-editor pattern) that consumes Shift+Tab for Plan/Build and forwards every other key — Tab autocomplete and all app actions included — to the base editor. Personal `keybindings.json` is never edited; the default editor is restored on shutdown. Native `/thinking` stays available; no alias was added.
+  - Managed sessions start in Plan, show PLAN/BUILD and live-worker counts in the status line, and list tasks, assignments, and open decisions in a widget. Entering Plan immediately blocks new modifying dispatch; live modifying workers are paused (stopped with work preserved and a resume decision) only after an interactive confirmation; noninteractive sessions leave them running.
+  - Calm uses `registerToolRenderer` only: tool calls stay visible; successful, non-partial, unexpanded results collapse to one muted line; errors, partial output, expanded views, messages, approvals, and blockers are untouched. Execution tools are never replaced. The preference lives in Radian's project state, not personal settings.
+  - Approvals, rejections, decisions, integration, round grants, recovery authorizations, and retrospective decisions are `/radian` user commands only. Each requires an interactive TUI, rejects RPC/extension-originated input, and asks for an explicit confirmation that shows the exact artifact hash (and, for integration, candidate, target, checks, review, risks, and gaps). Without an interactive UI they return `NONINTERACTIVE_APPROVAL_REQUIRED`; nothing is fabricated.
+  - Model-callable tools are `radian_status`, `radian_write_artifact` (drafts under `.radian/planning/` only; writing never approves), `radian_dispatch` (validated plans; runs in the background through the orchestrator with all its guards and reports the outcome), and `radian_assemble`.
+  - The coordinator guard (both modes) allows read/search tools, Radian tools, planning-artifact writes, and a narrow set of simple read-only commands without shell metacharacters; it blocks production edits, other shell commands, MCP/codemode, and unknown tools with stable rule IDs. It is a mistake/prompt-injection guard inside Pi, not an OS boundary.
+  - Runs start only on explicit user action (`/radian start`) and require a registered protected target, a configured Git commit identity, a Herdr pane, and the project lease; the independent watcher starts with the run. On shutdown with live workers the heartbeat is dropped so supervision loss stops owned work (preserving it); otherwise the watcher is released.
+  - Workspace layout: Radian state for each project lives under `<workspace>/.radian/projects/<id>/` outside every checkout; the binding check requires exactly one enclosing workspace whose record matches its location and exactly one registry entry for the project's canonical path.
+- Checks before publication: private denylist **not supplied** (private-term coverage absent); bounded publication check and exact staged-diff review before commit. Milestone-local sanity run: `tsc --noEmit` clean (the extension type-checks against Radian's structural host declarations); full unit suite passed, including eight interface tests with a fake Pi host (not the milestone 10 run).
+- Deferred verification / limitations: public-API compatibility with a real Pi process (extension load, editor replacement, renderer coverage, slash-command input events) and final UI contract verification are deferred to milestone 10 and live interactive behavior is not claimed. Another extension that also replaces the editor would conflict with the managed editor. Whether slash commands emit `input` events is unverified; approvals therefore also require the TUI confirmation dialog.
 
 ## Requirements
 

@@ -15,7 +15,7 @@ The user authorized a new **Claude Code / Opus 5.5 / high** session to implement
 | 05 | [Native containment, credential ownership, and supervision](05-containment-and-supervision.md) | complete | 02–04 |
 | 06 | [Pi, Codex, Claude, and Herdr adapters](06-runtime-and-herdr-adapters.md) | complete | 05 |
 | 07 | [Engineering orchestration, integration, and metrics](07-orchestration-and-metrics.md) | complete | 03–06 |
-| 08 | [Pi coordinator interface](08-pi-interface.md) | pending | 07 |
+| 08 | [Pi coordinator interface](08-pi-interface.md) | complete | 07 |
 | 09 | [Workspace binding, installer, and operational documentation](09-binding-and-installer.md) | pending | 01–08 |
 | 10 | [Final automated verification and capability checkpoint](10-final-verification.md) | pending | 01–09 |
 

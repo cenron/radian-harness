@@ -326,27 +326,38 @@ test("locks held by live or unverifiable owners are not broken", async () => {
   }
 });
 
-test("project binding: duplicates, moves, and foreign workspaces are refused", () => {
+test("project binding: unregistered, nested, moved, and duplicate bindings are refused", () => {
   const root = tempDir();
   try {
     const workspace = path.join(root, "ws");
     const project = path.join(workspace, "proj");
-    mkdirSync(path.join(project, ".radian"), { recursive: true });
     mkdirSync(path.join(workspace, ".radian", "state"), { recursive: true });
+    mkdirSync(project, { recursive: true });
+    writeFileSync(path.join(workspace, ".radian", "workspace.json"), JSON.stringify({ schema: "radian.workspace/1", workspace: "ws_fixture1", canonicalRoot: workspace }));
     const registry = { schema: "radian.workspace-registry/1", workspace: "ws_fixture1", projects: [{ project: "prj_fixture1", canonicalPath: project }] };
-    writeFileSync(path.join(workspace, ".radian", "state", "projects.json"), JSON.stringify(registry));
-    writeFileSync(path.join(project, ".radian", "binding.json"), JSON.stringify({ schema: "radian.project-binding/1", workspace: "ws_fixture1", project: "prj_fixture1", canonicalPath: project }));
-    assert.ok(checkProjectBinding(project, workspace).ok);
-    writeFileSync(path.join(project, ".radian", "binding.json"), JSON.stringify({ schema: "radian.project-binding/1", workspace: "ws_other01", project: "prj_fixture1", canonicalPath: project }));
-    const foreign = checkProjectBinding(project, workspace);
-    assert.equal(foreign.ok ? "ok" : foreign.blocker.code, "DUPLICATE_BINDING");
-    writeFileSync(path.join(project, ".radian", "binding.json"), JSON.stringify({ schema: "radian.project-binding/1", workspace: "ws_fixture1", project: "prj_fixture1", canonicalPath: "/elsewhere" }));
-    const moved = checkProjectBinding(project, workspace);
-    assert.equal(moved.ok ? "ok" : moved.blocker.code, "DUPLICATE_BINDING");
-    writeFileSync(path.join(project, ".radian", "binding.json"), JSON.stringify({ schema: "radian.project-binding/1", workspace: "ws_fixture1", project: "prj_fixture1", canonicalPath: project }));
-    writeFileSync(path.join(workspace, ".radian", "state", "projects.json"), JSON.stringify({ ...registry, projects: [...registry.projects, { project: "prj_fixture1", canonicalPath: "/copy" }] }));
-    const duplicate = checkProjectBinding(project, workspace);
-    assert.equal(duplicate.ok ? "ok" : duplicate.blocker.code, "DUPLICATE_BINDING");
+    const writeRegistry = (value: unknown) => writeFileSync(path.join(workspace, ".radian", "state", "projects.json"), JSON.stringify(value));
+    const code = () => { const r = checkProjectBinding(project); return r.ok ? "ok" : r.blocker.code; };
+    writeRegistry(registry);
+    const ok = checkProjectBinding(project);
+    assert.ok(ok.ok && ok.value.project === "prj_fixture1" && ok.value.workspaceRoot === workspace);
+    writeRegistry({ ...registry, projects: [] });
+    assert.equal(code(), "INSTALL_TARGET_INVALID");
+    writeRegistry({ ...registry, projects: [...registry.projects, { project: "prj_fixture1", canonicalPath: "/copy" }] });
+    assert.equal(code(), "DUPLICATE_BINDING");
+    writeRegistry(registry);
+    writeFileSync(path.join(workspace, ".radian", "workspace.json"), JSON.stringify({ schema: "radian.workspace/1", workspace: "ws_fixture1", canonicalRoot: "/elsewhere" }));
+    assert.equal(code(), "DUPLICATE_BINDING");
+    writeFileSync(path.join(workspace, ".radian", "workspace.json"), JSON.stringify({ schema: "radian.workspace/1", workspace: "ws_fixture1", canonicalRoot: workspace }));
+    mkdirSync(path.join(root, ".radian"), { recursive: true });
+    writeFileSync(path.join(root, ".radian", "workspace.json"), JSON.stringify({ schema: "radian.workspace/1", workspace: "ws_outer01", canonicalRoot: root }));
+    assert.equal(code(), "DUPLICATE_BINDING", "nested workspaces are ambiguous");
+    const outside = tempDir();
+    try {
+      const r = checkProjectBinding(outside);
+      assert.equal(r.ok ? "ok" : r.blocker.code, "INSTALL_TARGET_INVALID");
+    } finally {
+      removeDir(outside);
+    }
   } finally {
     removeDir(root);
   }

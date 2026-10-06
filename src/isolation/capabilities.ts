@@ -119,6 +119,11 @@ export class CapabilityRegistry {
     return { state: "verified", evidence };
   }
 
+  /** Latest recorded evidence regardless of version binding (display only; launch uses status()). */
+  latest(capability: CapabilityId): CapabilityEvidence | undefined {
+    return this.read().filter((e) => e.capability === capability).at(-1);
+  }
+
   /** Every required capability must be verified for the current context; otherwise launch is denied. */
   require(capabilities: readonly CapabilityId[], context: CapabilityContext): Outcome<true> {
     const gaps: string[] = [];

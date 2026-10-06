@@ -38,7 +38,7 @@ export const ASSIGNMENT_STATUSES = [
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 export type BlockReason = "question" | "quota" | "user-pause" | "supervision" | "other";
-export type AttemptEndReason = "completed" | "infrastructure" | "quota" | "cancelled" | "timeout" | "unknown";
+export type AttemptEndReason = "completed" | "infrastructure" | "quota" | "cancelled" | "paused" | "timeout" | "unknown";
 export type Termination = "verified" | "unknown";
 
 export interface HarnessProvenance {

@@ -103,6 +103,8 @@ export type AssignmentOutcome =
 
 interface TaskEvidence {
   candidate?: CandidateRef & { round: number };
+  /** Check IDs the approved plan requires for this task; integration is refused until each passes. */
+  requiredChecks?: string[];
   checks: CheckEvidence[];
   review?: { candidate: string; blockingFindings: number; outcome: WorkerResult["outcome"]; findings: number };
   risks: string[];
@@ -127,6 +129,13 @@ export class Coordinator {
 
   private saveEvidence(task: string, evidence: TaskEvidence): void {
     atomicWriteJson(this.evidenceFile(task), evidence);
+  }
+
+  /** Record the required checks for a task (from the approved plan); never reduced silently. */
+  setRequiredChecks(task: string, ids: readonly string[]): void {
+    const evidence = this.evidence(task);
+    evidence.requiredChecks = [...new Set([...(evidence.requiredChecks ?? []), ...ids])].sort();
+    this.saveEvidence(task, evidence);
   }
 
   private identityFor(assignment: string, attempt: string, generation: number, task: string, role: Role): AssignmentIdentity {
@@ -459,7 +468,8 @@ export class Coordinator {
     if (!recorded.ok) return recorded;
     await d.store.setPhase(task, "verifying");
     // A new candidate makes all earlier evidence historical.
-    this.saveEvidence(task, { candidate: { ...candidate, round: t.roundsUsed }, checks: [], risks: [] });
+    const previous = this.evidence(task);
+    this.saveEvidence(task, { candidate: { ...candidate, round: t.roundsUsed }, checks: [], risks: [], ...(previous.requiredChecks ? { requiredChecks: previous.requiredChecks } : {}) });
     d.metrics.record("candidate-assembled", { task, round: t.roundsUsed });
     return success({ ...candidate, round: t.roundsUsed });
   }
@@ -568,6 +578,23 @@ export class Coordinator {
     }
     if (attempts.unknown.length > 0) d.metrics.record("supervision-gap", { outcome: `${attempts.unknown.length} attempt(s) with unknown termination` });
     return { attempts, reclaimed, retained: retained.map((r) => r.id), worktreeIssues };
+  }
+
+  /** Live assignments with a running attempt handle in this coordinator process. */
+  liveAssignments(): Array<{ assignment: string; role: Role }> {
+    return [...this.handles.entries()].map(([assignment, entry]) => ({ assignment, role: entry.handle.identity.role }));
+  }
+
+  /** Pause a running attempt at the user's request: stop and verify, preserve work, and block for a later resume decision. */
+  async pause(assignment: string, reason: string): Promise<Outcome<{ termination: "verified" | "unknown"; decisionId?: string }>> {
+    const entry = this.handles.get(assignment);
+    if (!entry) return refuse("INVALID_TRANSITION", "assignment has no live attempt in this coordinator");
+    const stopped = await this.deps.driver.stop(entry.handle);
+    await this.deps.store.endAttempt(assignment, entry.handle.identity.attempt, "paused", stopped.termination);
+    await this.release(assignment, stopped.termination);
+    const blocked = await this.deps.store.block(assignment, "user-pause", `Paused by the user: ${reason}. Resume starts a fresh attempt with preserved work.`);
+    const decisionId = blocked.ok ? Object.values(blocked.value.decisions).filter((x) => x.assignment === assignment && x.status === "open").at(-1)?.id : undefined;
+    return success({ termination: stopped.termination, ...(decisionId ? { decisionId } : {}) });
   }
 
   /** Content hash helper for approved artifacts (shared with the interface layer). */
