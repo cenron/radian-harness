@@ -1,6 +1,6 @@
 # 0012 — Adversarial-review resolution and readiness checkpoint
 
-**Status: plan finalized by the user; first feasibility milestone authorized. Commit and push the planning baseline first, then begin the bounded feasibility work. Full worker-runtime support remains gated on verification.**
+**Status: accepted product decision checkpoint. Its original feasibility-only authorization is superseded by [proposal 0014](0014-unattended-implementation.md): the user stopped testing and authorized unattended implementation with milestone commits/pushes. Full worker-runtime support remains gated on verification.**
 
 This document supersedes conflicting early proposal text. The user accepted the coordinator's recommendations following the adversarial review and requested Shift+Tab instead of Tab.
 
@@ -14,10 +14,16 @@ This document supersedes conflicting early proposal text. The user accepted the 
 
 Pi 1.0.2 slash-command documentation lists `/thinking`, not built-in `/effort`.
 
-## 2. Accepted boundary and integration direction
+## 2. Subscription authentication requirement
+
+The user clarified that normal harness usage is subscription-backed OAuth through Pi, Codex CLI, and Claude Code, not API-key/pay-as-you-go billing. Do not switch to an API key, billing account, or a different authentication method silently. Use each runtime's supported subscription login path. Pi profiles must use an OAuth-capable configured provider; Codex uses ChatGPT authentication and Claude uses claude.ai authentication.
+
+Direct provider connectivity probes made during initial feasibility were unauthenticated HTTPS HEAD requests, not inference calls. Following the clarification, stop direct endpoint probes and validate future connectivity through the runtime's subscription path. No API-key credential or paid inference was used in those probes.
+
+## 3. Accepted boundary and integration direction
 
 - Select and validate a macOS-native containment mechanism before runtime tooling relies on it. If it fails required checks, block and ask; no automatic weaker execution, alternate runtime, or scope expansion.
-- Whole-worker sandbox-exec is a feasibility candidate, not proven support. Its deprecation and runtime/auth compatibility are explicit risks. Destination-level network enforcement needs separate verification; policy-only allowlists do not meet an enforcement claim. Do not silently introduce a proxy or relax the approved network policy.
+- Whole-worker sandbox-exec is a feasibility candidate, not proven support. Its deprecation and runtime/auth compatibility are explicit risks. The user has now explicitly accepted the simpler outbound policy after feasibility showed that the tested native address filter rejects hostnames: ordinary outbound networking is permitted for developer/tester/scout tasks. Do not claim enforced provider/registry destination allowlisting or introduce a proxy. Model-provider connectivity is necessary for all worker roles; reviewer tools remain read/report-only with no arbitrary shell or general network operations. Actual whole-process networking is not a per-destination credential boundary. Filesystem, role, Git, and coordinator-state restrictions remain mandatory.
 - Retain worktrees, but protect shared Git hooks/configuration and other task/target refs. Prefer workers delivering file changes/patches with controlled harness operations owning commits and integration. Coordinator Git must not execute worker-influenced hooks/helpers. Exact permitted Git operations require feasibility validation.
 - Execute candidate builds/tests/installers only inside contained assignments, consuming worker capacity; the coordinator validates evidence rather than running candidate code unrestricted.
 - Approvals are written only through explicit user-initiated commands/UI, never a model-callable approval tool. Bind them to artifact hashes/revisions. Changed approved artifacts invalidate approval pending a recorded human decision; ordinary code choices within approved scope do not rewrite approved requirements.
@@ -25,7 +31,7 @@ Pi 1.0.2 slash-command documentation lists `/thinking`, not built-in `/effort`.
 - Stop/pause workers on loss of healthy coordination. Cover crashes as well as orderly exit through a minimal independent safety mechanism if required. Quota scheduling runs only under healthy supervision; no unattended retry after coordinator loss. Exact watchdog/lease mechanics remain technical design.
 - Prefer fast-forward integration to the exact verified commit. Refuse target drift or conflicting dirty state; no automatic squash/rebase/stash into an unverified candidate. Reassemble/reverify and seek renewed approval when candidate/target changes.
 
-## 3. Accounting and simplification direction
+## 4. Accounting and simplification direction
 
 Accepted follow-up direction, with exact mechanisms still to specify:
 
@@ -37,7 +43,7 @@ Accepted follow-up direction, with exact mechanisms still to specify:
 - Minimize installer-owned configuration and avoid AGENTS.md edits by default. Start metrics with provenance, durable events, and simple per-version summaries; sophisticated comparisons remain later evaluation work rather than a release prerequisite.
 - All three worker runtimes remain in scope. Do not claim support before validation passes; any reduced initial advertised release scope requires explicit agreement.
 
-## 4. Readiness and proposed first milestone
+## 5. Readiness and proposed first milestone
 
 **READY WITH CONDITIONS for a feasibility-first implementation sequence**, not verified readiness for production workers.
 

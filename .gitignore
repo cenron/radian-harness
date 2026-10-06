@@ -1,0 +1,2 @@
+# Finder metadata is local, not a project artifact.
+.DS_Store

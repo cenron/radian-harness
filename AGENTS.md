@@ -1,16 +1,18 @@
 # Repository working agreement
 
-## Current phase: approved feasibility milestone
+## Current phase: authorized unattended implementation
 
-- Read `docs/planning/session-handoff.md` and linked proposals before continuing. Proposal 0012 is the latest decision and authorization checkpoint; it supersedes historical planning-only status notes.
-- The user explicitly finalized the plan and authorized the first bounded feasibility milestone. Commit and push the planning baseline first, then begin feasibility work.
-- Validate native macOS containment, runtime authentication/refresh, worktree/Git restrictions, candidate execution, Herdr launch/detection, and termination/supervision loss in disposable fixtures. Report go/no-go findings before full runtime tooling relies on an unproven boundary.
-- Do not silently broaden this milestone into a complete harness, installer, or installation into target workspaces. Stronger isolation, weaker containment exceptions, or product-scope changes require explicit approval.
-- Distinguish confirmed decisions, recommendations, unresolved details, and observed test evidence.
-- Use isolated test sessions for Herdr feasibility; do not manipulate unrelated user panes. Preserve evidence and unfinished work before cleanup.
-- Runtime/model fallback and effort escalation require explicit user approval. Native `/thinking` is sufficient; do not add an alias.
-- Push/publication requires user approval. The initial baseline commit and push are explicitly authorized; subsequent pushes need approval.
-- Keep repository/public material free of PII, secrets, machine-specific details, and private project artifacts. Require public PII/secrets/machine-detail scanning; private denylist values and raw auth diagnostics stay outside this repository. Scanner/hook integration has not been implemented yet.
+- Read `docs/planning/session-handoff.md`, proposal 0014, and `docs/planning/implementation/README.md` before continuing. Proposal 0014 supersedes feasibility-only authorization and later-push restrictions; proposal 0012 remains the product decision checkpoint.
+- The user stopped feasibility testing and authorized a new Opus 5.5/high session to implement the milestone plan without routine interaction. Confirm that model/effort through native session state; if unavailable, stop rather than fall back or change authentication/effort.
+- Implement milestones in order, mark each complete in its file and the index, then commit and push each milestone to the existing upstream. The planning/feasibility checkpoint commit and push are authorized now. No force-push, release/tag/package publication, or unrelated Git changes.
+- Write tests alongside implementation; defer full behavioral/build verification to the final milestone. Publication scans, staged-content/metadata review, and minimal whitespace checks still precede every push.
+- Ordinary reversible implementation choices are delegated. On a material safety/authorization blocker, preserve work, record a sanitized blocked milestone, and stop without interactive approval or bypass. Do not mark incomplete work complete.
+- Harness-source implementation is authorized; installation into target workspaces, host-global/elevated operations, stronger isolation, weaker containment exceptions, live provider/model/auth probes, and product-scope expansion are not.
+- Keep actual worker execution fail-closed on missing/unverified capabilities. Previous synthetic feasibility evidence does not prove supported runtime containment/auth/refresh/cancellation. Distinguish implementation completion from verification and runtime/release support.
+- Runtime/model fallback and effort escalation require explicit approval. Use subscription-backed OAuth only, not API-key/pay-as-you-go billing. No direct provider endpoint probes. Native `/thinking` remains sufficient; no alias.
+- Do not manipulate unrelated Herdr panes/processes. Preserve dirty/unintegrated work and private evidence; use disposable fixtures only during authorized final verification.
+- Keep public material free of PII, secrets, machine-specific details, and private project artifacts. Private denylist values/raw auth diagnostics stay outside this repository. Disclose absent private-denylist coverage; scanner/hooks/CI are to be implemented in milestone 01.
+- Read installed Pi documentation/examples completely and follow relevant cross-references before implementing Pi integrations. Use supported public APIs and preserve required third-party licenses/attribution.
 
 ## Product boundary
 

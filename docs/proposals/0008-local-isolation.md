@@ -36,7 +36,7 @@ Approve ordinary development capabilities with the task rather than prompting fo
 | Access production systems, publish, push, or merge | Not authorized by ordinary worker tasks |
 | Change runtime/model or escalate effort | Ask under existing policy |
 
-Default network access permits the selected model provider, normal project dependency registries, and approved local test services—not unrestricted access to unrelated systems. Record concrete permissions in the task authority; role-specific restrictions still apply. This policy does not grant report-only reviewers installation or arbitrary execution privileges.
+Superseding network decision: after native feasibility exposed the hostname-filter limitation, the user explicitly approved normal outbound networking for developer/tester/scout tasks. Do not claim provider/registry destination isolation. Model connections remain necessary for all roles; read/report-only reviewers still lack arbitrary shell/network tools. Outbound access does not authorize production-system operations, unrelated credential access, publishing, or out-of-scope work. Record concrete permissions in the task authority; role-specific restrictions still apply. This policy does not grant report-only reviewers installation or arbitrary execution privileges.
 
 Permission to run installers/builds does not authorize their effects outside the task boundary. Native enforcement must be verified, and unsupported access must be surfaced rather than silently broadened.
 
