@@ -15,8 +15,9 @@ The user's flow becomes: open Pi in the workspace, select a project, develop the
 3. **"Start" = plan approval + Build.** The coordinator drafts the plan with its `radian-checks` block and requests a start. The dialog shows:
    - the task title and plan path/hash;
    - the declared check commands (exact argument vectors, parsed by Radian);
-   - the profile each role will use (runtime, model, effort, resolved from configuration);
-   - declared write roots, when present.
+   - the profile each role will use: the configured default, and the routing-rule candidates per role (runtime, model, effort, from configuration).
+
+   Write roots are not shown: plans have no structured write-root declaration, and each dispatch carries its own.
 
    Approving records the plan approval and switches *this project* to Build. The coordinator then dispatches with `radian_dispatch` as today. Every dispatch gate still applies; until runtime capabilities are verified, dispatch returns `CAPABILITY_UNVERIFIED`.
 4. **Integration.** The coordinator requests a merge. One dialog shows the existing integration summary (candidate, target, checks, review, risks, gaps). Approving records the integration approval bound to the exact candidate and target, then runs the existing integrate path with all its drift and dirty-state checks. A not-ready summary is not approvable.
@@ -55,3 +56,20 @@ An independent W06 review probe found that an approval decision committed after 
   - model tools still cannot record approvals any other way.
 - Add an offline native Pi probe with the faux provider where the dialog API allows it. Run typecheck, unit, integration, and publication checks offline.
 - No live model, auth, or provider probes; no real credentials; no installed-workspace operations.
+
+## Completion record (2026-10-06)
+
+Implemented in this checkout by the coordinating Claude Code session (Opus 5.5) at the user's request.
+
+- **Tools.** `radian_request_approval`, `radian_request_start`, and `radian_request_integration` in `src/ui/controller.ts`, registered `exposure: "model-only"`. Dialog text comes from `src/ui/guided.ts`.
+- **Dialog behavior.** Dialogs use Pi's `ctx.ui.select` with **Cancel first**. Pi's own `confirm` starts on "Yes", so it was not used. Escape or Cancel records nothing. View shows a bounded excerpt of the file. Request changes returns the user's note to the coordinator.
+- **Limits.** One dialog at a time (`DECISION_OPEN`). A declined request is not reopened until the user's next interactive input. Open tasks require an explicit task (`TASK_REQUIRED`).
+- **Re-hashing.** The artifact is hashed again after approval. The approved PRD is rechecked before the plan approval is recorded. Merge requests use the store's approval-validity rules for the task's latest plan decision.
+- **Red/green.** `tests/unit/ui/guided-approvals.test.ts` failed 8/8 before the tools existed and passes 8/8 after.
+  - A later self-review found that a merge request ignored a later plan rejection. With only that check reverted, the regression fails 1/8; with the fix it passes 8/8.
+  - The interface test's "no approval tool" assertion now checks that only these three model-only request tools exist.
+- **Native check.** `tests/integration/w07-acceptance.test.ts` adds a step: real Pi 1.0.2 over RPC runs the model-only tool from the faux model and refuses it with `NONINTERACTIVE_APPROVAL_REQUIRED`, without opening a run. This step was added after the implementation and was not run red separately.
+- **Offline runs.** Typecheck passed; unit 202/202 and integration 12/12, run sequentially.
+- **Not run.** Interactive TUI dialogs in a real terminal were not exercised; the user's next interactive session is the first real use. No live model, auth, or provider probe was run.
+- **Follow-up, not changed here.** The typed `/radian approve|reject|integrate|decide|grant-rounds|authorize-recovery` confirmations still use Pi's `confirm`, where Enter on the initial selection means "Yes". A stray Enter right after typing such a command can confirm it.
+- **Still open.** The F03 race above is unchanged. Capability verification remains outstanding.

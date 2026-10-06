@@ -15,7 +15,9 @@ export interface HostUI {
   setStatus(key: string, text: string | undefined): void;
   setWidget(key: string, lines: string[] | undefined): void;
   confirm(title: string, message?: string): Promise<boolean>;
+  /** Pi's selector: the first option is initially selected (Enter chooses it); Escape dismisses (undefined). */
   select(title: string, options: string[]): Promise<string | undefined>;
+  input?(title: string, placeholder?: string): Promise<string | undefined>;
   setEditorComponent(factory: ((tui: unknown, theme: unknown, keybindings: unknown) => unknown) | undefined): void;
   theme: HostTheme;
 }
@@ -72,6 +74,8 @@ export interface HostToolRenderers {
 
 export interface HostToolDefinition {
   name: string;
+  /** Pi 1.0.2 tool exposure; `model-only` tools are declared to the model but never callable from other tools. */
+  exposure?: "direct" | "model-only" | "codemode" | "deferred" | "hidden";
   label?: string;
   description: string;
   parameters: unknown;

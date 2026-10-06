@@ -2,9 +2,12 @@
 // coordinator services: it installs the managed editor (Shift+Tab Plan/Build),
 // the Calm renderer, the coordinator tool guard, status/widgets, user commands,
 // and model-callable tools. Approval, decision, integration, round-grant,
-// recovery, and retrospective decisions are user commands only — never tools —
-// and require an interactive terminal plus an explicit confirmation of the
-// exact artifact/candidate. Without an interactive UI they are refused.
+// recovery, and retrospective decisions are made only by the user and require
+// an interactive terminal plus an explicit confirmation of the exact
+// artifact/candidate; without an interactive UI they are refused. The
+// coordinator may *request* the PRD/spec, plan ("start"), and integration
+// decisions (proposal 0016): Radian renders that dialog from disk and records
+// only the user's own choice. No tool can record a decision by itself.
 
 import path from "node:path";
 import { type Blocker, type Outcome, refuse, success } from "../contracts/blockers.ts";
@@ -37,10 +40,13 @@ import { calmResolver } from "./calm.ts";
 import { managedEditorFactory } from "./editor.ts";
 import { guardToolCall } from "./guard.ts";
 import type { HostBashOperations, HostContext, HostRuntime, HostToolDefinition, PiHost } from "./pi-host.ts";
-import { PLANNING_DIR, type ProjectSession, artifactHash, shortHash } from "./session.ts";
+import { PLANNING_DIR, type ProjectSession, artifactContent, artifactHash, shortHash } from "./session.ts";
+import { CHOICE, artifactExcerpt, artifactTitle, coordinatorNote, openTasks, profileLines } from "./guided.ts";
+import { parseCheckDefinitions } from "../coordinator/orchestrator.ts";
+import { approvalValidity, requireApproval } from "../state/approvals.ts";
 import { writeConfined } from "../util/confined-fs.ts";
 
-export const RADIAN_TOOLS = ["radian_status", "radian_git_inspect", "radian_write_artifact", "radian_dispatch", "radian_assemble"] as const;
+export const RADIAN_TOOLS = ["radian_status", "radian_git_inspect", "radian_write_artifact", "radian_dispatch", "radian_assemble", "radian_request_approval", "radian_request_start", "radian_request_integration"] as const;
 
 /** Bounded model-facing output for Git inspection. */
 const INSPECT_MAX_TEXT = 64 * 1024;
@@ -172,6 +178,73 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     if (!current(v)) return refuse("STALE_GENERATION", "the selected project changed while the confirmation was open; nothing was recorded", "Select the project again and repeat the command.");
     if (!confirmed) return refuse("APPROVAL_MISSING", "the user declined");
     return success(HumanChannel.fromUserInput("user-ui", actor, origin));
+  };
+
+  /**
+   * A guided decision the coordinator requested (proposal 0016). The dialog
+   * text is built by Radian; Cancel is the initial selection, so Enter alone
+   * or Escape records nothing. One dialog at a time; a declined request is not
+   * reopened until the user's next own input.
+   */
+  let guidedOpen = false;
+  const declined = new Set<string>();
+  type Guided = { kind: "approved"; channel: HumanChannel } | { kind: "changes"; note: string } | { kind: "declined" };
+  const guidedPrecheck = (ctx: HostContext): Outcome<true> => {
+    if (ctx.mode !== "tui" || !ctx.hasUI) {
+      return refuse("NONINTERACTIVE_APPROVAL_REQUIRED", "this decision requires an interactive Pi terminal", "Ask the user to open the project in interactive Pi.");
+    }
+    if (lastInputSource !== undefined && lastInputSource !== "interactive") {
+      return refuse("APPROVAL_NOT_HUMAN", "decisions must follow the user's own interactive input, not RPC or extension input");
+    }
+    if (guidedOpen) return refuse("DECISION_OPEN", "another Radian decision dialog is already open", "Wait for the user to answer it.");
+    return success(true);
+  };
+  const guidedDecision = async (v: View, ctx: HostContext, request: { key: string; title: string; body: string[]; approve: string; view?: () => string; origin: string }): Promise<Outcome<Guided>> => {
+    const ready = guidedPrecheck(ctx);
+    if (!ready.ok) return ready;
+    if (declined.has(request.key)) return refuse("APPROVAL_MISSING", "the user declined this request; it is not reopened until they reply", "Ask the user what they want changed, then request again.");
+    guidedOpen = true;
+    try {
+      const options = [CHOICE.cancel, ...(request.view ? [CHOICE.view] : []), CHOICE.changes, request.approve];
+      const text = [request.title, "", ...request.body].join("\n");
+      for (;;) {
+        const choice = await ctx.ui.select(text, options);
+        if (!current(v)) return refuse("STALE_GENERATION", "the selected project changed while the dialog was open; nothing was recorded", "Select the project again and repeat the request.");
+        if (choice === CHOICE.view && request.view) {
+          await ctx.ui.select(request.view(), ["Back"]);
+          if (!current(v)) return refuse("STALE_GENERATION", "the selected project changed while the dialog was open; nothing was recorded", "Select the project again and repeat the request.");
+          continue;
+        }
+        if (choice === request.approve) return success({ kind: "approved", channel: HumanChannel.fromUserInput("user-ui", actor, request.origin) });
+        if (choice === CHOICE.changes) {
+          const note = (await ctx.ui.input?.("What should change?", "Describe the change"))?.trim() ?? "";
+          if (!current(v)) return refuse("STALE_GENERATION", "the selected project changed while the dialog was open; nothing was recorded", "Select the project again and repeat the request.");
+          return success({ kind: "changes", note });
+        }
+        declined.add(request.key);
+        return success({ kind: "declined" });
+      }
+    } finally {
+      guidedOpen = false;
+    }
+  };
+
+  /** Shared wording for a guided result that did not approve. */
+  const notApproved = (result: Guided, what: string): string =>
+    result.kind === "changes" ? `The user requested changes to the ${what}; nothing was recorded. Their note: ${result.note || "(none given; ask them)"}` : `The user did not approve the ${what}; nothing was recorded. Ask what they want before requesting again.`;
+
+  /** The approved spec or brief currently backing a task, if any. */
+  const currentRequirement = (s: ProjectSession, state: NonNullable<ProjectSession["run"]>["store"]["state"], task: string): Outcome<{ kind: "spec" | "brief"; path: string; hash: string }> => {
+    let stale: string | undefined;
+    for (const kind of ["spec", "brief"] as const) {
+      const latest = Object.values(state.approvals).filter((a) => a.task === task && a.kind === kind).at(-1);
+      if (!latest) continue;
+      const hash = artifactHash(s.repo.root, latest.artifact.path);
+      const validity = approvalValidity(state, { task, kind }, { artifactHash: hash ?? "" });
+      if (validity.state === "valid") return success({ kind, path: latest.artifact.path, hash: latest.artifact.hash });
+      if (validity.state === "stale") stale = `${kind} approval is stale: ${validity.reason}`;
+    }
+    return stale ? refuse("APPROVAL_STALE", stale, "Request a new PRD approval with radian_request_approval.") : refuse("APPROVAL_MISSING", "the task has no approved PRD/spec or brief", "Request one with radian_request_approval first.");
   };
 
   const requireRun = async (s: ProjectSession): Promise<Outcome<NonNullable<ProjectSession["run"]>>> => (s.run ? success(s.run) : options.startRun(s));
@@ -519,7 +592,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
     pi.registerTool({
       name: "radian_write_artifact",
       label: "Write planning artifact",
-      description: "Write a PRD/spec, brief, or plan draft under the selected project's .radian/planning/ for human review. Writing never approves it; only the user can approve with /radian approve.",
+      description: "Write a PRD/spec, brief, or plan draft under the selected project's .radian/planning/ for human review. Writing never approves it; ask the user to decide with radian_request_approval (PRD/spec or brief) or radian_request_start (plan).",
       parameters: T.Object({ path: T.String({ description: "Path relative to .radian/planning/" }), content: T.String() }),
       execute: async (_id, params) => {
         const s = session();
@@ -529,7 +602,7 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         // Kernel-enforced: no link anywhere from the project root to the destination (src/util/confined-fs.ts).
         const written = writeConfined(s.repo.root, `${PLANNING_DIR.split(path.sep).join("/")}/${relative}`, String(params.content ?? ""));
         if (!written.ok) throw new Error(blockerText(written.blocker));
-        return toolText(`Wrote ${path.join(".radian", "planning", relative)} in project ${s.binding.project} (draft; requires the user's /radian approve).`);
+        return toolText(`Wrote ${path.join(".radian", "planning", relative)} in project ${s.binding.project} (draft; not approved until the user approves it in a Radian dialog).`);
       },
     });
     pi.registerTool({
@@ -590,6 +663,200 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
         return toolText(candidate.ok ? `Candidate ${candidate.value.commit} (round ${candidate.value.round}) on ${candidate.value.base.slice(0, 12)}.` : blockerText(candidate.blocker));
       },
     });
+    const STALE_DURING_DIALOG = (what: string) => toolText(blockerText({ code: "APPROVAL_STALE", message: `the ${what} changed while the dialog was open; nothing was recorded`, nextAction: "Request the decision again so the user sees the current content." }));
+    const displayArg = (a: string) => (/[\s"'\\]/.test(a) || a === "" ? JSON.stringify(a) : a);
+    const labelOf = (v: View, s: ProjectSession) => (v.kind === "project" && v.workspace ? projectLabel(v.workspace, s.binding.project) : s.binding.project);
+    pi.registerTool({
+      name: "radian_request_approval",
+      label: "Request PRD approval",
+      description: "Ask the user to approve a PRD/spec or brief draft in a Radian dialog. Radian shows the file, its content hash, and the task; only the user's choice records an approval. If the project has no open task for this work, approval creates one titled from the draft. With open tasks, pass `task` (an id from radian_status) or `newTask: true`. Never invent task ids.",
+      exposure: "model-only",
+      parameters: T.Object({
+        kind: T.Union([T.Literal("spec"), T.Literal("brief")]),
+        path: T.String({ description: "Repository-relative path, for example .radian/planning/spec.md" }),
+        task: T.Optional(T.String({ description: "Existing task id from radian_status" })),
+        newTask: T.Optional(T.Boolean({ description: "Create a new task even though other tasks are open" })),
+        title: T.Optional(T.String({ description: "Title for a new task (default: the draft's first heading)" })),
+        lightweight: T.Optional(T.Boolean({ description: "brief only: the lightweight-brief path for a small fix" })),
+        note: T.Optional(T.String({ description: "Short note shown to the user, labelled as yours" })),
+      }),
+      execute: async (_id, params, _signal, _update, ctx) => {
+        const v = view;
+        const s = projectOf(v);
+        if (!s) return toolText(NO_PROJECT("radian_request_approval"));
+        const ready = guidedPrecheck(ctx);
+        if (!ready.ok) return toolText(blockerText(ready.blocker));
+        const kind = params.kind === "spec" || params.kind === "brief" ? params.kind : undefined;
+        if (!kind) return toolText(blockerText({ code: "CONFIG_INVALID", message: "kind must be spec or brief" }));
+        const relative = String(params.path ?? "");
+        if (!safeRelative(relative)) return toolText("BLOCKED PATH_INVALID: artifact path must be repository-relative");
+        const content = artifactContent(s.repo.root, relative);
+        const hash = artifactHash(s.repo.root, relative);
+        if (content === undefined || !hash) return toolText(`BLOCKED APPROVAL_MISSING: artifact ${relative} is missing or unreadable`);
+        const run = await requireRun(s);
+        if (!run.ok) return toolText(blockerText(run.blocker));
+        const state = run.value.store.state;
+        const open = openTasks(state);
+        const listed = open.map((t) => `${t.id} "${t.title}"`).join(", ");
+        let task: { id: string | undefined; title: string };
+        if (typeof params.task === "string" && params.task !== "") {
+          const known = state.tasks[params.task];
+          if (!known) return toolText(blockerText({ code: "INVALID_TRANSITION", message: `unknown task '${params.task}'`, nextAction: open.length ? `Use one of: ${listed}; or pass newTask: true.` : "Omit task: approval creates it." }));
+          task = { id: known.id, title: known.title };
+        } else {
+          if (open.length > 0 && params.newTask !== true) return toolText(blockerText({ code: "TASK_REQUIRED", message: `this project has open tasks (${listed}); name the task this draft belongs to`, nextAction: "Pass task: <id>, or newTask: true for separate work." }));
+          const given = typeof params.title === "string" ? artifactTitle(`# ${params.title}`, relative) : undefined;
+          task = { id: undefined, title: given ?? artifactTitle(content, relative) };
+        }
+        const lightweight = kind === "brief" && params.lightweight === true;
+        const decision = await guidedDecision(v, ctx, {
+          key: `approval:${kind}:${relative}:${hash}:${task.id ?? "new"}`,
+          title: `Radian · approve ${kind === "spec" ? "PRD/spec" : "brief"} · project ${labelOf(v, s)}`,
+          body: [
+            task.id ? `Task: "${task.title}" (${task.id})` : `Task: creates task "${task.title}"`,
+            `File: ${relative} · content ${shortHash(hash)} · ${Buffer.byteLength(content)} bytes · ${content.split(/\r?\n/).length} lines`,
+            ...(lightweight ? ["Path: lightweight brief for a small fix"] : []),
+            ...coordinatorNote(params.note),
+            "",
+            "Approve records your decision for exactly this content; any later edit makes it stale.",
+          ],
+          approve: CHOICE.approve,
+          view: () => `${relative} (content ${shortHash(hash)})\n\n${artifactExcerpt(content)}`,
+          origin: "radian_request_approval",
+        });
+        if (!decision.ok) return toolText(blockerText(decision.blocker));
+        if (decision.value.kind !== "approved") return toolText(notApproved(decision.value, kind === "spec" ? "PRD/spec" : "brief"));
+        if (artifactHash(s.repo.root, relative) !== hash) return STALE_DURING_DIALOG(relative);
+        let taskId = task.id;
+        if (!taskId) {
+          const before = new Set(Object.keys(run.value.store.state.tasks));
+          const added = await run.value.store.addTask(task.title, s.config.harness.assignment.candidateRounds);
+          if (!added.ok) return toolText(blockerText(added.blocker));
+          taskId = Object.keys(added.value.tasks).find((t) => !before.has(t));
+          if (!taskId) return toolText("BLOCKED STATE_CORRUPT: the new task was not recorded");
+        }
+        const recorded = await run.value.store.recordApproval(decision.value.channel, { kind, task: taskId, artifact: { path: relative, hash }, decision: "approved", ...(lightweight ? { lightweight: true as const } : {}) });
+        updateStatus(ctx);
+        if (!recorded.ok) return toolText(blockerText(recorded.blocker));
+        return toolText(`${kind} approved for task ${taskId} "${task.title}" (content ${shortHash(hash)}). Next: write the plan with a radian-checks block, then ask the user to start with radian_request_start (task ${taskId}).`);
+      },
+    });
+    pi.registerTool({
+      name: "radian_request_start",
+      label: "Request start",
+      description: "Ask the user to start a task: a Radian dialog shows the plan's content hash, its declared radian-checks commands, the approved PRD/spec or brief, and the worker profiles. Approval records the plan approval and switches this project to Build; then dispatch the plan's assignments with radian_dispatch. Requires a current PRD/spec or brief approval and a radian-checks block in the plan.",
+      exposure: "model-only",
+      parameters: T.Object({
+        task: T.String({ description: "Task id from radian_status" }),
+        planPath: T.String({ description: "Repository-relative plan path, for example .radian/planning/plan.md" }),
+        note: T.Optional(T.String({ description: "Short note shown to the user, labelled as yours" })),
+      }),
+      execute: async (_id, params, _signal, _update, ctx) => {
+        const v = view;
+        const s = projectOf(v);
+        if (!s) return toolText(NO_PROJECT("radian_request_start"));
+        const ready = guidedPrecheck(ctx);
+        if (!ready.ok) return toolText(blockerText(ready.blocker));
+        const planPath = String(params.planPath ?? "");
+        if (!safeRelative(planPath)) return toolText("BLOCKED PATH_INVALID: plan path must be repository-relative");
+        const run = await requireRun(s);
+        if (!run.ok) return toolText(blockerText(run.blocker));
+        const state = run.value.store.state;
+        const task = state.tasks[String(params.task ?? "")];
+        if (!task) return toolText(blockerText({ code: "INVALID_TRANSITION", message: `unknown task '${String(params.task ?? "")}'`, nextAction: "Use a task id from radian_status; tasks are created when the user approves a PRD." }));
+        const requirement = currentRequirement(s, state, task.id);
+        if (!requirement.ok) return toolText(blockerText(requirement.blocker));
+        const content = artifactContent(s.repo.root, planPath);
+        const hash = artifactHash(s.repo.root, planPath);
+        if (content === undefined || !hash) return toolText(`BLOCKED APPROVAL_MISSING: plan ${planPath} is missing or unreadable`);
+        const checks = parseCheckDefinitions(content);
+        if (!checks.ok) return toolText(blockerText(checks.blocker));
+        if (Object.keys(checks.value).length === 0) return toolText(blockerText({ code: "APPROVAL_MISSING", message: "the plan declares no required checks in a radian-checks block", nextAction: 'Add a fenced radian-checks block, one `id: ["argv", ...]` per line, then request the start again.' }));
+        const decision = await guidedDecision(v, ctx, {
+          key: `start:${task.id}:${planPath}:${hash}`,
+          title: `Radian · start "${task.title}" (${task.id}) · project ${labelOf(v, s)}`,
+          body: [
+            `Plan: ${planPath} · content ${shortHash(hash)}`,
+            `${requirement.value.kind === "spec" ? "PRD/spec" : "Brief"} approved: ${requirement.value.path} · content ${shortHash(requirement.value.hash)}`,
+            "Required checks (the exact commands Radian will run):",
+            ...Object.entries(checks.value).map(([id, argv]) => `  ${id}: ${argv.map(displayArg).join(" ")}`),
+            ...profileLines(s.config.dispatch),
+            ...coordinatorNote(params.note),
+            "",
+            "Approve records the plan approval for exactly this content and switches this project to Build. Workers start only if every dispatch gate passes.",
+          ],
+          approve: CHOICE.approve,
+          view: () => `${planPath} (content ${shortHash(hash)})\n\n${artifactExcerpt(content)}`,
+          origin: "radian_request_start",
+        });
+        if (!decision.ok) return toolText(blockerText(decision.blocker));
+        if (decision.value.kind !== "approved") return toolText(notApproved(decision.value, "start (plan)"));
+        if (artifactHash(s.repo.root, planPath) !== hash) return STALE_DURING_DIALOG(planPath);
+        const still = currentRequirement(s, run.value.store.state, task.id);
+        if (!still.ok || still.value.hash !== requirement.value.hash) return STALE_DURING_DIALOG(requirement.value.path);
+        const recorded = await run.value.store.recordApproval(decision.value.channel, { kind: "plan", task: task.id, artifact: { path: planPath, hash }, decision: "approved" });
+        if (!recorded.ok) return toolText(blockerText(recorded.blocker));
+        await setMode(v, ctx, "build");
+        return toolText(`plan approved for task ${task.id} (content ${shortHash(hash)}); project ${labelOf(v, s)} is now in BUILD. Dispatch the plan's assignments now with radian_dispatch (task ${task.id}, planPath ${planPath}, ${requirement.value.kind}Path ${requirement.value.path}). Dispatch is still refused while runtime capabilities are unverified.`);
+      },
+    });
+    pi.registerTool({
+      name: "radian_request_integration",
+      label: "Request merge",
+      description: "Ask the user to approve and merge a task's verified candidate. Radian computes the integration summary (candidate, target, checks, review, risks, gaps); a summary that is not ready is not shown for approval. Approval records the integration approval for exactly that candidate and target, then fast-forwards the target through the normal integration checks.",
+      exposure: "model-only",
+      parameters: T.Object({
+        task: T.String({ description: "Task id from radian_status" }),
+        note: T.Optional(T.String({ description: "Short note shown to the user, labelled as yours" })),
+      }),
+      execute: async (_id, params, _signal, _update, ctx) => {
+        const v = view;
+        const s = projectOf(v);
+        if (!s) return toolText(NO_PROJECT("radian_request_integration"));
+        const ready = guidedPrecheck(ctx);
+        if (!ready.ok) return toolText(blockerText(ready.blocker));
+        const run = await requireRun(s);
+        if (!run.ok) return toolText(blockerText(run.blocker));
+        const task = run.value.store.state.tasks[String(params.task ?? "")];
+        if (!task) return toolText(blockerText({ code: "INVALID_TRANSITION", message: `unknown task '${String(params.task ?? "")}'`, nextAction: "Use a task id from radian_status." }));
+        const required = run.value.coordinator.evidence(task.id).requiredChecks ?? [];
+        if (required.length === 0) return toolText("BLOCKED CANDIDATE_MISMATCH: no required checks were recorded for this task");
+        // The task's latest plan decision must still be a valid approval (a later rejection or edit makes it unusable).
+        const latestPlan = Object.values(run.value.store.state.approvals).filter((a) => a.task === task.id && a.kind === "plan").at(-1);
+        const planHash = latestPlan ? artifactHash(s.repo.root, latestPlan.artifact.path) : undefined;
+        const planValid = requireApproval(run.value.store.state, { task: task.id, kind: "plan" }, { artifactHash: planHash ?? "" });
+        if (!latestPlan || !planHash || !planValid.ok) return toolText(blockerText(planValid.ok ? { code: "APPROVAL_MISSING", message: "the task has no current plan approval" } : planValid.blocker));
+        const plan = planValid.value;
+        const summary = await run.value.coordinator.integrationSummary(task.id, required);
+        if (!summary.ok) return toolText(blockerText(summary.blocker));
+        const sv = summary.value;
+        if (!sv.ready) return toolText(`BLOCKED CANDIDATE_MISMATCH: not ready for integration (${sv.gaps.join("; ")})`);
+        const decision = await guidedDecision(v, ctx, {
+          key: `integration:${task.id}:${sv.candidate.commit}:${sv.target.commit}`,
+          title: `Radian · merge "${task.title}" (${task.id}) · project ${labelOf(v, s)}`,
+          body: [
+            `Candidate ${sv.candidate.commit.slice(0, 12)} (tree ${sv.candidate.tree.slice(0, 12)}) onto ${sv.target.ref} at ${sv.target.commit.slice(0, 12)}`,
+            `Checks: ${sv.checks.map((c) => `${c.id}=${c.outcome}`).join(", ") || "none"}`,
+            `Review: ${sv.review ? `${sv.review.blockingFindings} blocking of ${sv.review.findings} finding(s)` : "none"}`,
+            `Risks: ${sv.risks.join("; ") || "none"}`,
+            `Gaps: ${sv.gaps.join("; ") || "none"}`,
+            ...coordinatorNote(params.note),
+            "",
+            `Approve and merge records the integration approval for exactly this candidate and target, then fast-forwards ${sv.target.ref}. The target is rechecked first; drift or dirty state refuses.`,
+          ],
+          approve: CHOICE.merge,
+          origin: "radian_request_integration",
+        });
+        if (!decision.ok) return toolText(blockerText(decision.blocker));
+        if (decision.value.kind !== "approved") return toolText(notApproved(decision.value, "merge"));
+        if (artifactHash(s.repo.root, plan.artifact.path) !== planHash) return STALE_DURING_DIALOG(plan.artifact.path);
+        const recorded = await run.value.store.recordApproval(decision.value.channel, { kind: "integration", task: task.id, artifact: { path: plan.artifact.path, hash: planHash }, decision: "approved", candidate: sv.candidate, target: sv.target });
+        if (!recorded.ok) return toolText(blockerText(recorded.blocker));
+        const integrated = await run.value.coordinator.integrate(decision.value.channel, task.id, required, { path: plan.artifact.path });
+        updateStatus(ctx);
+        return toolText(integrated.ok ? `Integrated ${task.id}: ${integrated.value.from.slice(0, 12)} → ${integrated.value.to.slice(0, 12)}.` : blockerText(integrated.blocker));
+      },
+    });
     const delegates: DelegateTools = {};
     if (rt.createGrepToolDefinition) delegates.grep = rt.createGrepToolDefinition;
     if (rt.createFindToolDefinition) delegates.find = rt.createFindToolDefinition;
@@ -647,6 +914,8 @@ export function registerRadian(pi: PiHost, options: ControllerOptions): RadianCo
 
   pi.on("input", (event) => {
     lastInputSource = event.source;
+    // The user spoke again: requests they declined may be asked once more.
+    if (event.source === "interactive") declined.clear();
     return undefined;
   });
 
@@ -899,7 +1168,7 @@ function outcomeText(outcome: AssignmentOutcome): string {
 export function statusText(session: ProjectSession): string {
   const lines = [`Radian ${session.mode.mode.toUpperCase()} · project ${session.binding.project} · target ${session.target?.ref ?? "(not registered)"}${session.calm.enabled ? " · calm" : ""}`];
   const state = session.run?.store.state;
-  if (!state) lines.push("No active run (/radian start).");
+  if (!state) lines.push("No active run yet; one opens automatically when the user approves a draft.");
   else {
     lines.push(`Run ${state.run.id}: ${state.run.status} · harness ${state.run.harness.version}@${state.run.harness.revision.slice(0, 12)}`);
     for (const task of Object.values(state.tasks)) lines.push(`- task ${task.id} "${task.title}": ${task.phase}, round ${task.roundsUsed}/${task.maxRounds}`);

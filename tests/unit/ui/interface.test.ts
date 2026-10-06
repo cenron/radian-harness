@@ -42,7 +42,10 @@ test("managed session: starts in PLAN, Shift+Tab toggles mode, Tab and other key
     const ctx = context(w.projectDir, "tui", state);
     await host.emit("session_start", {}, ctx);
     assert.deepEqual([...host.tools].sort(), [...RADIAN_TOOLS, ...READ_TOOL_NAMES].sort(), "Radian's tools plus its confined read/ls/grep/find overrides");
-    assert.ok(!host.tools.some((t) => /approv|integrat|decide|grant|recover/.test(t)), "no model-callable approval or integration writer");
+    // Proposal 0016: the coordinator may only *request* approval, start, or merge dialogs (model-only); nothing else touches decisions.
+    const requests = ["radian_request_approval", "radian_request_integration", "radian_request_start"];
+    assert.deepEqual(host.tools.filter((t) => /approv|integrat|decide|grant|recover|start/.test(t)).sort(), requests, "no model-callable approval or integration writer");
+    for (const name of requests) assert.equal(host.definitions.get(name)?.exposure, "model-only");
     assert.equal(controller.session()?.mode.mode, "plan");
     assert.match(state.status ?? "", /^PLAN/);
     const editor = state.editorFactory!(null, null, null) as FakeEditor;

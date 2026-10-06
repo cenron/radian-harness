@@ -69,6 +69,10 @@ test("W07: install → load → create → plan → register → select → rest
       await rpc.prompt('TOOL radian_write_artifact {"path":"spec.md","content":"# App spec\\n"}', 60_000);
       assert.match(last().transcript.at(-1)!.text, /Wrote \.radian\/planning\/spec\.md/);
       assert.equal(readFileSync(path.join(app, ".radian", "planning", "spec.md"), "utf8"), "# App spec\n");
+      // 0016: real Pi declares the model-only request tool and runs it; over RPC no dialog opens and nothing is recorded.
+      await rpc.prompt('TOOL radian_request_approval {"kind":"spec","path":".radian/planning/spec.md"}', 60_000);
+      assert.match(last().transcript.at(-1)!.text, /NONINTERACTIVE_APPROVAL_REQUIRED/);
+      assert.match(await command(rpc, "/radian status"), /No active run yet/, "a refused request does not even open a run");
       assert.match(await command(rpc, "/radian mode build"), /Mode: BUILD/);
       assert.match(await command(rpc, "/radian status"), /BUILD · project prj_/);
       await rpc.prompt("remember app", 60_000);

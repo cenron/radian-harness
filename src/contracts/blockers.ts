@@ -26,6 +26,10 @@ export const BLOCKER_CODES = [
   "APPROVAL_MISSING",
   "APPROVAL_STALE",
   "APPROVAL_NOT_HUMAN",
+  /** Guided approvals (0016): a Radian decision dialog is already open. */
+  "DECISION_OPEN",
+  /** Guided approvals (0016): open tasks exist; the request must name its task. */
+  "TASK_REQUIRED",
   // lifecycle and budgets
   "LEASE_HELD",
   "LEASE_LOST",

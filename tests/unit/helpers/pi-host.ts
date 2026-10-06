@@ -115,6 +115,12 @@ export interface FakeCtxState {
   confirms: string[];
   confirmAnswer: boolean;
   notes: string[];
+  /** Every select dialog shown: its title and options, in order. */
+  selects?: Array<{ title: string; options: string[] }>;
+  /** Scripted select answer (default: dismissed). */
+  selectAnswer?: (title: string, options: string[]) => string | undefined | Promise<string | undefined>;
+  /** Scripted text-input answer (default: dismissed). */
+  inputAnswer?: string;
 }
 
 export function context(cwd: string, mode: HostContext["mode"], state: FakeCtxState, extra: Partial<HostContext> = {}): HostContext {
@@ -134,7 +140,11 @@ export function context(cwd: string, mode: HostContext["mode"], state: FakeCtxSt
         state.confirms.push(`${title}\n${message ?? ""}`);
         return state.confirmAnswer;
       },
-      select: async () => undefined,
+      select: async (title, options) => {
+        (state.selects ??= []).push({ title, options: [...options] });
+        return state.selectAnswer ? state.selectAnswer(title, options) : undefined;
+      },
+      input: async () => state.inputAnswer,
       setEditorComponent: (f) => {
         state.editorFactory = f;
       },
