@@ -98,11 +98,15 @@ export function arr<T>(item: Schema<T>, rules: { min?: number; max?: number; uni
   });
 }
 
-export function optional<T>(inner: Schema<T>): Schema<T | undefined> {
+export interface OptionalSchema<T> extends Schema<T | undefined> {
+  readonly isOptional: true;
+}
+
+export function optional<T>(inner: Schema<T>): OptionalSchema<T> {
   return {
     kind: `optional ${inner.kind}`,
-    isOptional: true,
-    parse: (input, path = "") => (input === undefined ? ok(undefined) : inner.parse(input, path)),
+    isOptional: true as const,
+    parse: (input: unknown, path = "") => (input === undefined ? ok(undefined) : inner.parse(input, path)),
   };
 }
 

@@ -1,6 +1,6 @@
 # Milestone 03 — Durable state, approvals, reservations, and budgets
 
-**Status: pending** · Depends on: 02
+**Status: complete** · Depends on: 02
 
 ## Objective
 
@@ -40,10 +40,19 @@ Mark this milestone/index complete; commit/push `feat: milestone 03 — durable 
 
 ## Completion record
 
-- Completed: not yet
-- Implementation decisions: not yet
-- Checks before publication: not yet
-- Deferred verification / limitations: full behavioral verification in milestone 10
+- Completed: 2026-10-06. Durable state services in `src/state/`: fsync'd atomic files and a verified-owner cross-process mutex (`fsutil.ts`), per-project coordinator lease (`lease.ts`), hash-chained append-only run events with a pure reducer and reconstructable snapshots (`model.ts`, `run-store.ts`), human-only approvals (`approvals.ts`), workspace-wide capacity reservations (`capacity.ts`), project-binding checks (`binding.ts`), the result inbox (`inbox.ts`), and interrupted-state reconciliation (`reconcile.ts`); clock and process-identity utilities in `src/util/`; tests in `tests/unit/state/`.
+- Implementation decisions:
+  - Run = one coordinator engineering run in a project; task = one approved unit of work with its round counter; assignment = one role-specific unit of work within a candidate round, owning its execution budget and recovery counters; attempt = one execution (generation) of an assignment. Counters live in durable task/assignment state, never in panes.
+  - Storage is local JSON files: `events.jsonl` (hash chain, sequence numbers, lease generation, actor, idempotency keys) plus `snapshot.json`. Loading replays and verifies the chain; a torn final line is quarantined to a `torn-tail-*.json` evidence file; any other corruption returns `STATE_CORRUPT` and nothing is guessed. No database dependency.
+  - Every write runs under a run lock and re-reads durable state; it requires the project's coordinator lease to be current and unexpired. A lease held by a live or unverifiable process is never taken over; a verifiably dead owner (absent PID, or PID reused with a different start time) is reclaimed with a higher generation, after which the old holder's writes fail with `LEASE_LOST`.
+  - Approvals, decision resolutions, extra-round grants, extra recoveries, and paused-run configuration migration require a `HumanChannel` created only from user command/UI input; forged instances are rejected. Approvals bind artifact hashes; integration approvals also bind exact candidate commit/tree/base and target ref/commit. Changed artifacts invalidate approvals. Developer/tester assignments require a valid spec or human-chosen lightweight brief, plus a valid plan.
+  - Rounds: a new candidate round is started explicitly; at most three (or the task cap) unless a recorded human grant adds more. Tester/reviewer/repair-check work inside a round does not start another. Infrastructure failures do not add rounds; ambiguous classification opens an accounting decision.
+  - Execution time starts at confirmed binding (queue/preflight excluded), stops while blocked on questions/quota/pauses (blocked time recorded per reason), and is inherited by recovery attempts. Exhausted budgets block; nothing extends silently.
+  - Replacement attempts require the previous attempt's verified termination, remaining budget, and either the single automatic recovery or a recorded, unused human authorization. Replayed bindings are always rechecked against the current generation.
+  - Capacity is a workspace-level ledger reserved before launch under a cross-process lock; blocked or idle live workers keep slots; reservations are released or reclaimed only on verified termination. The ceiling comes from the caller's workspace-resolved configuration.
+  - Results are read from the worker's exchange directory without following links, validated through the store (identity, generation, brief hash, strict envelope), deduplicated by content hash, and persisted in protected run state before any notification.
+- Checks before publication: private denylist **not supplied** (private-term coverage absent); bounded publication check and exact staged-diff review before commit. Milestone-local sanity run: `tsc --noEmit` clean; 53 unit tests passed, including six-process capacity contention (not the milestone 10 run).
+- Deferred verification / limitations: full behavioral verification in milestone 10. Process identity uses sampled `ps` start times, not an atomic process handle. Budget accounting uses wall-clock timestamps so it survives restarts; large clock changes affect it.
 
 ## Requirements
 

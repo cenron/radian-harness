@@ -10,7 +10,7 @@ The user authorized a new **Claude Code / Opus 5.5 / high** session to implement
 | --- | --- | --- | --- |
 | 01 | [Package foundation and publication safety](01-foundation-and-publication.md) | complete | This plan |
 | 02 | [Configuration, roles, and task/result contracts](02-configuration-and-contracts.md) | complete | 01 |
-| 03 | [Durable state, approvals, reservations, and budgets](03-state-and-authority.md) | pending | 02 |
+| 03 | [Durable state, approvals, reservations, and budgets](03-state-and-authority.md) | complete | 02 |
 | 04 | [Worktrees, candidate delivery, and controlled Git](04-worktrees-and-git.md) | pending | 03 |
 | 05 | [Native containment, credential ownership, and supervision](05-containment-and-supervision.md) | pending | 02–04 |
 | 06 | [Pi, Codex, Claude, and Herdr adapters](06-runtime-and-herdr-adapters.md) | pending | 05 |
