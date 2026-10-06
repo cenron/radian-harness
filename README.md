@@ -10,7 +10,7 @@ A Pi-native harness under implementation for agentic software engineering, maint
 - Provide a spec-driven engineering workflow with reliable worker supervision.
 - Install into explicitly selected workspaces without taking over personal Pi configuration.
 - Keep Pi as the coordinator; support Pi, Codex CLI, and Claude Code workers in visible Herdr panes.
-- Default workers to Pi, with JSON task-based runtime/model/effort dispatch profiles.
+- Default eligible non-Anthropic workers to Pi, with JSON task-based runtime/model/effort dispatch profiles. Anthropic models run only through Claude Code's supported subscription path; invalid pairings block without silent rerouting or paid fallback.
 - Maintain durable state, worker identity, reliable delivery, healthy supervision, and safe cleanup.
 - Separate human approvals, automated verification, and agent instructions.
 - Enforce worker role boundaries, require resource containment by default, and require public PII/secrets checks as the publication baseline.
@@ -33,6 +33,7 @@ A Pi-native harness under implementation for agentic software engineering, maint
 - [Review resolution and readiness checkpoint](docs/proposals/0012-review-resolution.md)
 - [Repository layout](docs/proposals/0013-repository-layout.md)
 - [Unattended implementation authorization](docs/proposals/0014-unattended-implementation.md)
+- [Anthropic workers through Claude Code only](docs/proposals/0015-anthropic-runtime-policy.md)
 - [Feasibility evidence and known gaps](docs/research/feasibility-results.md)
 - [Technical research notes](docs/research/reference-notes.md)
 

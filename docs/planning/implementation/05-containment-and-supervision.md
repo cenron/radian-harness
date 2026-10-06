@@ -10,7 +10,7 @@ Implement the fail-closed boundary and independent safety services without treat
 
 - Native macOS boundary provider with canonical task read/write/scratch scopes, protected policy/state/Git roots, dependency access declarations, assigned-terminal permissions, and ordinary outbound IP networking plus narrowly needed OS DNS access.
 - Explicit capability records bound to OS/runtime/toolchain/policy versions and verification provenance. Required unknown/unverified capabilities deny launch.
-- Selected-provider subscription credential projections, private storage/destruction, explicit refresh ownership/leases, and non-refreshing worker credential access or structured unsupported blockers.
+- Selected-provider subscription credential projections constrained by [proposal 0015](../../proposals/0015-anthropic-runtime-policy.md): never project Anthropic credentials into Pi or Codex workers; validate the permitted runtime and subscription/billing path before exposure. Implement private storage/destruction, explicit refresh ownership/leases, and non-refreshing worker credential access or structured unsupported blockers.
 - Independent safety watcher/lease, owned process/resource registry, cancellation/escalation, loss-of-supervision handling, and reconciled termination postconditions.
 - Safe preflight results/denied-action diagnostics; no credentials or raw auth logs in repository/public output.
 

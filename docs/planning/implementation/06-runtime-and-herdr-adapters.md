@@ -17,14 +17,14 @@ Implement all three runtime adapters behind one contract and an owned Herdr tran
 ## Implementation tasks
 
 1. Read installed runtime docs/help before selecting flags. Avoid blanket native permission/sandbox bypass, undocumented auth fallbacks, and assuming Codex supports Claude hook shapes.
-2. Preflight all required runtime/tool/credential/containment capabilities before starting an assignment. Unsupported/unknown role capabilities reject the assignment.
+2. Recheck resolved runtime/provider/model policy before credential access and launch: Anthropic models require Claude Code's supported claude.ai subscription path. Reject forbidden or unresolved profiles before projecting credentials or creating panes; never silently reroute. Subscription OAuth alone does not prove plan-limit billing; do not enable paid extra usage or fall back to API keys/custom endpoints. Preflight all required runtime/tool/credential/containment capabilities before starting an assignment. Unsupported/unknown role capabilities reject the assignment.
 3. Choose and document the Pi SDK/CLI boundary. A SDK bridge must use public interfaces, preserve runtime semantics, and explicitly report any missing interactive/Herdr detection parity.
 4. Enforce reviewer read/report-only behavior without arbitrary shell/network/install tools; tester/developer/scout authorities intersect task scope. Disable unknown extension/MCP/nested/delegation channels unless controlled and registered.
 5. Create fresh conversations/panes for every assignment/repair/recovery. Never auto-accept trust/onboarding/login prompts. Record a blocker instead.
 6. Use returned Herdr pane IDs; do not derive them from layout or act on the UI-focused pane. Do not manipulate existing user panes during implementation.
 7. Establish semantic assignment binding, not merely idle/detection. Persist structured results before notification, correlate identities/generations, and wait for genuine runtime settlement rather than rendered text or one transient event.
 8. Preserve unknown/blocked/interrupted outcomes; bound startup/waits; avoid duplicate prompt delivery after uncertain transport timeouts. Scope interrupt/cancel to registered execution and verify postconditions through 05.
-9. Author fake-runtime/socket/JSONL fixtures for all three adapters: flag/profile translation, broken policy, unknown tools, startup/trust/auth blockers, quota, malformed/stale results, duplicate/missed events, cancellation, and fresh-context recovery.
+9. Author fake-runtime/socket/JSONL fixtures for all three adapters: flag/profile translation, Anthropic rejection outside Claude Code, unknown/aliased provider provenance, credential non-exposure and no silent rerouting, broken policy, unknown tools, startup/trust/auth blockers, quota, malformed/stale results, duplicate/missed events, cancellation, and fresh-context recovery.
 
 ## Completion criteria
 

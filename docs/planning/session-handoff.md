@@ -2,9 +2,11 @@
 
 ## Current authorization
 
-The user has **stopped feasibility testing** and authorized a new **Opus 5.5/high** session to implement the harness without routine interaction. Start with the [implementation table of contents](implementation/README.md), then follow its ten milestone files in order. Mark each milestone complete as it finishes, commit and push each milestone, and run full verification at the end. Publication safety checks still precede every push.
+The user has **stopped feasibility testing** and authorized a new **Claude Code / Opus 5.5/high** session to implement the harness without routine interaction. Start with the [implementation table of contents](implementation/README.md), then follow its ten milestone files in order. Mark each milestone complete as it finishes, commit and push each milestone, and run full verification at the end. Publication safety checks still precede every push.
 
 [Proposal 0014](../proposals/0014-unattended-implementation.md) is the latest authorization checkpoint. It authorizes this implementation plan/preserved feasibility checkpoint commit and push, followed by implementation milestone commits/pushes to the existing upstream. It does not authorize target-workspace installation, release/package publication, safety bypasses, or model/auth fallback. Genuine safety/authorization blockers are recorded and stop the unattended run rather than causing interactive prompts or weakened containment.
+
+[Proposal 0015](../proposals/0015-anthropic-runtime-policy.md) amends the runtime/auth policy before implementation: Anthropic workers use Claude Code only, never Pi or another adapter. Subscription OAuth alone does not prove plan-limit billing; reject prohibited/unknown profiles before credential exposure or launch, without silent rerouting or paid spillover. The Opus implementation session must therefore run in Claude Code, not Pi. This does not change Pi's product coordinator role.
 
 The user declined an effort-command alias: use Pi's native `/thinking`. Authentication is subscription-backed OAuth only, not API-key/pay-as-you-go billing. No silent authentication-method fallback; stop direct provider endpoint probes and use runtime subscription paths for further validation. Shift+Tab toggles plan/build in managed sessions; Tab stays autocomplete.
 
@@ -12,8 +14,8 @@ Proposal 0012 remains the product decision checkpoint; proposal 0014 supersedes 
 
 ## Resume here after session reset
 
-1. Read AGENTS.md, this handoff, proposals 0012–0014, the implementation index/milestone files, and feasibility results. Follow linked product requirements; do not treat historical planning-only headings as current authority.
-2. Confirm Opus 5.5/high and subscription authentication; check Git branch/upstream/status/history. Preserve unrelated work; do not reset/clean/stash or force-push.
+1. Read AGENTS.md, this handoff, proposals 0012–0015, the implementation index/milestone files, and feasibility results. Follow linked product requirements; do not treat historical planning-only headings as current authority.
+2. Confirm Claude Code / Opus 5.5/high and its supported subscription path; do not use Pi's Anthropic extra-usage path; check Git branch/upstream/status/history. Preserve unrelated work; do not reset/clean/stash or force-push.
 3. Execute milestones 01–10 without routine questions. Each file/index status must reflect pending/in-progress/complete/blocked truthfully. Commit/push each completed milestone after publication checks and verify upstream inclusion.
 4. Do not restart feasibility or live provider/auth/model probes. Write tests with each implementation milestone; full automated verification is milestone 10. Actual runtime capabilities remain disabled when required evidence is missing.
 5. Handle the Pi CLI auth-lock blocker deliberately. The public SDK injected credential-store contract is available, but SDK/CLI/interactive Herdr parity is unverified. No auth-lock relaxation disguised as refresh prevention.
@@ -46,6 +48,7 @@ Proposal 0012 remains the product decision checkpoint; proposal 0014 supersedes 
 - [0012 — Review resolution and authorized milestone](../proposals/0012-review-resolution.md)
 - [0013 — Repository layout recommendation](../proposals/0013-repository-layout.md)
 - [0014 — Unattended implementation authorization](../proposals/0014-unattended-implementation.md)
+- [0015 — Anthropic workers through Claude Code only](../proposals/0015-anthropic-runtime-policy.md)
 - [Implementation table of contents and milestone progress](implementation/README.md)
 - [Technical evidence and limitations](../research/reference-notes.md)
 - [Adversarial review](../research/adversarial-plan-review.md)
@@ -54,7 +57,7 @@ Proposal 0012 remains the product decision checkpoint; proposal 0014 supersedes 
 ## Confirmed product direction
 
 - Independent external harness, explicitly bound to selected workspaces/projects through Pi's supported package mechanism. Project-local Pi coordinator; one active run per project initially.
-- Pi default workers, with Codex CLI and Claude Code in scope; visible Herdr panes, fresh contexts and bounded artifact handoffs.
+- Pi default workers for eligible non-Anthropic subscription profiles; Anthropic models through Claude Code only, with Codex CLI and Claude Code in scope; visible Herdr panes, fresh contexts and bounded artifact handoffs.
 - Developer, tester, reviewer, and optional scout. Design work belongs in PRD development when needed. Pi delegates production edits and semantic conflicts.
 - PRD/spec, plan, and integration approval gates, with human-approved lightweight briefs for small fixes. User-initiated controls write revision/hash-bound approvals; worker reports cannot approve.
 - Three total candidate cycles per task. Default configurable workspace-wide ceiling of three active workers, supporting multiple workers of each role. Reserve slots before launch; live blocked workers retain slots.

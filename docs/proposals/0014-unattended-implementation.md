@@ -6,7 +6,7 @@
 
 - Stop the feasibility-testing phase; do not continue its experimental agenda.
 - Prepare an implementation plan with a table of contents and a separate file for each milestone.
-- A new session will use **Opus 5.5 at high effort** for implementation.
+- A new session will use **Claude Code / Opus 5.5 at high effort** for implementation. [Proposal 0015](0015-anthropic-runtime-policy.md) amends the runtime requirement after the user's Pi extra-usage warning; do not run this Opus session through Pi.
 - Implementation should proceed without routine interaction.
 - Mark each milestone complete as it finishes; commit and push each milestone.
 - Run full verification at the end.

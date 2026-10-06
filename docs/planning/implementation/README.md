@@ -2,7 +2,7 @@
 
 **Status: authorized implementation plan. Feasibility testing is stopped.**
 
-The user authorized a new **Opus 5.5 / high** session to implement Radian without routine interaction, mark milestones complete as they finish, and commit and push each milestone. This plan and the preserved feasibility checkpoint are authorized for commit/push now. [Proposal 0014](../../proposals/0014-unattended-implementation.md) records this authorization and supersedes the feasibility-only work restriction, not the product's safety requirements.
+The user authorized a new **Claude Code / Opus 5.5 / high** session to implement Radian without routine interaction, mark milestones complete as they finish, and commit and push each milestone. This plan and the preserved feasibility checkpoint are authorized for commit/push now. [Proposal 0014](../../proposals/0014-unattended-implementation.md) records this authorization and supersedes the feasibility-only work restriction, not the product's safety requirements.
 
 ## Table of contents
 
@@ -25,8 +25,8 @@ The copy-ready [new-session prompt](new-session-prompt.md) starts this sequence.
 
 ## Execution contract
 
-1. Read `AGENTS.md`, the [handoff](../session-handoff.md), proposal 0014, this index, each milestone before starting it, and the linked product requirements/evidence. Earlier planning-only headings are historical.
-2. Confirm the session is **Opus 5.5 at high effort**, through native runtime state rather than inference from this prompt. Use the session's subscription OAuth path. If unavailable, record a blocker and stop; no model/runtime/auth fallback or effort change.
+1. Read `AGENTS.md`, the [handoff](../session-handoff.md), proposals 0014–0015, this index, each milestone before starting it, and the linked product requirements/evidence. Earlier planning-only headings are historical.
+2. Confirm the session is **Claude Code / Opus 5.5 at high effort**, through native runtime state rather than inference from this prompt. Use Claude Code's supported claude.ai subscription path, not Pi's Anthropic OAuth/extra-usage path. If unavailable, record a blocker and stop; no model/runtime/auth fallback or effort change.
 3. Check branch, upstream, Git status, and recent history. The intended development branch is `main` tracking `origin/main`. Preserve unrelated changes. Never reset/clean/stash/rebase away work or force-push.
 4. Work serially in milestone order. The authorized scope is developing this harness repository; this permits the implementation session to edit its source. It does not grant future Radian coordinators routine production-write authority in target projects.
 5. Use the layout in [proposal 0013](../../proposals/0013-repository-layout.md). Create only useful files, not an empty scaffold. Prefer TypeScript, Pi's supported package mechanism, small explicit modules, validated JSON configuration, and a minimal pinned local toolchain.
@@ -40,8 +40,8 @@ The copy-ready [new-session prompt](new-session-prompt.md) starts this sequence.
 
 ## Product invariants
 
-- Pi remains coordinator; Pi default workers, Codex CLI and Claude Code also remain in scope; Herdr is the terminal backend.
-- Subscription-backed OAuth only. No API-key/pay-as-you-go use, direct provider endpoint probes, fallback, automatic spending/account changes, or effort escalation.
+- Pi remains coordinator; Pi default workers for eligible non-Anthropic subscription profiles; Anthropic models use Claude Code only under [proposal 0015](../../proposals/0015-anthropic-runtime-policy.md). Codex CLI and Claude Code remain in scope; Herdr is the terminal backend.
+- Supported subscription paths only; OAuth alone is not proof of plan-limit billing. Anthropic through Pi/other workers and paid extra-usage spillover are prohibited. Unknown provider/billing-path evidence blocks credential projection and launch, with no silent rerouting. No API-key/pay-as-you-go use, direct provider endpoint probes, fallback, automatic spending/account changes, or effort escalation.
 - Native macOS containment is required. Ordinary outbound networking was approved; do not require hostname isolation or add a proxy. Protect filesystem read/write scope, unrelated credentials, shared Git metadata, policy/approval state, and other processes.
 - Fresh worker contexts; three total candidate rounds; one automatic infrastructure recovery per assignment; 30-minute execution budget with explicit blocked-time accounting; default configurable workspace-wide concurrency of three.
 - Human-only, revision/hash-bound spec/brief, plan, and integration approvals. The authority to implement and push this repository is not authority to approve future target-project work. Noninteractive runtime workflows block when product approvals are missing.

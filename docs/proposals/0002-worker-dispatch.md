@@ -7,7 +7,7 @@
 - Pi is always the coordinator and the main conversation the user works with.
 - Herdr is the terminal backend for visible worker panes.
 - Supported worker runtimes are Pi, Codex CLI, and Claude Code.
-- Pi is the default worker runtime.
+- Pi is the default worker runtime for eligible non-Anthropic subscription profiles. [Proposal 0015](0015-anthropic-runtime-policy.md) requires all Anthropic workers to use Claude Code; prohibited pairings block rather than silently reroute.
 - Agent runtime, model, and effort can be selected per task using Radian's JSON dispatch configuration.
 - For now, ask the user before runtime/model fallback or effort escalation. Do not automatically switch after quota/auth problems or repeated failures. This policy may become configurable in a future approved revision.
 
@@ -53,7 +53,7 @@ Use named profiles so rules select known configurations rather than inventing la
   "profiles": {
     "pi-default": {
       "agent": "pi",
-      "provider": "configured-pi-provider",
+      "provider": "configured-non-anthropic-subscription-provider",
       "model": "configured-pi-model",
       "effort": "medium"
     },
@@ -105,7 +105,7 @@ Use intent-based rules with named profiles, stable rule IDs, explicit Pi default
 1. Snapshot the effective routing configuration for the run.
 2. Respect an explicit user task override, then an approved plan assignment, then applicable rules, then the default. All choices remain subject to authority and capability checks.
 3. Apply exact role/project restrictions in code. Pi interprets natural-language `when` conditions and chooses among configured candidates; it records the rule/profile and rationale. Ambiguous matches must be disclosed, not hidden behind undefined ordering.
-4. Resolve model aliases/provider configuration and validate runtime availability, authentication readiness, effort support, and required policy capabilities without logging credentials.
+4. Resolve model aliases/provider configuration and enforce proposal 0015: Anthropic models require Claude Code's supported subscription path; reject other runtimes and unknown/disguised provenance before credential exposure or launch. Recheck at adapter preflight. Then validate runtime availability, authentication readiness, effort support, and required policy capabilities without logging credentials.
 5. Persist the requested and resolved profile, runtime version, available model provenance, role, authority, task/attempt identity, and config revision before dispatch. If the actual served model is not observable, record it as unverified rather than claiming certainty.
 6. Build a validated native argument vector through the adapter; never execute a model-generated shell launch string.
 7. Launch through Herdr and establish semantic lifecycle and the shared task/result contract.

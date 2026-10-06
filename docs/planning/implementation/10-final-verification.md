@@ -17,12 +17,12 @@ Run the full automated verification once the implementation is assembled, correc
 
 | Area | Required automated evidence |
 | --- | --- |
-| Package/contracts | Type checks/build, schemas, config precedence, exact profiles/effort, invalid input and deterministic provenance |
+| Package/contracts | Type checks/build, schemas, config precedence, exact profiles/effort, Anthropic-only-through-Claude-Code policy across aliases/custom providers/overrides, unknown-provenance rejection and no silent rerouting, invalid input and deterministic provenance |
 | Publication | Planted generic/denylist findings, safe examples, partial staging, unreadable/error behavior, redaction, actual staged/committed tree, author metadata, package/archive inclusion |
 | Authority | Human-only approval, revision invalidation, stale generations/results, noninteractive missing-approval refusal, coordinator production-write denial |
 | Capacity/budgets | Cross-process reservation contention, live blocked slots, duplicate project binding, lease reclaim refusal, execution/blocked accounting, three-round and recovery exhaustion |
 | Git/candidates | Hooks/helpers neutralized, shared metadata denials, exclusive worktrees, patch/base validation, exact assembled checks/review, dirty/drift refusal, exact approved fast-forward |
-| Containment/auth | Scoped synthetic reads/writes/symlinks/children, dependency declarations, capability fail-closed, fresh/expired synthetic credential behavior, serialized ownership, no personal-store writes |
+| Containment/auth | Scoped synthetic reads/writes/symlinks/children, dependency declarations, capability fail-closed, fresh/expired synthetic credential behavior, serialized ownership, no personal-store writes, no Anthropic credential exposure to Pi/Codex or prohibited profiles |
 | Supervision | Registration interruption, detached children, coordinator/watchdog loss, escalation, identity mismatch, unknown termination blocking replacement, preserved artifacts/resources |
 | Adapters/transport | All three fake/native-protocol fixtures, bounded startup/events, trust/auth/quota blockers, exact identity/profile, structured results, stale/duplicate transport, recovery/fresh context |
 | Workflow | Fake-runtime developer → tester → exact candidate check → reviewer → human-approved integration; repair/exhaustion/quota/crash/pause/cancel paths |

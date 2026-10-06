@@ -16,7 +16,7 @@ Pi 1.0.2 slash-command documentation lists `/thinking`, not built-in `/effort`.
 
 ## 2. Subscription authentication requirement
 
-The user clarified that normal harness usage is subscription-backed OAuth through Pi, Codex CLI, and Claude Code, not API-key/pay-as-you-go billing. Do not switch to an API key, billing account, or a different authentication method silently. Use each runtime's supported subscription login path. Pi profiles must use an OAuth-capable configured provider; Codex uses ChatGPT authentication and Claude uses claude.ai authentication.
+The user clarified that normal harness usage is subscription-backed OAuth through Pi, Codex CLI, and Claude Code, not API-key/pay-as-you-go billing. Do not switch to an API key, billing account, or a different authentication method silently. Use each runtime's supported subscription login path. Pi profiles must use an eligible non-Anthropic subscription provider; Codex uses ChatGPT authentication and Claude uses claude.ai authentication. [Proposal 0015](0015-anthropic-runtime-policy.md) amends this requirement: Anthropic workers must use Claude Code only, because subscription OAuth in Pi can still incur per-token extra-usage billing. OAuth alone is not evidence of plan-limit billing; no paid spillover or silent rerouting is authorized.
 
 Direct provider connectivity probes made during initial feasibility were unauthenticated HTTPS HEAD requests, not inference calls. Following the clarification, stop direct endpoint probes and validate future connectivity through the runtime's subscription path. No API-key credential or paid inference was used in those probes.
 
