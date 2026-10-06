@@ -135,4 +135,3 @@ test("a planning write in a workspace-selected project cannot create outside dir
     removeDir(w.root);
   }
 });
-
