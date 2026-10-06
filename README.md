@@ -2,7 +2,10 @@
 
 A Pi-native harness under implementation for agentic software engineering, maintained outside the workspaces where it is used.
 
-**Status: unattended implementation plan authorized; feasibility testing stopped. No production harness or installer has been implemented yet, and worker-runtime support remains unverified.**
+**Status: implementation in progress under the authorized milestone plan. The harness, installer, and Pi interface are implemented, but no worker runtime is verified or supported: every worker launch is refused until its required capabilities have recorded verification evidence. No release exists.**
+
+- **[User and operations guide](docs/user/README.md)** — installing into a workspace, configuration, the Pi interface, workflow, budgets, capabilities, diagnostics, and limitations.
+- [Release acceptance checklist](docs/user/release-acceptance.md) and [development guide](docs/development.md).
 
 ## Direction
 

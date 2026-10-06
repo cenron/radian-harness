@@ -17,13 +17,17 @@
     "src/",
     "workers/",
     "extensions/",
+    "skills/",
+    "docs/user/",
     "!src/**/*.test.ts"
   ],
   "pi": {
     "extensions": [
       "./extensions/radian.ts"
     ],
-    "skills": [],
+    "skills": [
+      "./skills"
+    ],
     "prompts": []
   },
   "scripts": {
@@ -31,7 +35,8 @@
     "test": "node --test \"tests/unit/**/*.test.ts\"",
     "test:integration": "node --test \"tests/integration/**/*.test.ts\"",
     "publication-check": "node scripts/publication-check.ts",
-    "check": "npm run typecheck && npm test && npm run publication-check"
+    "check": "npm run typecheck && npm test && npm run publication-check",
+    "workspace": "node scripts/radian-workspace.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
