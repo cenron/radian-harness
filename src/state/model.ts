@@ -79,6 +79,8 @@ export interface AttemptState {
   termination?: Termination;
   automatic: boolean;
   humanDecisionId?: string;
+  /** Hash of the sealed brief delivered to this attempt (binds attempt and generation). */
+  briefHash?: string;
 }
 
 export interface BudgetState {
@@ -151,6 +153,7 @@ export type RunEvent =
     }
   | { type: "assignment.status"; assignment: string; status: AssignmentStatus }
   | { type: "attempt.started"; assignment: string; attempt: string; generation: number; automatic: boolean; humanDecisionId?: string }
+  | { type: "attempt.brief"; assignment: string; attempt: string; briefHash: string }
   | { type: "attempt.bound"; assignment: string; attempt: string }
   | { type: "attempt.ended"; assignment: string; attempt: string; reason: AttemptEndReason; termination: Termination }
   | { type: "assignment.blocked"; assignment: string; reason: BlockReason }
@@ -265,6 +268,11 @@ export function reduce(previous: RunState, envelope: EventEnvelope): RunState {
       const attempt: AttemptState = { id: e.attempt, generation: e.generation, status: "launching", startedAt: envelope.at, automatic: e.automatic };
       if (e.humanDecisionId) attempt.humanDecisionId = e.humanDecisionId;
       a.attempts.push(attempt);
+      break;
+    }
+    case "attempt.brief": {
+      const attempt = state.assignments[e.assignment]!.attempts.find((x) => x.id === e.attempt)!;
+      attempt.briefHash = e.briefHash;
       break;
     }
     case "attempt.bound": {

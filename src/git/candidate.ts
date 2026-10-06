@@ -24,7 +24,14 @@ function zeroOid(repo: Repository): string {
 
 export async function assembleCandidate(input: {
   repo: Repository;
+  /** Commit every delivery was made against (the merge base). */
   base: string;
+  /**
+   * Protected-target commit the candidate is built on. Defaults to `base`. Repair
+   * rounds deliver against the previous candidate but the new candidate is a
+   * single commit on the unchanged target so integration stays a fast-forward.
+   */
+  targetBase?: string;
   task: string;
   round: number;
   deliveries: readonly Delivery[];
@@ -54,8 +61,13 @@ export async function assembleCandidate(input: {
       env: { GIT_AUTHOR_NAME: input.identity.name, GIT_AUTHOR_EMAIL: input.identity.email, GIT_COMMITTER_NAME: input.identity.name, GIT_COMMITTER_EMAIL: input.identity.email },
     });
   }
+  const parent = input.targetBase ?? input.base;
+  if (input.targetBase && input.targetBase !== input.base) {
+    const ancestor = await git(repo.ctx, ["merge-base", "--is-ancestor", input.targetBase, input.base]);
+    if (!succeeded(ancestor)) return refuse("TARGET_DRIFT", "the repair base does not descend from the target base");
+  }
   const body = [input.message, "", `Radian-Task: ${input.task}`, `Radian-Round: ${input.round}`, ...input.deliveries.map((d) => `Radian-Delivery: ${d.commit}`), ""].join("\n");
-  const commit = await gitText(repo.ctx, ["commit-tree", tree, "-p", input.base, "-F", "-"], {
+  const commit = await gitText(repo.ctx, ["commit-tree", tree, "-p", parent, "-F", "-"], {
     input: body,
     env: { GIT_AUTHOR_NAME: input.identity.name, GIT_AUTHOR_EMAIL: input.identity.email, GIT_COMMITTER_NAME: input.identity.name, GIT_COMMITTER_EMAIL: input.identity.email },
   });
@@ -64,7 +76,7 @@ export async function assembleCandidate(input: {
   const ref = `refs/radian/candidates/${input.task}/r${input.round}-${count + 1}`;
   const created = await git(repo.ctx, ["update-ref", ref, commit, zeroOid(repo)]);
   if (!succeeded(created)) return refuse("GIT_FAILURE", "candidate ref could not be created");
-  return success({ commit, tree, base: input.base, ref, deliveries: input.deliveries.map((d) => d.commit) });
+  return success({ commit, tree, base: parent, ref, deliveries: input.deliveries.map((d) => d.commit) });
 }
 
 /** Confirm a commit is exactly the recorded candidate (tree and single parent). */

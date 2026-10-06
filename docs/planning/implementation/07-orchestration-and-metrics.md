@@ -1,6 +1,6 @@
 # Milestone 07 — Engineering orchestration, integration, and metrics
 
-**Status: pending** · Depends on: 03–06
+**Status: complete** · Depends on: 03–06
 
 ## Objective
 
@@ -41,10 +41,19 @@ Mark this milestone/index complete; commit/push `feat: milestone 07 — engineer
 
 ## Completion record
 
-- Completed: not yet
-- Implementation decisions: not yet
-- Checks before publication: not yet
-- Deferred verification / limitations: full workflow verification in milestone 10; live-runtime coverage remains separate
+- Completed: 2026-10-06. `src/coordinator/`: orchestration (`orchestrator.ts`), worker-driver abstraction with the production runtime driver (`driver.ts`), Plan/Build mode state and guards (`mode.ts`), harness provenance (`provenance.ts`), local metrics and per-version summaries (`metrics.ts`), and on-demand retrospectives (`retrospective.ts`). Service extensions: per-attempt brief hashes and question/pause resumes in the run store, repair candidates squashed onto the unchanged target, and write-protected versus private paths in authority resolution. End-to-end fake-runtime tests in `tests/unit/coordinator/`.
+- Implementation decisions:
+  - Every assignment is prepared (mode, supervision health, profile selection, approvals, owned worktree, resolved authority, sealed brief, durable record) and then run as attempts. Each attempt reserves workspace capacity before launch, claims exclusive worktree ownership, reseals the brief for its exact attempt/generation and records that hash, launches through the driver (which performs runtime preflight and capability checks), requires semantic binding, waits within the remaining execution budget, stops with verified termination, and only then collects the validated result and delivers changes. Reservations and worktree ownership are released only after verified termination.
+  - Modifying dispatch, candidate checks, and integration require Build mode; read-only scouts may run in Plan. Mode changes never approve or start work.
+  - Developer and tester deliveries are combined into one candidate per round. Candidate checks run as contained tester assignments on the exact candidate (whole-worktree write scope, no delivery); only check evidence bound to the exact candidate counts. A fresh reviewer assignment reviews the same candidate read-only. A new candidate makes earlier evidence historical.
+  - Repairs deliver against the previous candidate; the new candidate is a single commit on the unchanged target base, so integration stays a fast-forward. Three total candidate rounds; a fourth is refused with `ROUNDS_EXHAUSTED`, the task is blocked, and only a recorded human grant adds rounds.
+  - Worker questions block the assignment with a durable decision; after a human resolves it, the work resumes in a fresh attempt without consuming the infrastructure-recovery allowance. Quota exhaustion stops the attempt, preserves work, and opens a quota decision; a retry requires an explicit human authorization, a reached reported reset time, healthy supervision, and the unchanged profile, and consumes the assignment's recovery allowance. One automatic fresh recovery follows a verified infrastructure failure; further failures open a human decision. Stale or spoofed results are never accepted.
+  - Integration is triggered only by a genuine human channel in Build mode and requires a current integration approval bound to the exact candidate and target, passing evidence for every required check, a completed review of the same candidate without blocking findings, and an unmoved, clean target.
+  - Resume reconciliation closes attempts from supervision evidence, reclaims only reservations whose attempts all ended with verified termination, validates owned worktrees, records supervision gaps, and never relaunches.
+  - Metrics record identifiers, categories, counts, durations, and the run's recorded harness version/revision/local-modification state plus config hash; prompts, code, logs, and credentials are excluded. Unknown usage is counted as unknown, not zero; no dollar spend is invented. Summaries group by harness version and leave comparisons to human judgment.
+  - Retrospectives are private local artifacts built from metrics; proposals that weaken approvals, containment, round limits, provider restrictions, or publication safety are refused; a human decision only schedules a separate harness task; nothing is applied or exported automatically.
+- Checks before publication: private denylist **not supplied** (private-term coverage absent); bounded publication check and exact staged-diff review before commit. Milestone-local sanity run: `tsc --noEmit` clean; full unit suite passed, including ten fake-runtime workflow tests (happy path through integration, Plan/stale-approval guards, three-round exhaustion, questions, quota retry, crash recovery, unknown termination, drift, stale results, retrospectives, resume reconciliation) (not the milestone 10 run).
+- Deferred verification / limitations: full workflow verification in milestone 10; live-runtime coverage remains separate. The production driver path inherits every runtime capability gap from milestone 06, so real workers stay blocked. Fake-driver success is not support evidence.
 
 ## Requirements
 

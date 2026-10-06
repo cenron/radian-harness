@@ -372,7 +372,7 @@ export class RunStore {
    * requires its termination to be verified, remaining execution budget, and
    * either the one automatic recovery or a recorded human authorization.
    */
-  startAttempt(assignment: string, options: { humanDecisionId?: string } = {}): Promise<Outcome<RunState>> {
+  startAttempt(assignment: string, options: { humanDecisionId?: string; resumeDecisionId?: string } = {}): Promise<Outcome<RunState>> {
     const attemptId = newId("att");
     return this.transact({ kind: "coordinator", id: "coordinator" }, `attempt:${attemptId}`, (s) => {
       if (s.run.status !== "active") return refuse("INVALID_TRANSITION", "run is not active");
@@ -386,7 +386,15 @@ export class RunStore {
       if (previous) {
         if (previous.status !== "ended") return refuse("TERMINATION_REQUIRED", "the previous attempt has not ended", "Stop and verify the previous attempt before replacing it.");
         if (previous.termination !== "verified") return refuse("TERMINATION_UNVERIFIED", "the previous attempt's termination is unverified", "Reconcile owned processes before any replacement.");
-        if (options.humanDecisionId) {
+        if (options.resumeDecisionId) {
+          // Resuming after an answered question or a user pause is a fresh attempt, not an infrastructure recovery.
+          const decision = s.decisions[options.resumeDecisionId];
+          if (!decision || decision.assignment !== assignment || decision.status !== "resolved" || !["question", "other"].includes(decision.kind)) {
+            return refuse("QUESTION_OPEN", "resume requires a resolved question or pause decision for this assignment");
+          }
+          if (a.attempts.some((x) => x.humanDecisionId === options.resumeDecisionId)) return refuse("INVALID_TRANSITION", "that decision already resumed this assignment");
+          humanDecisionId = options.resumeDecisionId;
+        } else if (options.humanDecisionId) {
           if (!a.humanRecoveries.includes(options.humanDecisionId)) return refuse("RECOVERY_EXHAUSTED", "human recovery decision is not recorded for this assignment");
           if (a.attempts.some((x) => x.humanDecisionId === options.humanDecisionId)) return refuse("RECOVERY_EXHAUSTED", "human recovery decision was already used");
           humanDecisionId = options.humanDecisionId;
@@ -400,6 +408,17 @@ export class RunStore {
       const event: RunEvent = { type: "attempt.started", assignment, attempt: attemptId, generation: a.generation + 1, automatic };
       if (humanDecisionId) event.humanDecisionId = humanDecisionId;
       return success([event]);
+    });
+  }
+
+  /** Record the sealed brief delivered to the current attempt, before launch. */
+  recordAttemptBrief(assignment: string, attempt: string, briefHash: string): Promise<Outcome<RunState>> {
+    return this.transact({ kind: "coordinator", id: "coordinator" }, `brief:${attempt}`, (s) => {
+      const current = s.assignments[assignment]?.attempts.at(-1);
+      if (!current || current.id !== attempt) return refuse("STALE_GENERATION", "brief does not belong to the current attempt");
+      if (current.status !== "launching" || current.briefHash) return refuse("INVALID_TRANSITION", "attempt brief is already fixed");
+      if (!/^sha256:[0-9a-f]{64}$/.test(briefHash)) return refuse("AUTHORITY_INVALID", "brief hash is malformed");
+      return success([{ type: "attempt.brief", assignment, attempt, briefHash }]);
     });
   }
 
@@ -487,7 +506,7 @@ export class RunStore {
       if (!current || current.id !== expected.identity.attempt || current.generation !== expected.identity.generation) {
         return refuse("STALE_GENERATION", "result expectation is not the current attempt");
       }
-      if (expected.briefHash !== a.briefHash) return refuse("IDENTITY_MISMATCH", "brief hash differs from the assignment's brief");
+      if (expected.briefHash !== (current.briefHash ?? a.briefHash)) return refuse("IDENTITY_MISMATCH", "brief hash differs from the brief delivered to this attempt");
       const validated = validateResult(raw, expected);
       if (!validated.ok) return validated;
       accepted = validated.value;

@@ -92,8 +92,10 @@ export interface AuthorityRequest {
 
 export interface ProjectPolicy {
   projectRoot: string;
-  /** Shared Git metadata, coordinator state, approvals, policy snapshots, harness source. */
+  /** Write-protected: shared Git metadata, coordinator state, approvals, policy snapshots. */
   protectedPaths: readonly string[];
+  /** Neither readable nor writable by workers (coordinator state, private evidence). */
+  privatePaths?: readonly string[];
   /** Additional read roots permitted for every assignment (e.g. toolchain dependencies). */
   extraReadRoots?: readonly string[];
 }
@@ -159,9 +161,13 @@ export function resolveAuthority(request: AuthorityRequest, policy: ProjectPolic
   if (overlaps(output.value, worktree.value) || overlaps(scratch.value, worktree.value)) {
     return refuse("AUTHORITY_INVALID", "output and scratch directories must be separate from the worktree");
   }
-  for (const root of reads.value) {
-    if (protectedPaths.value.some((guarded) => isWithin(root, guarded))) {
-      return refuse("PATH_OUTSIDE_SCOPE", "a read root lies inside protected state");
+  const privatePaths = canonicalPaths(policy.privatePaths ?? []);
+  if (!privatePaths.ok) return privatePaths;
+  // A read root inside private state is refused; private paths nested inside a
+  // broader read root are denied by the containment profile's read denials.
+  for (const root of [...reads.value, worktree.value]) {
+    if (privatePaths.value.some((guarded) => isWithin(root, guarded))) {
+      return refuse("PATH_OUTSIDE_SCOPE", "a read root lies inside private coordinator state");
     }
   }
   const ports = [...new Set(request.ports ?? [])].sort((a, b) => a - b);
