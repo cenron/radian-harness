@@ -283,3 +283,29 @@ test("0016: integration via dialog binds the exact candidate and target and runs
     g.cleanup();
   }
 });
+
+test("dispatch accepts directory write roots written with a trailing slash, never widens them, and names a refused root", async () => {
+  const g = await guidedWorld();
+  try {
+    await g.controller.command("start", g.tui);
+    const plans: Array<{ writeRoots: string[] }> = [];
+    Object.assign(g.controller.session()!.run!.coordinator as object, {
+      runAssignment: async (plan: { writeRoots: string[] }) => {
+        plans.push(plan);
+        return { state: "blocked", assignment: undefined, blocker: { code: "CAPABILITY_UNVERIFIED", message: "synthetic" } };
+      },
+    });
+    const dispatch = (writeRoots: string[]) => g.host.callTool("radian_dispatch", { task: "task_x", role: "developer", objective: "o", planPath: SPEC, writeRoots }, g.tui);
+    const ok = await dispatch(["project.godot", "scenes/", "scripts//", "assets/sprites/"]);
+    assert.match(ok.text ?? "", /Dispatch requested/, JSON.stringify(ok));
+    assert.deepEqual(plans.at(-1)!.writeRoots, ["project.godot", "scenes", "scripts", "assets/sprites"]);
+    for (const bad of ["//", "/", "../x/", "./scenes", "a//b"]) {
+      const refused = await dispatch(["scenes/", bad]);
+      assert.match(refused.text ?? "", /PATH_INVALID/, `${bad}: ${JSON.stringify(refused)}`);
+      assert.ok((refused.text ?? "").includes(JSON.stringify(bad)), `the refused root is named: ${refused.text}`);
+    }
+    assert.equal(plans.length, 1, "no refused dispatch reached the coordinator");
+  } finally {
+    g.cleanup();
+  }
+});

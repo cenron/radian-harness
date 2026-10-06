@@ -1128,8 +1128,16 @@ function toPlan(session: ProjectSession, params: Record<string, unknown>): Outco
   const candidateCheck = params.candidateCheck === true;
   const base = typeof params.baseCandidate === "string" && /^[0-9a-f]{40,64}$/.test(params.baseCandidate) ? { kind: "commit" as const, commit: params.baseCandidate } : { kind: "target" as const };
   // Exact-candidate checks never get a writable source tree: only declared output roots (validated by the coordinator).
-  const writeRoots = candidateCheck ? ((params.checkOutputRoots as string[] | undefined) ?? []) : role === "reviewer" || role === "scout" ? [] : ((params.writeRoots as string[] | undefined) ?? []);
-  if (writeRoots.some((w) => w !== "" && !safeRelative(w))) return refuse("PATH_INVALID", "write roots must be repository-relative");
+  const requestedRoots = candidateCheck ? ((params.checkOutputRoots as string[] | undefined) ?? []) : role === "reviewer" || role === "scout" ? [] : ((params.writeRoots as string[] | undefined) ?? []);
+  // A directory root may be written with trailing slashes ("scenes/"). Stripping them never widens
+  // a root: a value that is only slashes stays as given and is refused, not turned into "" (whole checkout).
+  const writeRoots = requestedRoots.map((w) => {
+    const root = String(w);
+    const stripped = root.replace(/\/+$/, "");
+    return stripped === "" ? root : stripped;
+  });
+  const badRoot = writeRoots.findIndex((w) => w !== "" && !safeRelative(w));
+  if (badRoot >= 0) return refuse("PATH_INVALID", `write root ${JSON.stringify(String(requestedRoots[badRoot]))} must be a repository-relative path without '.', '..', or empty components`, "Use paths such as scenes or src/app; \"\" means the whole checkout.");
   if (candidateCheck && writeRoots.includes("")) return refuse("PATH_OUTSIDE_SCOPE", "a candidate check cannot write the whole checkout");
   const selection = typeof params.ruleId === "string" && typeof params.profile === "string" ? { rule: { id: params.ruleId, profile: params.profile, rationale: String(params.rationale ?? "") } } : {};
   const artifacts: AssignmentPlan["artifacts"] = { plan };
