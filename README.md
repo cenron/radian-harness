@@ -259,6 +259,10 @@ model provider is contacted. Coding standards are in [docs/Principles.md](docs/P
 
 ## Versions
 
+- **1.1.0**: Pi asks you to approve MCP tools per project (`radian_allow_tool`, `/radian tools`);
+  a worker with nothing of its own to merge closes itself; Pi can read a worker's files before a
+  merge and sees which files Radian committed; a refused merge names the uncommitted files and
+  comes before the merge dialog; a clearer footer and a colored worker list.
 - **1.0.0** (stable): Plan → Build → merge with Claude Code, Codex, and Pi workers in Herdr panes.
 
 ## License
