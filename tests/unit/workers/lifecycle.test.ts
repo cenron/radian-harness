@@ -181,11 +181,24 @@ test("a reviewer that committed something is kept open for a merge", async () =>
   assert.equal(listWorkers(workersFileOf(env))[0]?.state, "done");
 });
 
-test("a developer that finishes is never closed automatically", async () => {
+test("a developer that finishes with nothing to merge is closed like a scout", async () => {
   const { env, herdr, worker } = await dispatchedDeveloper();
   actAsWorker(worker, { status: ["done: nothing to change"] });
-  assert.equal((await pollWorker(env, worker)).isClosed, false);
-  assert.ok(herdr.panes.has(worker.pane ?? ""));
+  const change = await pollWorker(env, worker);
+  assert.equal(change.isClosed, true);
+  assert.equal(herdr.panes.has(worker.pane ?? ""), false);
+  assert.equal(git(env.project.path, "branch", "--list", worker.branch), "");
+  assert.deepEqual(listWorkers(workersFileOf(env)), []);
+});
+
+test("a developer whose work already reached the target through another branch is closed", async () => {
+  const { env, worker } = await dispatchedDeveloper();
+  writeFileSync(path.join(worker.worktree, "a.txt"), "a\n");
+  actAsWorker(worker, { status: ["done: added a.txt"] });
+  const done = await pollWorker(env, worker);
+  assert.equal(done.isClosed, false, "its own commit keeps it open for the merge");
+  git(env.project.path, "merge", "-q", "--ff-only", worker.branch);
+  assert.equal((await pollWorker(env, done.worker)).isClosed, true);
 });
 
 test("the watcher leaves a worker alone while dispatch is still launching it", async () => {
@@ -238,5 +251,5 @@ test("a developer that changed nothing gets no commit", async () => {
   const { env, worker } = await dispatchedDeveloper();
   actAsWorker(worker, { status: ["done: nothing needed"] });
   assert.deepEqual((await pollWorker(env, worker)).committedFiles, []);
-  assert.equal(git(env.project.path, "rev-list", "--count", `main..${worker.branch}`), "0");
+  assert.equal(git(env.project.path, "rev-list", "--count", "HEAD"), "1");
 });

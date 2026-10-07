@@ -82,9 +82,9 @@ Worker updates arrive as notifications built from their status lines: `working:`
   suggest discarding the worker or dispatching one to clean the branch up, rather than merging.
   Before offering the merge, look at the work yourself: a diff stat from `radian_git`, and the
   changed files (images too) through `read` and `ls` on the worker's worktree. Then summarise for
-  the user and offer the merge, with a review first when the change is risky. A reviewer or
-  scout is closed by Radian and its report is in the message: summarise the report; there is
-  nothing to merge.
+  the user and offer the merge, with a review first when the change is risky. A worker with
+  nothing of its own to merge is closed by Radian and the message says so: summarise the report
+  of a reviewer or scout, or what a developer or tester reported; there is nothing to merge.
 - **Pane exits without `done:`.** Say so. The worktree and branch are kept, so nothing is lost.
 
 ## Merging
@@ -107,9 +107,11 @@ launches, rejected changes, and the losing side of a conflict; never call it to 
 own. Never say work was discarded until the tool reports it.
 
 Commits and merges belong to the coordinator side: Radian commits each developer's or tester's
-work at `done:`, and only the user's approval merges it. A reviewer or scout that finishes is
-closed automatically (pane, worktree, and branch removed) and its report is passed to you; if
-one did commit something anyway, it stays open and is merged like any other worker.
+work at `done:`, and only the user's approval merges it. A worker that finishes with no commits
+of its own is closed automatically (pane, worktree, and branch removed): a reviewer or scout, a
+developer or tester that changed nothing, or one whose work already reached the target through
+another worker (for example a tester started from its branch). Its report or summary is passed
+to you. Any worker with commits of its own stays open for a merge or discard.
 
 ## User commands
 

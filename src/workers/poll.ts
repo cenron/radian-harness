@@ -6,7 +6,7 @@ import { getPane } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
 import { replaceWorker } from "../io/worker-store.ts";
 import { deliverWhenReady } from "./delivery.ts";
-import { closeFinishedReader } from "./finish.ts";
+import { closeIfNothingToMerge } from "./finish.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 export interface WorkerChange {
@@ -15,7 +15,7 @@ export interface WorkerChange {
   entries: StatusEntry[];
   /** The pane closed during this poll. */
   hasExited: boolean;
-  /** A finished scout or reviewer was closed: pane, worktree, branch, and record removed. */
+  /** A done worker with nothing to merge was closed: pane, worktree, branch, and record removed. */
   isClosed: boolean;
   /** The closed worker's report.md, or "" when it wrote none. */
   report?: string;
@@ -57,7 +57,7 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
       isAwaitingUser: delivery.isAwaitingUser,
     };
   }
-  const report = await closeFinishedReader(env, next);
+  const report = await closeIfNothingToMerge(env, next);
   const change = { ...changeOf(next, entries, hasExited), committedFiles };
   return report === undefined ? change : { ...change, isClosed: true, report };
 }

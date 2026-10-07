@@ -74,11 +74,11 @@ write files or run external programs.
 ## Workers
 
 - **Launch.** Worker panes fill a two-column grid to the right of Pi's pane (`1|3`, `2|4`,
-  `5|6`, …; `src/core/layout.ts`), with API-key, custom-endpoint, and proxy variables blanked, so each runtime uses the user's
-  subscription login. The runtime starts with model, effort, and permission flags only
-  (`src/core/runtime-args.ts`); the role prompt and brief are typed in afterwards and never
-  passed on the command line. Pi workers get `--no-approve --no-extensions` so they never load
-  Radian and become coordinators.
+  `5|6`, …; `src/core/layout.ts`), with API-key, custom-endpoint, and proxy variables blanked,
+  so each runtime uses the user's subscription login. The runtime starts with model, effort,
+  and permission flags only (`src/core/runtime-args.ts`); the role prompt and brief are typed
+  in afterwards and never passed on the command line. Pi workers get
+  `--no-approve --no-extensions` so they never load Radian and become coordinators.
 - **Tools.** Claude Code workers get their role's built-in tools only, with `dontAsk`
   permissions. MCP tools are added per project: when a worker needs one, Pi calls
   `radian_allow_tool`, the user approves it in a dialog, and it is saved in the project's
@@ -99,8 +99,9 @@ write files or run external programs.
   or blocked. Only a scout may be dispatched in Plan mode.
 - **Ending.** Merge and discard (`radian_merge`, `radian_discard`, or `/radian merge|discard`)
   each ask the user first and then remove the pane, worktree, and branch.
-  A scout or reviewer that reports `done` with no commits of its own is closed without asking,
-  since there is nothing to merge or lose; its report is included in the message Pi receives.
+  A worker that reports `done` with no commits of its own (a scout or reviewer, a developer that
+  changed nothing, or one whose work already reached the target through another worker) is
+  closed without asking, since there is nothing to merge or lose; Pi gets its report or summary.
   Stop closes the pane and keeps the worktree and branch, so the work can still be merged.
   `/delete-project` is refused while any worker pane is open.
 
@@ -114,4 +115,6 @@ non-Anthropic models on Claude Code. Nothing falls back to another runtime or mo
 ## What Radian does not do
 
 There is no OS-level isolation of workers: they run with the user's permissions and logins. The
-guard keeps the coordinator honest; it is not a security boundary. Radian targets macOS with Herdr and git worktrees, and it does not manage export templates, CI, or anything outside the project's git repository.
+guard keeps the coordinator honest; it is not a security boundary. Radian targets macOS with
+Herdr and git worktrees, and it does not manage export templates, CI, or anything outside the
+project's git repository.

@@ -92,17 +92,18 @@ test("a cancelled merge changes nothing, and /delete-project refuses while the w
   try {
     await pi.prompt("/new-project demo");
     await waitForNote(pi, /Project demo selected/);
-    await pi.prompt(
-      `TOOL radian_dispatch ${JSON.stringify({ role: "scout", title: "Look", task: "Look around." })}`,
-    );
+    // A developer gets a Radian commit at done, so it stays open for the merge; a worker with
+    // nothing to merge would close itself and race this test.
+    await pi.prompt("/radian mode build");
+    await pi.prompt(`TOOL radian_dispatch ${dispatch}`);
     chooseOption(pi, /^Cancel$/);
-    await pi.prompt('TOOL radian_merge {"worker":"demo-scout-1"}');
+    await pi.prompt('TOOL radian_merge {"worker":"demo-developer-1"}');
     assert.match(
       workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "",
       /cancelled by the user/,
     );
     await pi.prompt("/delete-project demo");
-    await waitForNote(pi, /still has running workers: demo-scout-1/);
+    await waitForNote(pi, /still has running workers: demo-developer-1/);
     assert.ok(existsSync(path.join(root, "demo")));
   } finally {
     await pi.close();
