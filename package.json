@@ -21,6 +21,12 @@
     "extensions/",
     "skills/"
   ],
+  "imports": {
+    "#core/*": "./src/core/*",
+    "#io/*": "./src/io/*",
+    "#pi/*": "./src/pi/*",
+    "#workers/*": "./src/workers/*"
+  },
   "pi": {
     "extensions": [
       "./extensions/radian.ts"

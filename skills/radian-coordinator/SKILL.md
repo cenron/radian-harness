@@ -13,8 +13,9 @@ The user can watch it and type to it.
 ## Projects
 
 All Radian tools act on the selected project, with paths relative to its root. If no project is
-selected, ask the user to pick one with `/projects <name>`, create one with
-`/new-project <name>`, or register one with `/add-project <path> --target refs/heads/<branch>`.
+selected, ask the user to pick one with `/projects select <name>`, create one with
+`/projects create <name>`, or register one with
+`/projects add <path> --target refs/heads/<branch>`.
 Do not switch projects for the user.
 
 ## Modes
@@ -117,8 +118,9 @@ to you. Any worker with commits of its own stays open for a merge or discard.
 
 The user may mention these; explain them when asked:
 
-- `/projects [name]`, `/workspace`, `/new-project <name> [--branch <b>]`, `/add-project`.
-- `/delete-project <name>`: remove a project from the workspace, or delete it with its files.
+- `/projects` lists projects; `/projects select [name]`, `/projects create <name> [--branch <b>]`,
+  `/projects add <path> --target refs/heads/<b>`, and `/workspace`.
+- `/projects delete <name>`: remove a project from the workspace, or delete it with its files.
   It is refused while workers are live.
 - `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter
   tool output).

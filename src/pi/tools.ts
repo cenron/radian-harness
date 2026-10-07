@@ -13,14 +13,8 @@ import { dispatchWorker } from "../workers/dispatch.ts";
 import { sendToWorker, stopWorker } from "../workers/finish.ts";
 import { workersFileOf } from "../workers/worker-env.ts";
 import { approveWorkerTool, discardWithApproval, mergeWithApproval } from "./dialogs.ts";
-import {
-  currentMode,
-  namedWorker,
-  requireProject,
-  workerEnvOf,
-  type RadianState,
-} from "./state.ts";
 import { statusReport, workersReport } from "./status-view.ts";
+import type { State } from "./state.ts";
 
 export const RADIAN_TOOL_NAMES = [
   "radian_status",
@@ -39,7 +33,7 @@ const MAX_GIT_OUTPUT_CHARS = 50_000;
 const PLANNING_DIR = path.join(".radian", "planning");
 const workerParameter = Type.String({ description: "Worker name, e.g. demo-developer-1" });
 
-export function registerTools(state: RadianState): void {
+export function registerTools(state: State): void {
   const tools = [
     tool({
       name: "radian_status",
@@ -67,7 +61,7 @@ export function registerTools(state: RadianState): void {
         args: Type.Array(Type.String(), { description: 'e.g. ["log", "--oneline", "-10"]' }),
       }),
       run: async ({ args }) => {
-        const output = await runReadOnlyGit(requireProject(state).project.path, args);
+        const output = await runReadOnlyGit(state.requireProject().project.path, args);
         return output.length > MAX_GIT_OUTPUT_CHARS
           ? `${output.slice(0, MAX_GIT_OUTPUT_CHARS)}\n[truncated; narrow the command]`
           : output || "(no output)";
@@ -87,9 +81,9 @@ export function registerTools(state: RadianState): void {
         fromWorker: Type.Optional(Type.String({ description: "Start from this worker's branch" })),
       }),
       run: async (params) => {
-        const view = requireProject(state);
+        const view = state.requireProject();
         const request = { ...params, role: parseRole(params.role) };
-        const worker = await dispatchWorker(workerEnvOf(state), request, currentMode(view));
+        const worker = await dispatchWorker(state.workerEnvOf(), request, state.currentMode(view));
         const started = `Started ${worker.name} (${worker.runtime} ${worker.model}, effort ${worker.effort}) in pane ${worker.pane} on branch ${worker.branch}.`;
         if (isWaitingForUser(worker)) {
           return `${started} Its agent is asking a startup question (for example, whether to trust the worktree folder). Ask the user to answer it in pane ${worker.pane}; Radian types in the task once the agent is ready.`;
@@ -104,14 +98,14 @@ export function registerTools(state: RadianState): void {
       name: "radian_workers",
       description: "List the selected project's workers with their state and last status.",
       parameters: Type.Object({}),
-      run: async () => workersReport(listWorkers(workersFileOf(workerEnvOf(state)))),
+      run: async () => workersReport(listWorkers(workersFileOf(state.workerEnvOf()))),
     }),
     tool({
       name: "radian_send",
       description: "Type a message into a worker's session, for example to answer its question.",
       parameters: Type.Object({ worker: workerParameter, text: Type.String() }),
       run: async ({ worker, text }) => {
-        const named = namedWorker(state, worker);
+        const named = state.namedWorker(worker);
         return sendToWorker(named.env, named.worker, text);
       },
     }),
@@ -120,7 +114,7 @@ export function registerTools(state: RadianState): void {
       description: "Close a worker's pane. Its worktree and branch are kept.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }) => {
-        const named = namedWorker(state, worker);
+        const named = state.namedWorker(worker);
         return stopWorker(named.env, named.worker);
       },
     }),
@@ -130,7 +124,7 @@ export function registerTools(state: RadianState): void {
         "Ask the user to approve merging a worker's branch into the target branch. Only the user's approval merges; report exactly what this tool returns.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }, ctx) => {
-        const named = namedWorker(state, worker);
+        const named = state.namedWorker(worker);
         return mergeWithApproval(ctx, named.env, named.worker);
       },
     }),
@@ -140,7 +134,7 @@ export function registerTools(state: RadianState): void {
         "Ask the user to approve throwing a worker's work away: its pane, worktree, and branch are removed without merging. Use it for failed launches, rejected changes, or the losing side of a conflict. Only the user's approval discards; report exactly what this tool returns.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }, ctx) => {
-        const named = namedWorker(state, worker);
+        const named = state.namedWorker(worker);
         return discardWithApproval(ctx, named.env, named.worker);
       },
     }),
@@ -158,7 +152,7 @@ export function registerTools(state: RadianState): void {
   for (const definition of tools) state.pi.registerTool(definition);
 }
 
-function writeDoc(state: RadianState, relative: string, content: string): string {
+function writeDoc(state: State, relative: string, content: string): string {
   const normalized = path.normalize(relative);
   if (path.isAbsolute(normalized) || normalized.startsWith("..") || normalized === ".") {
     throw new RadianError(
@@ -166,19 +160,19 @@ function writeDoc(state: RadianState, relative: string, content: string): string
       `${relative} must be a relative path inside .radian/planning/.`,
     );
   }
-  const file = path.join(requireProject(state).project.path, PLANNING_DIR, normalized);
+  const file = path.join(state.requireProject().project.path, PLANNING_DIR, normalized);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content);
   return `Wrote ${path.join(PLANNING_DIR, normalized)}.`;
 }
 
 async function allowWorkerTool(
-  state: RadianState,
+  state: State,
   ctx: Parameters<ToolDefinition["execute"]>[4],
   request: { tool: string; reason: string },
 ): Promise<string> {
   assertWorkerToolName(request.tool);
-  const { project } = requireProject(state);
+  const { project } = state.requireProject();
   if (readWorkerTools(project.path).includes(request.tool)) {
     return `${request.tool} is already allowed for workers in ${project.name}.`;
   }

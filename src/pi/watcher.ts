@@ -6,8 +6,8 @@ import { hasOpenPane } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { pollWorker, type WorkerChange } from "../workers/poll.ts";
 import { workersFileOf } from "../workers/worker-env.ts";
-import { workerEnvOf, type RadianState } from "./state.ts";
 import { refreshStatus } from "./status-view.ts";
+import type { State } from "./state.ts";
 
 const NEXT_STEP: Record<string, string> = {
   question:
@@ -23,8 +23,8 @@ const CLOSED_NEXT_STEP = "Tell the user what it reported; there is nothing to me
 const MAX_REPORT_CHARS = 4000;
 
 /** Polls the selected project's workers and tells Pi about questions, results, and exits. */
-export function startWatcher(state: RadianState, ctx: ExtensionContext): () => void {
-  const pollMs = workerEnvOf(state).config.harness.pollSeconds * 1000;
+export function startWatcher(state: State, ctx: ExtensionContext): () => void {
+  const pollMs = state.workerEnvOf().config.harness.pollSeconds * 1000;
   let isPolling = false;
   const timer = setInterval(async () => {
     if (isPolling) return;
@@ -90,8 +90,8 @@ function reportText(report: string | undefined): string {
     : report;
 }
 
-async function pollOnce(state: RadianState, ctx: ExtensionContext): Promise<void> {
-  const env = workerEnvOf(state);
+async function pollOnce(state: State, ctx: ExtensionContext): Promise<void> {
+  const env = state.workerEnvOf();
   const messages: string[] = [];
   for (const worker of listWorkers(workersFileOf(env)).filter(hasOpenPane)) {
     const message = describeChange(await pollWorker(env, worker));

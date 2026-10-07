@@ -17,7 +17,7 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
   const { pi, root } = workspace;
   const lastToolResult = () => workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "";
   try {
-    await pi.prompt("/new-project demo");
+    await pi.prompt("/projects create demo");
     await waitForNote(pi, /Project demo selected/);
     await pi.prompt(`TOOL radian_dispatch ${dispatch}`);
     const refused = workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "";
@@ -86,11 +86,11 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
   }
 });
 
-test("a cancelled merge changes nothing, and /delete-project refuses while the worker runs", async () => {
+test("a cancelled merge changes nothing, and /projects delete refuses while the worker runs", async () => {
   const workspace = startWorkspace();
   const { pi, root } = workspace;
   try {
-    await pi.prompt("/new-project demo");
+    await pi.prompt("/projects create demo");
     await waitForNote(pi, /Project demo selected/);
     // A developer gets a Radian commit at done, so it stays open for the merge; a worker with
     // nothing to merge would close itself and race this test.
@@ -102,7 +102,7 @@ test("a cancelled merge changes nothing, and /delete-project refuses while the w
       workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "",
       /cancelled by the user/,
     );
-    await pi.prompt("/delete-project demo");
+    await pi.prompt("/projects delete demo");
     await waitForNote(pi, /still has running workers: demo-developer-1/);
     assert.ok(existsSync(path.join(root, "demo")));
   } finally {

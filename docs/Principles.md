@@ -93,8 +93,8 @@ if (!(await isClean(env.project.path))) {
 
 Errors are caught at the boundary that can show them:
 
-- Slash commands run through `runCommand` in `src/pi/commands.ts`, which turns any error into a
-  `ctx.ui.notify(..., "error")` message.
+- Slash commands run through `runCommand` in `src/pi/commands/index.ts`, which turns any error
+  into a `ctx.ui.notify(..., "error")` message.
 - Tools are built by `tool()` in `src/pi/tools.ts`. They let errors propagate, and Pi turns
   them into failed tool results that the model reads.
 - The installer CLI in `src/install/cli.ts` prints the message and exits 1.
@@ -147,7 +147,10 @@ Radian uses the simplest solution that works, with no speculative options or lay
   so it changes nothing.
 - **Worker progress.** Workers report by appending lines to a `status` file, and
   `src/core/status.ts` parses those lines loosely. There is no result schema.
-- **Classes.** Code is plain functions and data. The only classes are `RadianError` and the
+- **Classes.** Logic is plain functions and data. Classes hold what lives for one Pi extension
+  instance: `RegisterRadian` (`src/pi/register.ts`) wires Radian into Pi, `State`
+  (`src/pi/state.ts`) holds the session's view and settings, and `ProjectSession`
+  (`src/pi/project-session.ts`) switches sessions. The others are `RadianError` and the
   `ModeEditor` subclass of Pi's `CustomEditor` in `src/pi/mode-editor.ts`, which Pi's editor API
   requires.
 - **Abstractions.** Knowledge is extracted once it is duplicated three or more times, or when
@@ -166,7 +169,8 @@ Radian uses the simplest solution that works, with no speculative options or lay
   Radian reads (`pane split`, `pane get`). Deleting a pane from its map simulates a closed
   pane.
 - **Native Pi tests.** `tests/integration/` drives a real Pi over RPC with an offline faux
-  provider. It covers workspace load, project switching, `/delete-project`, and a full dispatch.
+  provider. It covers workspace load, project switching, `/projects delete`, and a full
+  dispatch.
 - **Unit tests.** They mirror the source tree: `tests/unit/core/`, `io/`, `workers/`, `pi/`,
   `install/`, and `scripts/`. They use `node:test` and `node:assert/strict`, and Node runs the
   `.ts` files directly.
@@ -194,7 +198,8 @@ Prettier formats; ESLint owns quality. Never hand-format or fight the formatter.
     `import type`.
 - **TypeScript** runs from `tsconfig.json` with `strict`, `noUncheckedIndexedAccess`, and
   `erasableSyntaxOnly`, because Node strips types at run time. Import with `.ts` extensions, and
-  don't use enums, namespaces, or parameter properties.
+  don't use enums, namespaces, or parameter properties. Besides relative paths, `src/` may import
+  through the `package.json` aliases `#core/*`, `#io/*`, `#workers/*`, and `#pi/*`.
 
 Commands:
 

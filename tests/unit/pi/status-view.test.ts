@@ -33,8 +33,8 @@ test("projectReport shows the project, mode, and workers", () => {
 });
 
 test("dashboard and empty reports guide the user", () => {
-  assert.match(dashboardReport([]), /\/new-project/);
-  assert.match(dashboardReport([project]), /- demo: \/ws\/demo[\s\S]*\/projects <name>/);
+  assert.match(dashboardReport([]), /\/projects create <name>/);
+  assert.match(dashboardReport([project]), /- demo: \/ws\/demo[\s\S]*\/projects select <name>/);
   assert.equal(workersReport([]), "No workers.");
 });
 

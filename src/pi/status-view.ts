@@ -3,8 +3,7 @@ import type { Mode } from "../core/roles.ts";
 import { countsTowardLimit, type WorkerRecord, type WorkerState } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { listProjects, projectPaths, readMode, type Project } from "../io/workspace.ts";
-import { requireView, type RadianState } from "./state.ts";
-
+import type { State } from "./state.ts";
 const STATUS_KEY = "radian";
 const STATE_ORDER: readonly WorkerState[] = [
   "starting",
@@ -44,7 +43,7 @@ export interface ProjectStatus {
   maxWorkers: number;
 }
 
-export function refreshStatus(ctx: ExtensionContext, state: RadianState): void {
+export function refreshStatus(ctx: ExtensionContext, state: State): void {
   const view = state.view;
   if (!view) return;
   if (!view.project) {
@@ -136,8 +135,8 @@ export function clearStatus(ctx: ExtensionContext): void {
 }
 
 /** What /radian status and radian_status show: the selected project, or the dashboard. */
-export function statusReport(state: RadianState): string {
-  const view = requireView(state);
+export function statusReport(state: State): string {
+  const view = state.requireView();
   if (!view.project) return dashboardReport(listProjects(view.workspaceRoot));
   return projectReport(projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
 }
@@ -152,13 +151,15 @@ export function projectReport(status: ProjectStatus): string {
 }
 
 export function dashboardReport(projects: readonly Project[]): string {
-  if (projects.length === 0) return "No projects yet. Create one with /new-project <name>.";
+  if (projects.length === 0) return "No projects yet. Create one with /projects create <name>.";
   const lines = projects.map(
     (project) => `- ${project.name}: ${project.path} (target ${project.target})`,
   );
-  return ["No project selected. Projects:", ...lines, "Select one with /projects <name>."].join(
-    "\n",
-  );
+  return [
+    "No project selected. Projects:",
+    ...lines,
+    "Select one with /projects select <name>.",
+  ].join("\n");
 }
 
 export function workersReport(workers: readonly WorkerRecord[]): string {
