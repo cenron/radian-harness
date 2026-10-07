@@ -77,8 +77,8 @@ write files or run external programs.
   `5|6`, …; `src/core/layout.ts`), with API-key, custom-endpoint, and proxy variables blanked,
   so each runtime uses the user's subscription login. The runtime starts with model, effort,
   and permission flags only (`src/core/runtime-args.ts`); the role prompt and brief are typed
-  in afterwards and never passed on the command line. Pi workers get `--no-approve
-  --no-extensions` so they never load Radian and become coordinators.
+  in afterwards and never passed on the command line. Pi workers get
+  `--no-approve --no-extensions` so they never load Radian and become coordinators.
 - **Tools.** Claude Code workers get their role's built-in tools only, with `dontAsk`
   permissions. MCP tools are added per project: when a worker needs one, Pi calls
   `radian_allow_tool`, the user approves it in a dialog, and it is saved in the project's
