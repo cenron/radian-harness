@@ -78,7 +78,7 @@ Radian is a project package, so Pi asks once whether to trust the workspace; tru
 | `/delete-project <name>`                               | Cancel, remove from the workspace (keep files), or delete with the files |
 | `/radian status`                                       | The project, its mode, and its workers                                   |
 | `/radian mode plan\|build`, Shift+Tab                  | Switch mode                                                              |
-| `/radian calm on\|off`                                 | Collapse successful tool output                                          |
+| `/calm [on\|off]`, `/radian calm on\|off`              | Toggle Calm: collapse successful tool output                             |
 | `/radian workers`                                      | List workers                                                             |
 | `/radian merge\|stop\|discard <worker>`                | Merge (with approval), close the pane, or throw the work away            |
 | `npm run workspace -- install\|update\|remove\|status` | Manage the binding (add `--workspace <dir>`)                             |

@@ -67,6 +67,10 @@ export function registerCommands(state: RadianState): void {
         "Remove a project from the workspace, optionally deleting its files: /delete-project <name>",
       action: (args, ctx) => removeProject(state, args[0], ctx),
     },
+    calm: {
+      description: "Toggle Calm (collapse successful tool output), or set it: /calm [on|off]",
+      action: async (args) => toggleCalm(state, args[0]),
+    },
     radian: {
       description:
         "Radian: status, mode plan|build, calm on|off, workers, merge|stop|discard <worker>",
@@ -197,6 +201,12 @@ export function statusReport(state: RadianState): string {
   const view = requireView(state);
   if (!view.project) return dashboardReport(listProjects(view.workspaceRoot));
   return projectReport(projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
+}
+
+function toggleCalm(state: RadianState, setting: string | undefined): string {
+  if (setting === undefined) return setCalm(state, !state.isCalm);
+  if (setting === "on" || setting === "off") return setCalm(state, setting === "on");
+  throw new RadianError("usage", "Usage: /calm [on|off]");
 }
 
 function setCalm(state: RadianState, isCalm: boolean): string {

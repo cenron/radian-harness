@@ -91,6 +91,6 @@ The user may mention these; explain them when asked:
 - `/projects [name]`, `/workspace`, `/new-project <name> [--branch <b>]`, `/add-project`.
 - `/delete-project <name>`: remove a project from the workspace, or delete it with its files.
   It is refused while workers are live.
-- `/radian status`, `/radian mode plan|build`, and `/radian calm on|off` (quieter tool output).
+- `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter tool output).
 - `/radian workers`, `/radian merge <w>`, `/radian stop <w>`, `/radian discard <w>`. Discard
   deletes a worker's worktree and branch after a dialog.

@@ -35,6 +35,18 @@ test("/radian calm persists the preference", async () => {
   assert.equal(readCalm(env.workspaceRoot, false), true);
 });
 
+test("/calm toggles Calm, and also takes on or off", async () => {
+  const { env, fake } = await setup();
+  assert.match((await fake.run("/calm")) ?? "", /Calm on/);
+  assert.equal(readCalm(env.workspaceRoot, false), true);
+  assert.match((await fake.run("/calm")) ?? "", /Calm off/);
+  assert.equal(fake.state.isCalm, false);
+  await fake.run("/calm on");
+  await fake.run("/calm on");
+  assert.equal(fake.state.isCalm, true);
+  assert.match((await fake.run("/calm loud")) ?? "", /Usage: \/calm \[on\|off\]/);
+});
+
 test("/radian status and workers report the project", async () => {
   const { env, fake } = await setup();
   await dispatchWorker(env, { role: "scout", title: "Look", task: "Look." }, "plan");

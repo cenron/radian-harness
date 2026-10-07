@@ -32,7 +32,7 @@ radian-harness/
 │   │   ├── state.ts            Per-session state, the current view, WorkerEnv construction
 │   │   ├── activation.ts       Workspace detection, per-project sessions, model carry-over
 │   │   ├── commands.ts         /projects, /workspace, /new-project, /add-project,
-│   │   │                       /delete-project, /radian …
+│   │   │                       /delete-project, /calm, /radian …
 │   │   ├── tools.ts            radian_status, _write_doc, _git, _dispatch, _workers, _send,
 │   │   │                       _stop, _merge
 │   │   ├── read-tools.ts       read/ls/grep/find confined to the selected project
