@@ -25,13 +25,17 @@ export function isWorkspaceRoot(directory: string): boolean {
 
 export function projectPaths(workspaceRoot: string, project: string) {
   const stateDir = path.join(workspaceRoot, ".radian", "projects", project);
+  const workersDir = path.join(stateDir, "workers");
+  const worktreesDir = path.join(stateDir, "worktrees");
   return {
     stateDir,
+    workersDir,
+    worktreesDir,
     workersFile: path.join(stateDir, "workers.json"),
     modeFile: path.join(stateDir, "mode.json"),
     sessionFile: path.join(stateDir, "session.json"),
-    workerDir: (worker: string) => path.join(stateDir, "workers", worker),
-    worktree: (worker: string) => path.join(stateDir, "worktrees", worker),
+    workerDir: (worker: string) => path.join(workersDir, worker),
+    worktree: (worker: string) => path.join(worktreesDir, worker),
   };
 }
 

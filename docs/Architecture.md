@@ -59,7 +59,8 @@ so Radian keeps nothing important in memory: everything is re-read from disk on
 For a selected project, Radian points the system prompt at the project (`cwd`, the project's
 context files such as `AGENTS.md`, and a `radian` section with the mode), activates only its own
 tools plus `read`/`ls`/`grep`/`find`, and replaces those four with versions rooted at the
-project that refuse paths outside it.
+project that refuse paths outside it. They may also read the project's worker worktrees and
+worker files (brief, status, report), so Pi can review a worker's work before offering a merge.
 
 ## Coordinator limits
 

@@ -96,5 +96,5 @@ export function workersReport(workers: readonly WorkerRecord[]): string {
 function workerLine(worker: WorkerRecord): string {
   const agent = worker.agentStatus ? ` (agent ${worker.agentStatus})` : "";
   const last = worker.lastStatus ? ` — ${worker.lastStatus}` : "";
-  return `${worker.name} [${worker.state}${agent}] ${worker.role}: ${worker.title} · ${worker.runtime} ${worker.model}${last}`;
+  return `${worker.name} [${worker.state}${agent}] ${worker.role}: ${worker.title} · ${worker.runtime} ${worker.model} · worktree ${worker.worktree}${last}`;
 }
