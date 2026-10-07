@@ -1,11 +1,22 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Mode } from "../core/roles.ts";
-import { countsTowardLimit, type WorkerRecord } from "../core/worker.ts";
+import { countsTowardLimit, type WorkerRecord, type WorkerState } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { listProjects, projectPaths, readMode, type Project } from "../io/workspace.ts";
 import { requireView, type RadianState } from "./state.ts";
 
 const STATUS_KEY = "radian";
+const STATE_ORDER: readonly WorkerState[] = [
+  "starting",
+  "working",
+  "question",
+  "blocked",
+  "done",
+  "failed",
+  "exited",
+  "stopped",
+];
+const STATE_LABELS: Partial<Record<WorkerState, string>> = { question: "asking" };
 
 export interface ProjectStatus {
   project: Project;
@@ -39,11 +50,7 @@ export function projectStatusOf(
 
 function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
   if (!ctx.hasUI) return;
-  const running = status.workers.filter(countsTowardLimit).length;
-  ctx.ui.setStatus(
-    STATUS_KEY,
-    `Radian · ${status.project.name} · ${status.mode.toUpperCase()} · ${running}/${status.maxWorkers} workers`,
-  );
+  ctx.ui.setStatus(STATUS_KEY, projectStatusLine(status));
   ctx.ui.setWidget(
     STATUS_KEY,
     status.workers.length > 0 ? status.workers.map(workerLine) : undefined,
@@ -54,6 +61,25 @@ function showDashboardStatus(ctx: ExtensionContext, projectCount: number): void 
   if (!ctx.hasUI) return;
   ctx.ui.setStatus(STATUS_KEY, `Radian · workspace · ${projectCount} project(s)`);
   ctx.ui.setWidget(STATUS_KEY, undefined);
+}
+
+/**
+ * The footer: every open worker by state, and how many of the limit's slots are in use. A done
+ * worker frees its slot while it waits for a merge, so the two numbers differ on purpose.
+ */
+export function projectStatusLine(status: ProjectStatus): string {
+  const inUse = status.workers.filter(countsTowardLimit).length;
+  const slots = `${inUse}/${status.maxWorkers} slots in use`;
+  const prefix = `Radian · ${status.project.name} · ${status.mode.toUpperCase()}`;
+  if (status.workers.length === 0) return `${prefix} · no workers · ${slots}`;
+  const byState = STATE_ORDER.map((state) => ({
+    label: STATE_LABELS[state] ?? state,
+    count: status.workers.filter((worker) => worker.state === state).length,
+  }))
+    .filter((group) => group.count > 0)
+    .map((group) => `${group.count} ${group.label}`);
+  const count = status.workers.length;
+  return `${prefix} · ${count} worker${count === 1 ? "" : "s"}: ${byState.join(", ")} · ${slots}`;
 }
 
 export function clearStatus(ctx: ExtensionContext): void {
