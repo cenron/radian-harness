@@ -206,11 +206,12 @@ test("a dispatch whose worktree cannot be created leaves no record behind", asyn
 
 test("parallel dispatches still follow the grid: the second pane opens below the first", async () => {
   const { env, herdr } = await makeWorkerEnv();
-  const [first] = await Promise.all([
+  await Promise.all([
     dispatchWorker(env, { ...request, title: "A" }, "build"),
     dispatchWorker(env, { ...request, role: "tester", title: "B" }, "build"),
   ]);
+  // Either dispatch may reach the pane queue first; the fake numbers panes in opening order.
   const splits = herdr.calls.filter((call) => call[1] === "split");
   assert.deepEqual(splits[0]?.slice(2, 5), ["w1:p1", "--direction", "right"]);
-  assert.deepEqual(splits[1]?.slice(2, 5), [first.pane, "--direction", "down"]);
+  assert.deepEqual(splits[1]?.slice(2, 5), ["w9:p1", "--direction", "down"]);
 });

@@ -37,6 +37,8 @@ them.
 - `radian_send {worker, text}`: type a message into a worker's session.
 - `radian_stop {worker}`: close a worker's pane. Its worktree and branch are kept.
 - `radian_merge {worker}`: ask the user to approve merging a worker's branch.
+- `radian_discard {worker}`: ask the user to approve throwing a worker's work away (pane,
+  worktree, and branch removed, nothing merged).
 
 ## Dispatching
 
@@ -63,7 +65,7 @@ Worker updates arrive as notifications built from their status lines: `working:`
 - **`question:`** Answer with `radian_send` only when the answer is clear from this
   conversation. Otherwise ask the user and pass their answer on. Never invent product decisions.
 - **`blocked:` / `failed:`** Tell the user what the worker said and suggest a next step, such as
-  a clarified task, a new worker, or stopping it.
+  a clarified task, a new worker, stopping it, or discarding it with `radian_discard`.
 - **`done:`** Workers never commit; for a developer or tester, Radian commits its changes on
   the worker branch when it reports `done:` and says so in the message. Summarise for the user
   (a diff stat from `radian_git`) and offer the merge, with a review first when the change is
@@ -79,7 +81,12 @@ a merge happened until the tool reports success.
 
 The project checkout must be clean and on its target branch. On success the worker's pane,
 worktree, and branch are removed. A conflict is aborted and reported, with the project left as
-it was. In that case suggest a follow-up developer, with `fromWorker` set, to resolve it.
+it was. In that case suggest a follow-up developer, with `fromWorker` set, to resolve it, or
+discarding the side the user does not want.
+
+`radian_discard` also asks the user first, with Cancel as the default. Offer it for failed
+launches, rejected changes, and the losing side of a conflict; never call it to tidy up on your
+own. Never say work was discarded until the tool reports it.
 
 Commits and merges belong to the coordinator side: Radian commits each developer's or tester's
 work at `done:`, and only the user's approval merges it. A reviewer or scout that finishes is

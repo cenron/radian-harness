@@ -10,7 +10,7 @@ import { dispatchWorker } from "../workers/dispatch.ts";
 import { sendToWorker, stopWorker } from "../workers/finish.ts";
 import { workersFileOf } from "../workers/worker-env.ts";
 import { statusReport } from "./commands.ts";
-import { mergeWithApproval } from "./dialogs.ts";
+import { discardWithApproval, mergeWithApproval } from "./dialogs.ts";
 import { currentMode, requireProject, workerEnvOf, type RadianState } from "./state.ts";
 import { workersReport } from "./status-view.ts";
 
@@ -23,6 +23,7 @@ export const RADIAN_TOOL_NAMES = [
   "radian_send",
   "radian_stop",
   "radian_merge",
+  "radian_discard",
 ];
 
 const MAX_GIT_OUTPUT_CHARS = 50_000;
@@ -122,6 +123,16 @@ export function registerTools(state: RadianState): void {
       run: async ({ worker }, ctx) => {
         const env = workerEnvOf(state);
         return mergeWithApproval(ctx, env, findWorker(workersFileOf(env), worker));
+      },
+    }),
+    tool({
+      name: "radian_discard",
+      description:
+        "Ask the user to approve throwing a worker's work away: its pane, worktree, and branch are removed without merging. Use it for failed launches, rejected changes, or the losing side of a conflict. Only the user's approval discards; report exactly what this tool returns.",
+      parameters: Type.Object({ worker: workerParameter }),
+      run: async ({ worker }, ctx) => {
+        const env = workerEnvOf(state);
+        return discardWithApproval(ctx, env, findWorker(workersFileOf(env), worker));
       },
     }),
   ];

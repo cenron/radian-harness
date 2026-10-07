@@ -35,7 +35,7 @@ radian-harness/
 │   │   ├── commands.ts         /projects, /workspace, /new-project, /add-project,
 │   │   │                       /delete-project, /calm, /radian …
 │   │   ├── tools.ts            radian_status, _write_doc, _git, _dispatch, _workers, _send,
-│   │   │                       _stop, _merge
+│   │   │                       _stop, _merge, _discard
 │   │   ├── read-tools.ts       read/ls/grep/find confined to the selected project
 │   │   ├── guard.ts            Blocks Pi's bash, write, and edit
 │   │   ├── dialogs.ts          Project picker, delete dialog, merge and discard approvals

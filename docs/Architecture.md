@@ -91,7 +91,8 @@ write files or run external programs.
   many were reported, so a restart neither repeats nor loses an update.
 - **Limits.** `maxWorkers` (default 3) counts workers that are starting, working, idle, asking,
   or blocked. Only a scout may be dispatched in Plan mode.
-- **Ending.** Merge and discard each ask first and then remove the pane, worktree, and branch.
+- **Ending.** Merge and discard (`radian_merge`, `radian_discard`, or `/radian merge|discard`)
+  each ask the user first and then remove the pane, worktree, and branch.
   A scout or reviewer that reports `done` with no commits of its own is closed without asking,
   since there is nothing to merge or lose; its report is included in the message Pi receives.
   Stop closes the pane and keeps the worktree and branch, so the work can still be merged.
