@@ -18,14 +18,9 @@ interface Registry {
   projects: Project[];
 }
 
-export function findWorkspaceRoot(start: string): string | undefined {
-  let directory = path.resolve(start);
-  for (;;) {
-    if (existsSync(path.join(directory, ".radian", "workspace.json"))) return directory;
-    const parent = path.dirname(directory);
-    if (parent === directory) return undefined;
-    directory = parent;
-  }
+/** Radian runs only where the installer created `.radian/workspace.json`. */
+export function isWorkspaceRoot(directory: string): boolean {
+  return existsSync(path.join(directory, ".radian", "workspace.json"));
 }
 
 export function projectPaths(workspaceRoot: string, project: string) {

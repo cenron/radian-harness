@@ -27,6 +27,8 @@ export interface WorkerRecord {
   baseBranch: string;
   worktree: string;
   pane?: string;
+  /** Herdr's last view of the agent in the pane (idle, working, blocked, ...). */
+  agentStatus?: string;
   state: WorkerState;
   lastStatus?: string;
   /** Status lines already reported to Pi, so a restart never repeats them. */

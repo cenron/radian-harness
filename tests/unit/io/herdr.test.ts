@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createFakeHerdr } from "../../helpers/fake-herdr.ts";
 import {
   closePane,
-  getAgent,
+  getPane,
   parseCreatedPane,
   promptAgent,
   renamePane,
@@ -68,13 +68,14 @@ test("renamePane, startAgent, promptAgent, and closePane use Herdr's command sha
   ]);
 });
 
-test("getAgent reads status and pane, and is undefined when the agent is gone", async () => {
+test("getPane reads the agent status, and is undefined once the pane is closed", async () => {
   const herdr = createFakeHerdr();
-  await startAgent(herdr.run, { name: "w", kind: "pi", pane: "w9:p3", args: [] });
-  herdr.agents.set("w", "working");
-  assert.deepEqual(await getAgent(herdr.run, "w"), { status: "working", pane: "w9:p3" });
-  await closePane(herdr.run, "w9:p3");
-  assert.equal(await getAgent(herdr.run, "w"), undefined);
+  const pane = await splitPane(herdr.run, { from: "w1:p1", cwd: "/", blankedEnv: [] });
+  await startAgent(herdr.run, { name: "w", kind: "pi", pane, args: [] });
+  herdr.panes.set(pane, "working");
+  assert.deepEqual(await getPane(herdr.run, pane), { agentStatus: "working" });
+  await closePane(herdr.run, pane);
+  assert.equal(await getPane(herdr.run, pane), undefined);
 });
 
 test("a failing herdr command throws with its error output", async () => {

@@ -24,8 +24,16 @@ test("renderBrief holds the task, working rules, and the absolute status path", 
   assert.match(brief, /relative to the worktree/);
   assert.match(brief, /echo "done: <one-line summary>" >> \/ws\/.*\/status/);
   assert.match(brief, /working\|question\|blocked\|done\|failed/);
-  assert.match(brief, /report\.md/);
   assert.match(brief, /target branch is `main`/);
+});
+
+test("developers commit; reviewers and scouts write a report instead", () => {
+  assert.match(renderBrief(input), /Commit your work on your branch `radian\/demo-developer-1`/);
+  const review = renderBrief({ ...input, role: "reviewer" });
+  assert.match(
+    review,
+    /do not change code or commit\. Write your findings to \/ws\/.*\/report\.md/,
+  );
 });
 
 test("renderBrief names the branch a reviewer or tester starts from", () => {

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "roles": {
+    "developer": "developer",
+    "tester": "tester",
+    "reviewer": "reviewer",
+    "scout": "scout"
+  },
+  "profiles": {
+    "developer": {
+      "runtime": "claude",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Default developer: routine implementation and bounded fixes on Claude Code."
+    },
+    "tester": {
+      "runtime": "claude",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Default tester: test design, running tests, and failure diagnosis on Claude Code."
+    },
+    "reviewer": {
+      "runtime": "claude",
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "description": "Default reviewer: ordinary correctness and maintainability review on Claude Code."
+    },
+    "scout": {
+      "runtime": "claude",
+      "model": "claude-haiku-4-5-20251001",
+      "effort": "low",
+      "description": "Default scout: quick read-only exploration and file discovery on Claude Code."
+    },
+    "deep-review": {
+      "runtime": "claude",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "description": "Pick for risky changes (security, data loss, concurrency, migrations) when the user wants a deeper review."
+    },
+    "developer-codex": {
+      "runtime": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Pick only when the user explicitly asks for Codex; never as a fallback."
+    },
+    "developer-pi": {
+      "runtime": "pi",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "description": "Pick only when the user explicitly asks for an OpenAI model through Pi; never as a fallback."
+    }
+  }
+}

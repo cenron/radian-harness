@@ -1,0 +1,1 @@
+{ "version": 1, "maxWorkers": 3, "startMode": "plan", "calm": false, "pollSeconds": 3 }

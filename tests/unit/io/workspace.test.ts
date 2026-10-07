@@ -8,8 +8,8 @@ import {
   addProject,
   createProject,
   deleteProject,
-  findWorkspaceRoot,
   getProject,
+  isWorkspaceRoot,
   listProjects,
   projectPaths,
   readMode,
@@ -22,12 +22,11 @@ function makeWorkspace(): string {
   return root;
 }
 
-test("findWorkspaceRoot walks up to the directory holding .radian/workspace.json", () => {
+test("isWorkspaceRoot recognises the directory holding .radian/workspace.json", () => {
   const root = makeWorkspace();
-  const nested = path.join(root, "a", "b");
-  mkdirSync(nested, { recursive: true });
-  assert.equal(findWorkspaceRoot(nested), root);
-  assert.equal(findWorkspaceRoot(makeTempDir()), undefined);
+  assert.equal(isWorkspaceRoot(root), true);
+  assert.equal(isWorkspaceRoot(path.join(root, ".radian")), false);
+  assert.equal(isWorkspaceRoot(makeTempDir()), false);
 });
 
 test("createProject makes a git repository inside the workspace and registers it", async () => {

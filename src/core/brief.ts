@@ -1,4 +1,4 @@
-import type { Role } from "./roles.ts";
+import { canEditCode, type Role } from "./roles.ts";
 
 export interface BriefInput {
   workerName: string;
@@ -26,10 +26,9 @@ export function renderBrief(input: BriefInput): string {
     "## Working rules",
     "",
     `- Stay inside your worktree: ${input.worktree}`,
-    `- Commit your work on your branch \`${input.branch}\` (cut from \`${input.baseBranch}\`). Do not switch branches, merge, rebase, or push.`,
+    commitRule(input),
     `- The project's target branch is \`${input.targetBranch}\`; Radian merges your branch into it after the user approves.`,
     "- When you mention files, give paths relative to the worktree.",
-    `- Reviewers and scouts write their findings to ${input.reportPath}`,
     "",
     "## Status",
     "",
@@ -44,6 +43,14 @@ export function renderBrief(input: BriefInput): string {
     "work is committed.",
     "",
   ].join("\n");
+}
+
+function commitRule(input: BriefInput): string {
+  const branch = `your branch \`${input.branch}\` (cut from \`${input.baseBranch}\`)`;
+  if (canEditCode(input.role)) {
+    return `- Commit your work on ${branch}. Do not switch branches, merge, rebase, or push.`;
+  }
+  return `- You work on ${branch} but do not change code or commit. Write your findings to ${input.reportPath}`;
 }
 
 export function firstPrompt(rolePrompt: string, briefPath: string): string {

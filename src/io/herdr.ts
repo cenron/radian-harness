@@ -11,9 +11,9 @@ export interface HerdrResult {
 /** Runs one herdr command. Injected so tests can stand in for Herdr. */
 export type HerdrRunner = (args: readonly string[]) => Promise<HerdrResult>;
 
-export interface AgentInfo {
-  status: string;
-  pane: string;
+export interface PaneInfo {
+  /** Herdr's view of the agent in the pane: idle, working, blocked, done, or unknown. */
+  agentStatus: string;
 }
 
 // Claude Code and Codex can take a while to show their prompt on first start.
@@ -76,15 +76,12 @@ export async function promptAgent(run: HerdrRunner, name: string, text: string):
   await runChecked(run, ["agent", "prompt", name, text]);
 }
 
-/** Undefined when Herdr no longer knows the agent, which means its pane is gone. */
-export async function getAgent(run: HerdrRunner, name: string): Promise<AgentInfo | undefined> {
-  const result = await run(["agent", "get", name]);
+/** Undefined when the pane no longer exists. */
+export async function getPane(run: HerdrRunner, pane: string): Promise<PaneInfo | undefined> {
+  const result = await run(["pane", "get", pane]);
   if (result.exitCode !== 0) return undefined;
-  const data = parseJson(result.stdout) as {
-    result?: { agent?: { agent_status?: string; pane_id?: string } };
-  };
-  const agent = data?.result?.agent;
-  return { status: agent?.agent_status ?? "unknown", pane: agent?.pane_id ?? "" };
+  const data = parseJson(result.stdout) as { result?: { pane?: { agent_status?: string } } };
+  return { agentStatus: data?.result?.pane?.agent_status ?? "unknown" };
 }
 
 export async function closePane(run: HerdrRunner, pane: string): Promise<void> {
