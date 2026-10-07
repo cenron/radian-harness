@@ -15,7 +15,7 @@ import {
 import { addWorktree, gitCommonDir } from "../io/git.ts";
 import { promptAgent, readPaneText, renamePane, splitPane, startAgent } from "../io/herdr.ts";
 import { writeBrief, type WorkerFiles } from "../io/status-files.ts";
-import { findWorker, listWorkers, saveWorker } from "../io/worker-store.ts";
+import { findWorker, listWorkers, removeWorker, saveWorker } from "../io/worker-store.ts";
 import { projectPaths } from "../io/workspace.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
@@ -42,14 +42,21 @@ export async function dispatchWorker(
     ? findWorker(workersFileOf(env), request.fromWorker).branch
     : env.project.target;
   const worker = newRecord(env, { request, profile, baseBranch, existing: workers });
-  await addWorktree(env.project.path, {
-    path: worker.worktree,
-    branch: worker.branch,
-    from: baseBranch,
-  });
+  // Saved before the first await: Pi may run two dispatches at once, and the second must
+  // see this name and count this worker toward the limit.
+  saveWorker(workersFileOf(env), worker);
+  try {
+    await addWorktree(env.project.path, {
+      path: worker.worktree,
+      branch: worker.branch,
+      from: baseBranch,
+    });
+  } catch (error) {
+    removeWorker(workersFileOf(env), worker.name);
+    throw error;
+  }
   const files = filesOf(env, worker);
   writeBrief(files, briefFor(worker, { task: request.task, target: env.project.target, files }));
-  saveWorker(workersFileOf(env), worker);
   return launchWorker(env, { worker, profile, files, paneId });
 }
 

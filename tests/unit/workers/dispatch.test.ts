@@ -146,3 +146,33 @@ test("a startup prompt Herdr does not report is found on the screen, and the tas
   assert.equal(delivered.worker.state, "working");
   assert.ok(herdr.calls.some((call) => call[1] === "prompt" && call[2] === "w9:p1"));
 });
+
+test("parallel dispatches get distinct names, as when Pi runs two tool calls at once", async () => {
+  const { env } = await makeWorkerEnv();
+  const workers = await Promise.all([
+    dispatchWorker(env, { ...request, title: "A" }, "build"),
+    dispatchWorker(env, { ...request, title: "B" }, "build"),
+  ]);
+  assert.deepEqual(workers.map((worker) => worker.name).sort(), [
+    "demo-developer-1",
+    "demo-developer-2",
+  ]);
+  assert.equal(listWorkers(workersFileOf(env)).length, 2);
+});
+
+test("parallel dispatches respect the worker limit", async () => {
+  const { env } = await makeWorkerEnv();
+  env.config.harness.maxWorkers = 1;
+  const results = await Promise.allSettled([
+    dispatchWorker(env, { ...request, title: "A" }, "build"),
+    dispatchWorker(env, { ...request, title: "B" }, "build"),
+  ]);
+  assert.deepEqual(results.map((result) => result.status).sort(), ["fulfilled", "rejected"]);
+});
+
+test("a dispatch whose worktree cannot be created leaves no record behind", async () => {
+  const { env } = await makeWorkerEnv();
+  git(env.project.path, "branch", "radian/demo-developer-1");
+  await assert.rejects(dispatchWorker(env, request, "build"), /already exists/);
+  assert.deepEqual(listWorkers(workersFileOf(env)), []);
+});
