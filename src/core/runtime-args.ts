@@ -6,8 +6,6 @@ export interface LaunchInput {
   role: Role;
   /** Holds the brief, status, and report files; outside the worktree. */
   workerDir: string;
-  /** Commits from a worktree are written to the main repository's git directory. */
-  gitCommonDir: string;
 }
 
 export type ScreenState = "asking" | "ready" | "starting";
@@ -77,7 +75,7 @@ function claudeArgs({ profile, role, workerDir }: LaunchInput): string[] {
 
 // Every role runs workspace-write: a read-only Codex sandbox could not append to
 // the status file, which lives outside the worktree.
-function codexArgs({ profile, workerDir, gitCommonDir }: LaunchInput): string[] {
+function codexArgs({ profile, workerDir }: LaunchInput): string[] {
   return [
     "--model",
     profile.model,
@@ -91,8 +89,6 @@ function codexArgs({ profile, workerDir, gitCommonDir }: LaunchInput): string[] 
     "never",
     "--add-dir",
     workerDir,
-    "--add-dir",
-    gitCommonDir,
   ];
 }
 
@@ -129,4 +125,12 @@ export function readScreen(runtime: Runtime, screen: string): ScreenState {
   const text = screen.replace(/\s*\r?\n\s*/g, "");
   if (STARTUP_PROMPT.test(text)) return "asking";
   return READY_SCREEN[runtime].test(text) ? "ready" : "starting";
+}
+
+/**
+ * Codex's sandbox keeps git metadata read-only, so a Codex developer or tester cannot commit;
+ * Radian commits its changes when it reports done. Other runtimes commit their own work.
+ */
+export function isCommittedByRadian(runtime: Runtime, role: Role): boolean {
+  return runtime === "codex" && canEditCode(role);
 }

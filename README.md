@@ -162,7 +162,11 @@ provider is contacted. The coding standards are in [docs/Principles.md](docs/Pri
 - Radian manages git branches and worktrees only. Export templates, CI, deployment, and anything
   else outside the repository are not managed.
 - Codex workers run in Codex's `workspace-write` sandbox for every role, because they must write
-  their status file outside the worktree.
+  their status file outside the worktree. That sandbox keeps git metadata read-only, so Radian
+  commits a Codex developer's or tester's changes when it reports `done`.
+- Claude Code and Codex ask to trust each new folder once. Radian waits for you to answer in the
+  worker's pane and types the task in afterwards; it recognizes the prompts by their screen text,
+  so a runtime UI change can leave a worker waiting.
 
 ## Versions
 

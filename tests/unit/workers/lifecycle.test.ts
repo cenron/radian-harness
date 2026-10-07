@@ -180,3 +180,33 @@ test("a poll never brings back a worker that was removed meanwhile", async () =>
   await pollWorker(env, worker);
   assert.deepEqual(listWorkers(workersFileOf(env)), []);
 });
+
+test("when a Codex developer reports done, Radian commits its uncommitted changes", async () => {
+  const { env } = await makeWorkerEnv();
+  const worker = await dispatchWorker(
+    env,
+    { role: "developer", title: "Add a", task: "Add a." },
+    "build",
+  );
+  const codex = { ...worker, runtime: "codex" as const };
+  writeFileSync(path.join(worker.worktree, "a.txt"), "a\n");
+  actAsWorker(worker, { status: ["done: added a.txt"] });
+  const change = await pollWorker(env, codex);
+  assert.equal(change.hasRadianCommit, true);
+  assert.equal(git(worker.worktree, "status", "--porcelain"), "");
+  assert.match(
+    git(worker.worktree, "log", "-1", "--format=%B"),
+    /^Add a\n\nCommitted by Radian for demo-developer-1/,
+  );
+  assert.match(await mergeWorker(env, change.worker), /fast-forward/);
+  assert.ok(existsSync(path.join(env.project.path, "a.txt")));
+});
+
+test("Radian never commits for workers that commit their own work", async () => {
+  const { env, worker } = await dispatchedDeveloper();
+  writeFileSync(path.join(worker.worktree, "scratch.txt"), "x\n");
+  actAsWorker(worker, { status: ["done: finished"] });
+  const change = await pollWorker(env, worker);
+  assert.equal(change.hasRadianCommit, false);
+  assert.match(git(worker.worktree, "status", "--porcelain"), /scratch\.txt/);
+});

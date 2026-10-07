@@ -1,8 +1,11 @@
+import type { Runtime } from "./profiles.ts";
 import { canEditCode, type Role } from "./roles.ts";
+import { isCommittedByRadian } from "./runtime-args.ts";
 
 export interface BriefInput {
   workerName: string;
   role: Role;
+  runtime: Runtime;
   title: string;
   task: string;
   branch: string;
@@ -47,6 +50,9 @@ export function renderBrief(input: BriefInput): string {
 
 function commitRule(input: BriefInput): string {
   const branch = `your branch \`${input.branch}\` (cut from \`${input.baseBranch}\`)`;
+  if (isCommittedByRadian(input.runtime, input.role)) {
+    return `- Do not commit: your sandbox cannot write git metadata. Radian commits your changes on ${branch} when you write \`done:\`; this replaces any instruction to commit. Do not switch branches, merge, rebase, or push.`;
+  }
   if (canEditCode(input.role)) {
     return `- Commit your work on ${branch}. Do not switch branches, merge, rebase, or push.`;
   }

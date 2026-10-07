@@ -7,10 +7,10 @@ import {
   addWorktree,
   branchExists,
   branchSummary,
+  commitAll,
   countOwnCommits,
   currentBranch,
   deleteBranch,
-  gitCommonDir,
   initRepository,
   isClean,
   isRepository,
@@ -55,12 +55,6 @@ test("removeWorktree tolerates a worktree directory that is already gone", async
   git(repo, "worktree", "remove", "--force", worktree);
   await removeWorktree(repo, worktree);
   assert.equal(git(repo, "worktree", "list").split("\n").length, 1);
-});
-
-test("gitCommonDir is the main repository's .git", async () => {
-  const { repo, worktree } = repoWithWorktree();
-  await addWorktree(repo, { path: worktree, branch: "radian/w1", from: "main" });
-  assert.equal(await gitCommonDir(worktree), path.join(repo, ".git"));
 });
 
 test("isClean ignores nothing: untracked files make a checkout dirty", async () => {
@@ -124,4 +118,14 @@ test("countOwnCommits counts commits found on no other branch", async () => {
   assert.equal(await countOwnCommits(repo, "radian/w1"), 1);
   git(repo, "branch", "copy", "radian/w1");
   assert.equal(await countOwnCommits(repo, "radian/w1"), 0);
+});
+
+test("commitAll commits every change, including new files, and reports a clean tree", async () => {
+  const repo = makeRepository();
+  assert.equal(await commitAll(repo, "nothing"), false);
+  writeFileSync(path.join(repo, "new.txt"), "x\n");
+  writeFileSync(path.join(repo, "README.md"), "changed\n");
+  assert.equal(await commitAll(repo, "Add new.txt\n\nBody"), true);
+  assert.equal(git(repo, "log", "-1", "--format=%s"), "Add new.txt");
+  assert.equal(git(repo, "status", "--porcelain"), "");
 });

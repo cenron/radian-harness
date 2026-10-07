@@ -29,7 +29,6 @@ for (const runtime of Object.keys(PROFILES) as Runtime[]) {
         profile: PROFILES[runtime],
         role: "developer",
         workerDir: "/w",
-        gitCommonDir: "/g",
       });
       for (const flag of args.filter((arg) => arg.startsWith("-"))) {
         assert.ok(

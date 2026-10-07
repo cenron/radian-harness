@@ -71,11 +71,18 @@ write files or run external programs.
 
 ## Workers
 
-- **Launch.** The pane opens beside Pi's pane with API-key, custom-endpoint, and proxy variables
-  blanked, so each runtime uses the user's subscription login. The runtime starts with model,
-  effort, and permission flags only (`src/core/runtime-args.ts`); the role prompt and brief are
-  typed in afterwards and never passed on the command line. Pi workers get `--no-approve
---no-extensions` so they never load Radian and become coordinators.
+- **Launch.** The first worker's pane opens beside Pi's pane, later ones below the newest worker,
+  with API-key, custom-endpoint, and proxy variables blanked, so each runtime uses the user's
+  subscription login. The runtime starts with model, effort, and permission flags only
+  (`src/core/runtime-args.ts`); the role prompt and brief are typed in afterwards and never
+  passed on the command line. Pi workers get `--no-approve --no-extensions` so they never load
+  Radian and become coordinators.
+- **Typing the task.** Claude Code and Codex may first ask to trust the new folder, and Herdr
+  does not always report that. Radian types the task only when the pane shows the runtime's own
+  input and no such prompt, because the Enter that submits the task would otherwise answer the
+  prompt. Until then the watcher keeps checking, and Pi tells the user to answer the prompt.
+- **Codex commits.** Codex's sandbox keeps git metadata read-only, so its brief says not to
+  commit and Radian commits a Codex developer's or tester's changes when it reports `done`.
 - **Status.** Workers append free-form lines. They are parsed loosely (bullets, capitals, and
   dashes are fine; anything else is a note), and `statusLinesSeen` in `workers.json` records how
   many were reported, so a restart neither repeats nor loses an update.

@@ -10,6 +10,7 @@ const input = {
   branch: "radian/demo-developer-1",
   baseBranch: "main",
   targetBranch: "main",
+  runtime: "claude" as const,
   worktree: "/ws/.radian/projects/demo/worktrees/demo-developer-1",
   statusPath: "/ws/.radian/projects/demo/workers/demo-developer-1/status",
   reportPath: "/ws/.radian/projects/demo/workers/demo-developer-1/report.md",
@@ -46,4 +47,14 @@ test("renderBrief names the branch a reviewer or tester starts from", () => {
 test("firstPrompt is the role prompt followed by the brief instruction", () => {
   const prompt = firstPrompt("You are a developer.\n", "/ws/brief.md");
   assert.equal(prompt, "You are a developer.\n\nRead and do the task in /ws/brief.md");
+});
+
+test("a Codex developer is told not to commit, because Radian commits for it", () => {
+  const brief = renderBrief({ ...input, runtime: "codex" });
+  assert.match(brief, /Do not commit: your sandbox cannot write git metadata/);
+  assert.match(
+    brief,
+    /Radian commits your changes on your branch `radian\/demo-developer-1` .*when you write `done:`/,
+  );
+  assert.doesNotMatch(brief, /Commit your work/);
 });

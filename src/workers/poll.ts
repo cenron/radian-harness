@@ -1,5 +1,7 @@
 import { latestStatus, type StatusEntry } from "../core/status.ts";
 import { hasOpenPane, type WorkerRecord, type WorkerState } from "../core/worker.ts";
+import { isCommittedByRadian } from "../core/runtime-args.ts";
+import { commitAll } from "../io/git.ts";
 import { getPane } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
 import { replaceWorker } from "../io/worker-store.ts";
@@ -19,6 +21,8 @@ export interface WorkerChange {
   report?: string;
   /** The agent started asking the user something (such as folder trust) during this poll. */
   isAwaitingUser: boolean;
+  /** Radian committed the worker's changes because its runtime cannot (see isCommittedByRadian). */
+  hasRadianCommit: boolean;
 }
 
 const FINISHED_STATES: readonly WorkerState[] = ["done", "failed"];
@@ -44,6 +48,8 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   };
   if (latest) next.lastStatus = `${latest.kind}: ${latest.text}`;
   if (JSON.stringify(next) !== JSON.stringify(worker)) replaceWorker(workersFileOf(env), next);
+  const hasRadianCommit =
+    next.state === "done" && worker.state !== "done" && (await commitFor(next));
   if (next.isTaskPending && pane) {
     const delivery = await deliverWhenReady(env, next);
     return {
@@ -52,12 +58,25 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
     };
   }
   const report = await closeFinishedReader(env, next);
-  if (report === undefined) return changeOf(next, entries, hasExited);
-  return { ...changeOf(next, entries, hasExited), isClosed: true, report };
+  const change = { ...changeOf(next, entries, hasExited), hasRadianCommit };
+  return report === undefined ? change : { ...change, isClosed: true, report };
+}
+
+async function commitFor(worker: WorkerRecord): Promise<boolean> {
+  if (!isCommittedByRadian(worker.runtime, worker.role)) return false;
+  const message = `${worker.title}\n\nCommitted by Radian for ${worker.name}, whose ${worker.runtime} sandbox cannot write git metadata.`;
+  return commitAll(worker.worktree, message);
 }
 
 function changeOf(worker: WorkerRecord, entries: StatusEntry[], hasExited: boolean): WorkerChange {
-  return { worker, entries, hasExited, isClosed: false, isAwaitingUser: false };
+  return {
+    worker,
+    entries,
+    hasExited,
+    isClosed: false,
+    isAwaitingUser: false,
+    hasRadianCommit: false,
+  };
 }
 
 function nextState(input: {

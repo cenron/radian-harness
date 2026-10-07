@@ -12,7 +12,7 @@ import {
   workerBranch,
   type WorkerRecord,
 } from "../core/worker.ts";
-import { addWorktree, gitCommonDir } from "../io/git.ts";
+import { addWorktree } from "../io/git.ts";
 import { renamePane, splitPane, startAgent } from "../io/herdr.ts";
 import { writeBrief, type WorkerFiles } from "../io/status-files.ts";
 import { findWorker, listWorkers, removeWorker, saveWorker } from "../io/worker-store.ts";
@@ -84,7 +84,6 @@ async function launchWorker(
       profile: launch.profile,
       role: worker.role,
       workerDir: path.dirname(launch.files.brief),
-      gitCommonDir: await gitCommonDir(env.project.path),
     });
     const start = { name: worker.name, kind: launch.profile.runtime, pane, args };
     if ((await startAgent(env.herdr, start)) === "waiting") return markWaiting(env, worker);
@@ -173,6 +172,7 @@ function briefFor(
   return renderBrief({
     workerName: worker.name,
     role: worker.role,
+    runtime: worker.runtime,
     title: worker.title,
     task: input.task,
     branch: worker.branch,

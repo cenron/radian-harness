@@ -56,8 +56,12 @@ export async function isClean(repo: string): Promise<boolean> {
   return (await runGit(repo, ["status", "--porcelain"])).trim() === "";
 }
 
-export async function gitCommonDir(repo: string): Promise<string> {
-  return (await runGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+/** Commits every change in the checkout; false when there was nothing to commit. */
+export async function commitAll(repo: string, message: string): Promise<boolean> {
+  if (await isClean(repo)) return false;
+  await runGit(repo, ["add", "-A"]);
+  await runGit(repo, ["commit", "-q", "-m", message]);
+  return true;
 }
 
 export async function addWorktree(

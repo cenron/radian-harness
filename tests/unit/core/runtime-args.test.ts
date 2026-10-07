@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Profile } from "../../../src/core/profiles.ts";
-import { SCRUBBED_ENV, readScreen, runtimeArgs } from "../../../src/core/runtime-args.ts";
+import {
+  SCRUBBED_ENV,
+  isCommittedByRadian,
+  readScreen,
+  runtimeArgs,
+} from "../../../src/core/runtime-args.ts";
 
-const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1", gitCommonDir: "/ws/demo/.git" };
+const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1" };
 const claude: Profile = {
   name: "c",
   runtime: "claude",
@@ -57,8 +62,6 @@ test("codex flags set effort, sandbox, approvals, and writable directories", () 
     "never",
     "--add-dir",
     dirs.workerDir,
-    "--add-dir",
-    dirs.gitCommonDir,
   ]);
 });
 
@@ -106,7 +109,7 @@ test("SCRUBBED_ENV blanks API keys, endpoints, and proxies", () => {
 
 // Screens captured from real Herdr panes during the smoke test, including narrow ones.
 const CLAUDE_TRUST = ` Accessing workspace:
- /Users/x/ws/.radian/projects/demo/worktrees/demo-developer-1
+ ~/ws/.radian/projects/demo/worktrees/demo-developer-1
  Quick safety check: Is this a project you created or one
  you trust? (Like your own code, a well-known open source
  Claude Code'll be able to read, edit, and execute files
@@ -150,4 +153,12 @@ test("readScreen treats anything else as still starting, so nothing is typed yet
     readScreen("claude", "radni@mac ~/ws % claude --model claude-sonnet-5-5"),
     "starting",
   );
+});
+
+test("Radian commits for Codex developers and testers, whose sandbox cannot write git metadata", () => {
+  assert.equal(isCommittedByRadian("codex", "developer"), true);
+  assert.equal(isCommittedByRadian("codex", "tester"), true);
+  assert.equal(isCommittedByRadian("codex", "scout"), false);
+  assert.equal(isCommittedByRadian("claude", "developer"), false);
+  assert.equal(isCommittedByRadian("pi", "developer"), false);
 });
