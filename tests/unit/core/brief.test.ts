@@ -9,6 +9,7 @@ const input = {
   task: "Add a login form.",
   branch: "radian/demo-developer-1",
   baseBranch: "main",
+  targetBranch: "main",
   worktree: "/ws/.radian/projects/demo/worktrees/demo-developer-1",
   statusPath: "/ws/.radian/projects/demo/workers/demo-developer-1/status",
   reportPath: "/ws/.radian/projects/demo/workers/demo-developer-1/report.md",
@@ -24,6 +25,7 @@ test("renderBrief holds the task, working rules, and the absolute status path", 
   assert.match(brief, /echo "done: <one-line summary>" >> \/ws\/.*\/status/);
   assert.match(brief, /working\|question\|blocked\|done\|failed/);
   assert.match(brief, /report\.md/);
+  assert.match(brief, /target branch is `main`/);
 });
 
 test("renderBrief names the branch a reviewer or tester starts from", () => {

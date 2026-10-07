@@ -7,6 +7,7 @@ export interface BriefInput {
   task: string;
   branch: string;
   baseBranch: string;
+  targetBranch: string;
   worktree: string;
   statusPath: string;
   reportPath: string;
@@ -26,6 +27,7 @@ export function renderBrief(input: BriefInput): string {
     "",
     `- Stay inside your worktree: ${input.worktree}`,
     `- Commit your work on your branch \`${input.branch}\` (cut from \`${input.baseBranch}\`). Do not switch branches, merge, rebase, or push.`,
+    `- The project's target branch is \`${input.targetBranch}\`; Radian merges your branch into it after the user approves.`,
     "- When you mention files, give paths relative to the worktree.",
     `- Reviewers and scouts write their findings to ${input.reportPath}`,
     "",
