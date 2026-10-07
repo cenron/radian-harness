@@ -121,12 +121,15 @@ test("countOwnCommits counts commits found on no other branch", async () => {
   assert.equal(await countOwnCommits(repo, "radian/w1"), 0);
 });
 
-test("commitAll commits every change, including new files, and reports a clean tree", async () => {
+test("commitAll commits every change and returns the committed files", async () => {
   const repo = makeRepository();
-  assert.equal(await commitAll(repo, "nothing"), false);
+  assert.deepEqual(await commitAll(repo, "nothing"), []);
   writeFileSync(path.join(repo, "new.txt"), "x\n");
   writeFileSync(path.join(repo, "README.md"), "changed\n");
-  assert.equal(await commitAll(repo, "Add new.txt\n\nBody"), true);
+  assert.deepEqual(await commitAll(repo, "Add new.txt\n\nBody"), [
+    "README.md (changed)",
+    "new.txt (new)",
+  ]);
   assert.equal(git(repo, "log", "-1", "--format=%s"), "Add new.txt");
   assert.equal(git(repo, "status", "--porcelain"), "");
 });

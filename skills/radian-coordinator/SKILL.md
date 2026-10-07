@@ -76,10 +76,13 @@ Worker updates arrive as notifications built from their status lines: `working:`
   needs several of a server's tools. An approval applies to workers dispatched afterwards, so
   offer to dispatch a fresh worker for the step that needed it. Never ask for built-in tools.
 - **`done:`** Workers never commit; for a developer or tester, Radian commits its changes on
-  the worker branch when it reports `done:` and says so in the message. Before offering the
-  merge, look at the work yourself: a diff stat from `radian_git`, and the changed files (images
-  too) through `read` and `ls` on the worker's worktree. Then summarise for the user and offer
-  the merge, with a review first when the change is risky. A reviewer or scout is closed by Radian and its report is in the message: summarise
+  the worker branch when it reports `done:`, and the message lists the files it committed.
+  Check that list against the task: files a tool or editor left behind (a debug server a tool
+  injected, a stray config change) do not belong in a merge. If any are there, tell the user and
+  suggest discarding the worker or dispatching one to clean the branch up, rather than merging.
+  Before offering the merge, look at the work yourself: a diff stat from `radian_git`, and the
+  changed files (images too) through `read` and `ls` on the worker's worktree. Then summarise for
+  the user and offer the merge, with a review first when the change is risky. A reviewer or scout is closed by Radian and its report is in the message: summarise
   the report; there is nothing to merge.
 - **Pane exits without `done:`.** Say so. The worktree and branch are kept, so nothing is lost.
 

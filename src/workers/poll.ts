@@ -21,8 +21,8 @@ export interface WorkerChange {
   report?: string;
   /** The agent started asking the user something (such as folder trust) during this poll. */
   isAwaitingUser: boolean;
-  /** Radian committed the worker's changes on its branch when it reported done. */
-  hasRadianCommit: boolean;
+  /** Files Radian committed on the worker's branch when it reported done; empty otherwise. */
+  committedFiles: string[];
 }
 
 const FINISHED_STATES: readonly WorkerState[] = ["done", "failed"];
@@ -48,8 +48,8 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   };
   if (latest) next.lastStatus = `${latest.kind}: ${latest.text}`;
   if (JSON.stringify(next) !== JSON.stringify(worker)) replaceWorker(workersFileOf(env), next);
-  const hasRadianCommit =
-    next.state === "done" && worker.state !== "done" && (await commitFor(next, latest?.text));
+  const isNewlyDone = next.state === "done" && worker.state !== "done";
+  const committedFiles = isNewlyDone ? await commitFor(next, latest?.text) : [];
   if (next.isTaskPending && pane) {
     const delivery = await deliverWhenReady(env, next);
     return {
@@ -58,13 +58,13 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
     };
   }
   const report = await closeFinishedReader(env, next);
-  const change = { ...changeOf(next, entries, hasExited), hasRadianCommit };
+  const change = { ...changeOf(next, entries, hasExited), committedFiles };
   return report === undefined ? change : { ...change, isClosed: true, report };
 }
 
 /** The coordinator commits a developer's or tester's changes once it reports done. */
-async function commitFor(worker: WorkerRecord, doneText: string | undefined): Promise<boolean> {
-  if (!canEditCode(worker.role)) return false;
+async function commitFor(worker: WorkerRecord, doneText: string | undefined): Promise<string[]> {
+  if (!canEditCode(worker.role)) return [];
   const summary = doneText ? `${doneText}\n\n` : "";
   const message = `${worker.title}\n\n${summary}Committed by Radian for ${worker.name} (${worker.role}, ${worker.runtime}).`;
   return commitAll(worker.worktree, message);
@@ -77,7 +77,7 @@ function changeOf(worker: WorkerRecord, entries: StatusEntry[], hasExited: boole
     hasExited,
     isClosed: false,
     isAwaitingUser: false,
-    hasRadianCommit: false,
+    committedFiles: [],
   };
 }
 

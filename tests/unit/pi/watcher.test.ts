@@ -20,7 +20,7 @@ test("questions and results tell Pi what to do next", () => {
     hasExited: false,
     isClosed: false,
     isAwaitingUser: false,
-    hasRadianCommit: false,
+    committedFiles: [],
   });
   assert.match(
     message ?? "",
@@ -41,7 +41,7 @@ test("progress lines and notes alone do not wake Pi", () => {
       hasExited: false,
       isClosed: false,
       isAwaitingUser: false,
-      hasRadianCommit: false,
+      committedFiles: [],
     }),
     undefined,
   );
@@ -56,7 +56,7 @@ test("a pane that closes before done is reported", () => {
       hasExited: true,
       isClosed: false,
       isAwaitingUser: false,
-      hasRadianCommit: false,
+      committedFiles: [],
     }) ?? "",
     /pane closed before it reported done/,
   );
@@ -76,7 +76,7 @@ test("a closed scout's report goes to Pi instead of a merge offer", () => {
     hasExited: false,
     isClosed: true,
     isAwaitingUser: false,
-    hasRadianCommit: false,
+    committedFiles: [],
     report: "Two files.",
   });
   assert.match(message ?? "", /demo-scout-1 \(scout: Look\) done: listed the files/);
@@ -99,7 +99,7 @@ test("a reader closed after a restart, with no new lines, is still named", () =>
     hasExited: false,
     isClosed: true,
     isAwaitingUser: false,
-    hasRadianCommit: false,
+    committedFiles: [],
     report: "",
   });
   assert.match(
@@ -117,7 +117,7 @@ test("a worker waiting on a startup prompt asks Pi to get the user to answer it"
     hasExited: false,
     isClosed: false,
     isAwaitingUser: true,
-    hasRadianCommit: false,
+    committedFiles: [],
   });
   assert.match(
     message ?? "",
@@ -126,17 +126,31 @@ test("a worker waiting on a startup prompt asks Pi to get the user to answer it"
   assert.match(message ?? "", /Ask the user to answer it there/);
 });
 
-test("Pi is told when Radian committed a worker's changes", () => {
+test("Pi is told which files Radian committed, and to check them against the task", () => {
   const message = describeChange({
     worker: { ...worker, state: "done", branch: "radian/demo-developer-1" } as WorkerRecord,
     entries: [{ kind: "done", text: "added login" }],
     hasExited: false,
     isClosed: false,
     isAwaitingUser: false,
-    hasRadianCommit: true,
+    committedFiles: ["src/login.ts (new)", "project.godot (changed)"],
   });
   assert.match(
     message ?? "",
-    /demo-developer-1 \(developer: Add login\): Radian committed its changes on radian\/demo-developer-1\./,
+    /Radian committed 2 files on radian\/demo-developer-1: src\/login\.ts \(new\), project\.godot \(changed\)\./,
   );
+  assert.match(message ?? "", /Check that these files fit the task/);
+});
+
+test("a long list of committed files is shortened", () => {
+  const files = Array.from({ length: 14 }, (_, index) => `f${index}.txt (new)`);
+  const message = describeChange({
+    worker: { ...worker, state: "done", branch: "radian/demo-developer-1" } as WorkerRecord,
+    entries: [],
+    hasExited: false,
+    isClosed: false,
+    isAwaitingUser: false,
+    committedFiles: files,
+  });
+  assert.match(message ?? "", /Radian committed 14 files on .*f9\.txt \(new\), and 4 more\./);
 });
