@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { createFakePi } from "../../helpers/fake-pi.ts";
 import { git } from "../../helpers/git-fixtures.ts";
@@ -91,4 +92,19 @@ test("radian_allow_tool refuses anything but an MCP tool name", async () => {
     fake.callTool("radian_allow_tool", { tool: "Bash", reason: "x" }),
     /MCP tool/,
   );
+});
+
+test("radian_merge refuses a dirty checkout before asking, so an approval is never wasted", async () => {
+  const { env, fake, worker } = await setup();
+  writeFileSync(path.join(env.project.path, "dirty.txt"), "x");
+  let wasAsked = false;
+  fake.answer.pick = () => {
+    wasAsked = true;
+    return "Merge";
+  };
+  await assert.rejects(
+    fake.callTool("radian_merge", { worker: worker.name }),
+    /uncommitted changes: \?\? dirty\.txt/,
+  );
+  assert.equal(wasAsked, false);
 });

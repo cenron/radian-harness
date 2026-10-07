@@ -38,7 +38,7 @@ export async function describeWorker(env: WorkerEnv, worker: WorkerRecord): Prom
 
 /** Merges into the target branch, then closes the pane and removes the worktree and branch. */
 export async function mergeWorker(env: WorkerEnv, worker: WorkerRecord): Promise<string> {
-  await assertCheckoutReady(env);
+  await assertReadyToMerge(env);
   const kind = await mergeBranch(env.project.path, worker.branch);
   await removeWorkerCompletely(env, worker);
   const how = kind === "fast-forward" ? "fast-forward" : "merge commit";
@@ -87,7 +87,8 @@ export async function sendToWorker(
   return `Sent to ${worker.name}.`;
 }
 
-async function assertCheckoutReady(env: WorkerEnv): Promise<void> {
+/** The project checkout must be on its target branch and clean before anything is merged. */
+export async function assertReadyToMerge(env: WorkerEnv): Promise<void> {
   const branch = await currentBranch(env.project.path);
   if (branch !== env.project.target) {
     throw new RadianError(
