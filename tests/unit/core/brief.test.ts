@@ -55,3 +55,10 @@ test("firstPrompt is the role prompt followed by the brief instruction", () => {
   const prompt = firstPrompt("You are a developer.\n", "/ws/brief.md");
   assert.equal(prompt, "You are a developer.\n\nRead and do the task in /ws/brief.md");
 });
+
+test("the brief tells workers to report a denied tool by its exact name", () => {
+  assert.match(
+    renderBrief(input),
+    /If a tool you need is denied, write `blocked:` with its exact name/,
+  );
+});

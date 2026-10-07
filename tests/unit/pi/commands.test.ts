@@ -7,6 +7,7 @@ import { git, makeRepository } from "../../helpers/git-fixtures.ts";
 import { makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
 import { listProjects, readMode } from "../../../src/io/workspace.ts";
+import { addWorkerTool, readWorkerTools } from "../../../src/io/worker-tools.ts";
 import { readCalm } from "../../../src/pi/calm.ts";
 import { registerCommands, toggleMode } from "../../../src/pi/commands.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
@@ -105,4 +106,13 @@ test("/delete-project is refused while a worker's pane is open, then removes the
     ["new"],
     "the deleted project was selected, so Pi returns to the dashboard",
   );
+});
+
+test("/radian tools lists the project's approved worker tools, and remove takes one away", async () => {
+  const { env, fake } = await setup();
+  assert.match((await fake.run("/radian tools")) ?? "", /No extra tools/);
+  addWorkerTool(env.project.path, "mcp__godot__run_project");
+  assert.match((await fake.run("/radian tools")) ?? "", /- mcp__godot__run_project/);
+  assert.match((await fake.run("/radian tools remove mcp__godot__run_project")) ?? "", /Removed/);
+  assert.deepEqual(readWorkerTools(env.project.path), []);
 });

@@ -79,6 +79,11 @@ write files or run external programs.
   (`src/core/runtime-args.ts`); the role prompt and brief are typed in afterwards and never
   passed on the command line. Pi workers get `--no-approve --no-extensions` so they never load
   Radian and become coordinators.
+- **Tools.** Claude Code workers get their role's built-in tools only, with `dontAsk`
+  permissions. MCP tools are added per project: when a worker needs one, Pi calls
+  `radian_allow_tool`, the user approves it in a dialog, and it is saved in the project's
+  `.radian/worker-tools.json` and added to `--allowedTools` for workers dispatched afterwards.
+  `/radian tools` lists them and `/radian tools remove` takes one away.
 - **Typing the task.** Claude Code and Codex may first ask to trust the new folder, and Herdr
   does not always report that. Radian types the task only when the pane shows the runtime's own
   input and no such prompt, because the Enter that submits the task would otherwise answer the

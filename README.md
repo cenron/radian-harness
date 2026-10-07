@@ -118,6 +118,7 @@ and `developer-pi` (an OpenAI model through Pi). Pi uses them only when you ask.
 | `/calm [on\|off]`                             | Toggle Calm                                                              |
 | `/radian workers`                             | List workers                                                             |
 | `/radian merge\|stop\|discard <worker>`       | Merge or discard (each asks first), or close the pane and keep the work  |
+| `/radian tools [remove <tool>]`               | List the MCP tools approved for the project's workers, or remove one     |
 
 ### Coordinator tools
 
@@ -132,6 +133,7 @@ Pi works through these tools; it has no shell and cannot edit project files.
 | `radian_dispatch`                 | Start a worker                                           |
 | `radian_send`, `radian_stop`      | Type into a worker's session; close its pane             |
 | `radian_merge`, `radian_discard`  | Ask you to approve merging or discarding a worker's work |
+| `radian_allow_tool`               | Ask you to approve an MCP tool for the project's workers |
 
 ## How it works
 
@@ -154,9 +156,18 @@ Everything Radian knows lives in plain JSON and text files under the workspace's
 folder, so restarting Pi loses nothing. Details are in
 [docs/Architecture.md](docs/Architecture.md).
 
+## Worker tools
+
+Claude Code workers get only their role's built-in tools (read, search, shell, write, and, for
+developers and testers, edit). If a worker needs an MCP tool, such as a Godot server's
+`mcp__godot__run_project`, Pi asks you to approve it for that project. Approved tools are saved
+in the project's `.radian/worker-tools.json` (kept out of git) and apply to workers started
+afterwards; `/radian tools` lists them and `/radian tools remove <tool>` takes one away.
+
 ## Safety and billing
 
-- **Approvals.** Merging and discarding always ask you first, with Cancel as the default.
+- **Approvals.** Merging, discarding, and allowing a worker tool always ask you first, with Cancel
+  as the default.
 - **Coordinator limits.** Pi's `bash`, `write`, and `edit` tools are off in a Radian workspace,
   and its read tools only see the selected project and its workers' files.
 - **Subscriptions only.** Anthropic models run only through Claude Code, and workers start with

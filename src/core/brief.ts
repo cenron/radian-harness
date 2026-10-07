@@ -31,6 +31,7 @@ export function renderBrief(input: BriefInput): string {
     commitRule(input),
     `- The project's target branch is \`${input.targetBranch}\`; Radian merges your branch into it after the user approves.`,
     "- When you mention files, give paths relative to the worktree.",
+    "- If a tool you need is denied, write `blocked:` with its exact name (for example `mcp__godot__run_project`); the user can approve it for the project's next workers.",
     "",
     "## Status",
     "",

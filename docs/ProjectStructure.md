@@ -22,6 +22,7 @@ radian-harness/
 │   │   ├── workspace.ts        Workspace marker, project registry, project paths, mode file
 │   │   ├── worker-store.ts     Reads and writes workers.json
 │   │   ├── status-files.ts     Brief, status, and report files of one worker
+│   │   ├── worker-tools.ts     MCP tools the user approved for a project's workers
 │   │   └── json-file.ts        JSON read with fallback; write through a temporary file
 │   ├── workers/                Worker lifecycle; imports core and io
 │   │   ├── worker-env.ts       WorkerEnv: the project, config, Herdr runner, and Pi's pane
@@ -107,7 +108,9 @@ files.
 │       │   └── report.md         Reviewer and scout findings
 │       └── worktrees/<worker>/   Git worktree on branch radian/<worker>
 └── <project>/                    From /new-project; /add-project can point anywhere
-    └── .radian/planning/         radian_write_doc output, excluded in .git/info/exclude
+    └── .radian/                  Excluded in .git/info/exclude
+        ├── planning/             radian_write_doc output
+        └── worker-tools.json     MCP tools approved for this project's workers
 ```
 
 ## Where to add things

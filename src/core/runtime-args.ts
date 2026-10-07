@@ -1,3 +1,4 @@
+import { RadianError } from "./errors.ts";
 import { assertProfileAllowed, type Profile, type Runtime } from "./profiles.ts";
 import { canEditCode, type Role } from "./roles.ts";
 
@@ -6,6 +7,8 @@ export interface LaunchInput {
   role: Role;
   /** Holds the brief, status, and report files; outside the worktree. */
   workerDir: string;
+  /** MCP tools the user approved for this project's workers (see assertWorkerToolName). */
+  extraTools: readonly string[];
 }
 
 export type ScreenState = "asking" | "ready" | "starting";
@@ -48,24 +51,26 @@ export function runtimeArgs(input: LaunchInput): string[] {
   return piArgs(input);
 }
 
-function claudeArgs({ profile, role, workerDir }: LaunchInput): string[] {
-  const tools = [
+// --tools names Claude Code's built-in tools only; MCP tools are governed by --allowedTools,
+// which the dontAsk permission mode enforces, so approved MCP tools are added there alone.
+function claudeArgs({ profile, role, workerDir, extraTools }: LaunchInput): string[] {
+  const builtIns = [
     "Read",
     "Glob",
     "Grep",
     "Bash",
     "Write",
     ...(canEditCode(role) ? ["Edit"] : []),
-  ].join(",");
+  ];
   return [
     "--model",
     profile.model,
     "--effort",
     profile.effort,
     "--tools",
-    tools,
+    builtIns.join(","),
     "--allowedTools",
-    tools,
+    [...builtIns, ...extraTools].join(","),
     "--add-dir",
     workerDir,
     "--permission-mode",
@@ -118,6 +123,21 @@ function piArgs({ profile, role }: LaunchInput): string[] {
     "--no-skills",
     "--no-prompt-templates",
   ];
+}
+
+const MCP_TOOL_NAME = /^mcp__[A-Za-z0-9_-]+(__[A-Za-z0-9_.-]+)?$/;
+
+/**
+ * Only MCP tools can be approved per project, as a whole server (`mcp__godot`) or one tool
+ * (`mcp__godot__run_project`); built-in tools stay decided by the worker's role.
+ */
+export function assertWorkerToolName(name: string): void {
+  if (!MCP_TOOL_NAME.test(name)) {
+    throw new RadianError(
+      "invalid_tool",
+      `"${name}" is not an MCP tool name. Use mcp__<server> or mcp__<server>__<tool>.`,
+    );
+  }
 }
 
 /** Whether a worker's screen asks the user something, accepts input, or is still starting. */

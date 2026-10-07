@@ -4,6 +4,7 @@ import { parseMode, type Mode } from "../core/roles.ts";
 import { hasOpenPane } from "../core/worker.ts";
 import { getPane } from "../io/herdr.ts";
 import { listWorkers } from "../io/worker-store.ts";
+import { readWorkerTools, removeWorkerTool } from "../io/worker-tools.ts";
 import {
   addProject,
   createProject,
@@ -36,7 +37,7 @@ import { dashboardReport, refreshStatus, statusReport, workersReport } from "./s
 type CommandAction = (args: string[], ctx: ExtensionCommandContext) => Promise<string | undefined>;
 
 const RADIAN_USAGE =
-  "Usage: /radian status | mode plan|build | calm on|off | workers | merge <worker> | stop <worker> | discard <worker>";
+  "Usage: /radian status | mode plan|build | calm on|off | workers | merge <worker> | stop <worker> | discard <worker> | tools [remove <tool>]";
 
 export function registerCommands(state: RadianState): void {
   const commands: Record<string, { description: string; action: CommandAction }> = {
@@ -68,7 +69,7 @@ export function registerCommands(state: RadianState): void {
     },
     radian: {
       description:
-        "Radian: status, mode plan|build, calm on|off, workers, merge|stop|discard <worker>",
+        "Radian: status, mode plan|build, calm on|off, workers, merge|stop|discard <worker>, tools [remove <tool>]",
       action: (args, ctx) => radianCommand(state, args, ctx),
     },
   };
@@ -180,6 +181,7 @@ async function radianCommand(
   if (subcommand === "mode" && argument) return setMode(state, ctx, parseMode(argument));
   if (subcommand === "calm" && (argument === "on" || argument === "off"))
     return setCalm(state, argument === "on");
+  if (subcommand === "tools") return workerToolsCommand(state, args.slice(1));
   if (subcommand === "workers")
     return workersReport(listWorkers(workersFileOf(workerEnvOf(state))));
   if (!argument || !["merge", "stop", "discard"].includes(subcommand)) {
@@ -189,6 +191,23 @@ async function radianCommand(
   if (subcommand === "merge") return mergeWithApproval(ctx, env, worker);
   if (subcommand === "discard") return discardWithApproval(ctx, env, worker);
   return stopWorker(env, worker);
+}
+
+/** Lists the MCP tools approved for the project's workers, or removes one. */
+function workerToolsCommand(state: RadianState, args: string[]): string {
+  const { project } = requireProject(state);
+  const [action, tool] = args;
+  if (action === "remove" && tool) {
+    removeWorkerTool(project.path, tool);
+    return `Removed ${tool} for new workers in ${project.name}.`;
+  }
+  if (action !== undefined) throw new RadianError("usage", "Usage: /radian tools [remove <tool>]");
+  const tools = readWorkerTools(project.path);
+  if (tools.length === 0) return `No extra tools are approved for workers in ${project.name}.`;
+  return [
+    `Tools approved for workers in ${project.name}:`,
+    ...tools.map((name) => `- ${name}`),
+  ].join("\n");
 }
 
 function toggleCalm(state: RadianState, setting: string | undefined): string {
