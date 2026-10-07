@@ -2,7 +2,12 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { RadianError } from "../core/errors.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import type { Project } from "../io/workspace.ts";
-import { describeWorker, discardWorker, mergeWorker } from "../workers/finish.ts";
+import {
+  assertReadyToMerge,
+  describeWorker,
+  discardWorker,
+  mergeWorker,
+} from "../workers/finish.ts";
 import type { WorkerEnv } from "../workers/worker-env.ts";
 
 export type DeleteChoice = "keep-files" | "delete-files";
@@ -40,6 +45,8 @@ export async function mergeWithApproval(
   env: WorkerEnv,
   worker: WorkerRecord,
 ): Promise<string> {
+  // Checked again by mergeWorker; checking first means the user is never asked in vain.
+  await assertReadyToMerge(env);
   const isApproved = await approve(ctx, {
     title: `Merge into ${env.project.target}?\n\n${await describeWorker(env, worker)}`,
     action: "Merge",

@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "../core/errors.ts";
 import { canEditCode } from "../core/roles.ts";
+import { FILE_LIST_LIMIT, listSome } from "../core/text.ts";
 import { hasOpenPane } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { pollWorker, type WorkerChange } from "../workers/poll.ts";
@@ -20,7 +21,6 @@ const CLOSED_READER_NEXT_STEP =
   "Summarize its report (below) for the user; there is nothing to merge.";
 const CLOSED_NEXT_STEP = "Tell the user what it reported; there is nothing to merge.";
 const MAX_REPORT_CHARS = 4000;
-const MAX_LISTED_FILES = 10;
 
 /** Polls the selected project's workers and tells Pi about questions, results, and exits. */
 export function startWatcher(state: RadianState, ctx: ExtensionContext): () => void {
@@ -74,11 +74,8 @@ export function describeChange(change: WorkerChange): string | undefined {
 // A worker's tools or editors can leave files behind (a debug server a tool injected, for
 // example), and Radian commits everything at done, so Pi checks the list against the task.
 function committedFilesText(files: readonly string[], branch: string): string {
-  const listed = files.slice(0, MAX_LISTED_FILES).join(", ");
-  const more =
-    files.length > MAX_LISTED_FILES ? `, and ${files.length - MAX_LISTED_FILES} more` : "";
   const count = `${files.length} file${files.length === 1 ? "" : "s"}`;
-  return `Radian committed ${count} on ${branch}: ${listed}${more}. Check that these files fit the task; flag any that do not (leftovers from a tool or an editor, for example) before offering the merge.`;
+  return `Radian committed ${count} on ${branch}: ${listSome(files, FILE_LIST_LIMIT)}. Check that these files fit the task; flag any that do not (leftovers from a tool or an editor, for example) before offering the merge.`;
 }
 
 function nextStep(change: WorkerChange, kind: string): string | undefined {
