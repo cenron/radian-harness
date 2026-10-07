@@ -19,10 +19,11 @@ glue: projects, Plan/Build modes, dispatch, status, and one approval before a me
                 │    herdr agent start <worker> --kind claude|codex|pi -- <model/effort flags>
                 │    herdr agent prompt <worker> "<roles/<role>.md>\n\nRead and do the task in <brief>"
                 ▼
-       worker pane ── works, commits on radian/<worker>, appends to its status file:
+       worker pane ── edits files (never commits), appends to its status file:
                 │       working: … | question: … | blocked: … | done: … | failed: …
                 ▼
        watcher (every pollSeconds) reads new status lines + `herdr pane get`
+                │ done (developer/tester) → Radian commits on radian/<worker>
                 │ question/blocked/done/failed/exit → message to Pi (starts a turn)
                 ▼
        Pi summarizes and calls radian_merge ──▶ dialog [Cancel] [Merge]
@@ -81,8 +82,10 @@ write files or run external programs.
   does not always report that. Radian types the task only when the pane shows the runtime's own
   input and no such prompt, because the Enter that submits the task would otherwise answer the
   prompt. Until then the watcher keeps checking, and Pi tells the user to answer the prompt.
-- **Codex commits.** Codex's sandbox keeps git metadata read-only, so its brief says not to
-  commit and Radian commits a Codex developer's or tester's changes when it reports `done`.
+- **Commits.** Commits and merges belong to the coordinator side. Workers of every runtime only
+  change files; when a developer or tester reports `done`, Radian commits its changes on the
+  worker branch (the `done` text goes into the message), and the merge waits for the user's
+  approval. This also suits Codex, whose sandbox keeps git metadata read-only.
 - **Status.** Workers append free-form lines. They are parsed loosely (bullets, capitals, and
   dashes are fine; anything else is a note), and `statusLinesSeen` in `workers.json` records how
   many were reported, so a restart neither repeats nor loses an update.

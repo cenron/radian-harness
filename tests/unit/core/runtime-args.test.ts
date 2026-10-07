@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Profile } from "../../../src/core/profiles.ts";
-import {
-  SCRUBBED_ENV,
-  isCommittedByRadian,
-  readScreen,
-  runtimeArgs,
-} from "../../../src/core/runtime-args.ts";
+import { SCRUBBED_ENV, readScreen, runtimeArgs } from "../../../src/core/runtime-args.ts";
 
 const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1" };
 const claude: Profile = {
@@ -153,12 +148,4 @@ test("readScreen treats anything else as still starting, so nothing is typed yet
     readScreen("claude", "radni@mac ~/ws % claude --model claude-sonnet-5-5"),
     "starting",
   );
-});
-
-test("Radian commits for Codex developers and testers, whose sandbox cannot write git metadata", () => {
-  assert.equal(isCommittedByRadian("codex", "developer"), true);
-  assert.equal(isCommittedByRadian("codex", "tester"), true);
-  assert.equal(isCommittedByRadian("codex", "scout"), false);
-  assert.equal(isCommittedByRadian("claude", "developer"), false);
-  assert.equal(isCommittedByRadian("pi", "developer"), false);
 });

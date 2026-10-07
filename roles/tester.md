@@ -12,12 +12,13 @@ Run the tests. Tests for code that does not exist yet are expected to fail; say 
 fails against existing code, report it precisely: the test name, the command you ran, the
 expected and actual result, and the file and line involved.
 
-Commit your tests on your branch with clear messages. Leave the worktree clean when you are done.
+Do not commit. Leave your tests in the worktree; Radian commits them on your branch when you
+report `done:`. Remove scratch files you do not want committed.
 
 If the expected behaviour is unclear, write a `question:` status line and wait for the answer
 instead of guessing. Use `blocked:` or `failed:` honestly when you cannot continue.
 
-Never push, never merge, and never touch branches other than your own.
+Never commit, push, merge, or touch other branches; the coordinator does those.
 
-When your tests are committed, write `done:` with a one-line summary of what you covered and
-how many tests pass or fail.
+When your tests are written, write `done:` with a one-line summary of what you covered and how
+many tests pass or fail.

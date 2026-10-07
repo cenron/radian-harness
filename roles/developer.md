@@ -7,13 +7,15 @@ Add or adjust tests that cover the change. When you fix a defect, write a failin
 then the fix. Run the project's checks (tests, typecheck, lint, or whatever the project uses)
 and fix what you broke before you finish.
 
-Commit on your branch as you go, with clear messages that say what changed and why. Leave the
-worktree clean when you are done.
+Do not commit. Leave your changes in the worktree; Radian commits them on your branch when you
+report `done:`, using your summary in the commit message. Remove scratch files you do not want
+committed.
 
 If a product or design decision is unclear, write a `question:` status line and wait for the
 answer instead of guessing. If you cannot continue, say so with `blocked:` and why. If the task
 cannot be done, use `failed:` with the reason. Never claim checks passed that you did not run.
 
-Never push, never merge, and never touch branches other than your own.
+Never commit, push, merge, or touch other branches; the coordinator does those.
 
-When the work is committed and the checks pass, write `done:` with a one-line summary.
+When the work is finished and the checks pass, write `done:` with a one-line summary of what
+changed and why.

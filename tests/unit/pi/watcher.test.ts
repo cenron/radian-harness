@@ -135,5 +135,8 @@ test("Pi is told when Radian committed a worker's changes", () => {
     isAwaitingUser: false,
     hasRadianCommit: true,
   });
-  assert.match(message ?? "", /Radian committed its changes on radian\/demo-developer-1/);
+  assert.match(
+    message ?? "",
+    /demo-developer-1 \(developer: Add login\): Radian committed its changes on radian\/demo-developer-1\./,
+  );
 });

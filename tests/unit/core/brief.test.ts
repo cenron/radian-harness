@@ -28,8 +28,15 @@ test("renderBrief holds the task, working rules, and the absolute status path", 
   assert.match(brief, /target branch is `main`/);
 });
 
-test("developers commit; reviewers and scouts write a report instead", () => {
-  assert.match(renderBrief(input), /Commit your work on your branch `radian\/demo-developer-1`/);
+test("workers never commit; Radian commits a developer's changes, and readers write a report", () => {
+  for (const runtime of ["claude", "codex", "pi"] as const) {
+    const brief = renderBrief({ ...input, runtime });
+    assert.match(brief, /Do not commit, merge, rebase, push, or switch branches/);
+    assert.match(
+      brief,
+      /Radian commits your changes on your branch `radian\/demo-developer-1` .*when you write `done:`/,
+    );
+  }
   const review = renderBrief({ ...input, role: "reviewer" });
   assert.match(
     review,
@@ -47,14 +54,4 @@ test("renderBrief names the branch a reviewer or tester starts from", () => {
 test("firstPrompt is the role prompt followed by the brief instruction", () => {
   const prompt = firstPrompt("You are a developer.\n", "/ws/brief.md");
   assert.equal(prompt, "You are a developer.\n\nRead and do the task in /ws/brief.md");
-});
-
-test("a Codex developer is told not to commit, because Radian commits for it", () => {
-  const brief = renderBrief({ ...input, runtime: "codex" });
-  assert.match(brief, /Do not commit: your sandbox cannot write git metadata/);
-  assert.match(
-    brief,
-    /Radian commits your changes on your branch `radian\/demo-developer-1` .*when you write `done:`/,
-  );
-  assert.doesNotMatch(brief, /Commit your work/);
 });

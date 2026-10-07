@@ -126,11 +126,3 @@ export function readScreen(runtime: Runtime, screen: string): ScreenState {
   if (STARTUP_PROMPT.test(text)) return "asking";
   return READY_SCREEN[runtime].test(text) ? "ready" : "starting";
 }
-
-/**
- * Codex's sandbox keeps git metadata read-only, so a Codex developer or tester cannot commit;
- * Radian commits its changes when it reports done. Other runtimes commit their own work.
- */
-export function isCommittedByRadian(runtime: Runtime, role: Role): boolean {
-  return runtime === "codex" && canEditCode(role);
-}

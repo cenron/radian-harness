@@ -1,6 +1,6 @@
 import { latestStatus, type StatusEntry } from "../core/status.ts";
 import { hasOpenPane, type WorkerRecord, type WorkerState } from "../core/worker.ts";
-import { isCommittedByRadian } from "../core/runtime-args.ts";
+import { canEditCode } from "../core/roles.ts";
 import { commitAll } from "../io/git.ts";
 import { getPane } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
@@ -21,7 +21,7 @@ export interface WorkerChange {
   report?: string;
   /** The agent started asking the user something (such as folder trust) during this poll. */
   isAwaitingUser: boolean;
-  /** Radian committed the worker's changes because its runtime cannot (see isCommittedByRadian). */
+  /** Radian committed the worker's changes on its branch when it reported done. */
   hasRadianCommit: boolean;
 }
 
@@ -49,7 +49,7 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   if (latest) next.lastStatus = `${latest.kind}: ${latest.text}`;
   if (JSON.stringify(next) !== JSON.stringify(worker)) replaceWorker(workersFileOf(env), next);
   const hasRadianCommit =
-    next.state === "done" && worker.state !== "done" && (await commitFor(next));
+    next.state === "done" && worker.state !== "done" && (await commitFor(next, latest?.text));
   if (next.isTaskPending && pane) {
     const delivery = await deliverWhenReady(env, next);
     return {
@@ -62,9 +62,11 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   return report === undefined ? change : { ...change, isClosed: true, report };
 }
 
-async function commitFor(worker: WorkerRecord): Promise<boolean> {
-  if (!isCommittedByRadian(worker.runtime, worker.role)) return false;
-  const message = `${worker.title}\n\nCommitted by Radian for ${worker.name}, whose ${worker.runtime} sandbox cannot write git metadata.`;
+/** The coordinator commits a developer's or tester's changes once it reports done. */
+async function commitFor(worker: WorkerRecord, doneText: string | undefined): Promise<boolean> {
+  if (!canEditCode(worker.role)) return false;
+  const summary = doneText ? `${doneText}\n\n` : "";
+  const message = `${worker.title}\n\n${summary}Committed by Radian for ${worker.name} (${worker.role}, ${worker.runtime}).`;
   return commitAll(worker.worktree, message);
 }
 

@@ -45,9 +45,7 @@ export function describeChange(change: WorkerChange): string | undefined {
     .filter((entry) => entry.kind in NEXT_STEP)
     .map((entry) => `${label} ${entry.kind}: ${entry.text}\n→ ${nextStep(change, entry.kind)}`);
   if (change.hasRadianCommit) {
-    lines.push(
-      `${label}: Radian committed its changes on ${worker.branch}, since its sandbox cannot.`,
-    );
+    lines.push(`${label}: Radian committed its changes on ${worker.branch}.`);
   }
   if (change.isAwaitingUser) {
     lines.push(

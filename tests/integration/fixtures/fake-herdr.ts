@@ -1,8 +1,8 @@
 // Stands in for the `herdr` CLI in native tests. State lives in $FAKE_HERDR_STATE. When an
-// agent is prompted with its brief, it plays the worker: commits a file in its worktree and
+// agent is prompted with its brief, it plays the worker: writes a file in its worktree and
 // appends `done:` to its status file, as a real Claude Code, Codex, or Pi session would.
+// Like a real worker it does not commit; Radian does.
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 interface FakeState {
@@ -66,8 +66,6 @@ function playWorker(prompt: string): void {
   const worktree = /Stay inside your worktree: (\S+)/.exec(brief)?.[1] ?? "";
   const statusFile = />> (\S+)/.exec(brief)?.[1] ?? "";
   writeFileSync(path.join(worktree, "work.txt"), "done by the fake worker\n");
-  execFileSync("git", ["add", "work.txt"], { cwd: worktree });
-  execFileSync("git", ["commit", "-q", "-m", "Add work.txt"], { cwd: worktree });
   appendFileSync(statusFile, "working: writing work.txt\ndone: wrote work.txt\n");
 }
 

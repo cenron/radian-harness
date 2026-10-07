@@ -23,6 +23,8 @@ effort, follows its status, and merges its branch after you approve.
 - Up to 3 workers at once by default, configurable.
 - Workers report through a plain status file: `working`, `question`, `blocked`, `done`,
   `failed`.
+- Workers only change files. Radian commits a worker's changes on its branch when it reports
+  `done`, and merges only after you approve.
 - One dialog to merge, with Cancel as the default: fast-forward when possible, otherwise a merge
   commit. On a conflict the merge is aborted and nothing changes.
 - Anthropic models run only through Claude Code. Workers use your subscription logins, never API
@@ -91,10 +93,11 @@ you ─▶ Pi (coordinator) ── radian_dispatch ─▶ git worktree + brief.m
                                               ▼
                                    Herdr pane: claude | codex | pi
                                    (model and effort flags; prompt typed in)
-                                              │ commits on radian/<worker>
+                                              │ edits files, never commits
                                               │ appends "done: …" to its status file
                                               ▼
-Pi ◀── watcher reads status + pane ───────────┘
+Pi ◀── watcher reads status + pane; at done, ─┘
+       Radian commits on radian/<worker>
  │
  └─ radian_merge ─▶ [Cancel] [Merge] ─▶ git merge ─▶ pane, worktree, branch removed
 ```
@@ -162,8 +165,7 @@ provider is contacted. The coding standards are in [docs/Principles.md](docs/Pri
 - Radian manages git branches and worktrees only. Export templates, CI, deployment, and anything
   else outside the repository are not managed.
 - Codex workers run in Codex's `workspace-write` sandbox for every role, because they must write
-  their status file outside the worktree. That sandbox keeps git metadata read-only, so Radian
-  commits a Codex developer's or tester's changes when it reports `done`.
+  their status file outside the worktree.
 - Claude Code and Codex ask to trust each new folder once. Radian waits for you to answer in the
   worker's pane and types the task in afterwards; it recognizes the prompts by their screen text,
   so a runtime UI change can leave a worker waiting.

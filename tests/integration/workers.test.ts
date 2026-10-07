@@ -56,7 +56,7 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
     const project = path.join(root, "demo");
     assert.equal(
       execFileSync("git", ["log", "-1", "--format=%s"], { cwd: project, encoding: "utf8" }).trim(),
-      "Add work.txt",
+      "Add work",
     );
     assert.equal(
       existsSync(path.join(root, ".radian", "projects", "demo", "worktrees", "demo-developer-1")),
