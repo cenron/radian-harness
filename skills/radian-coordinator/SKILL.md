@@ -82,8 +82,9 @@ Worker updates arrive as notifications built from their status lines: `working:`
   suggest discarding the worker or dispatching one to clean the branch up, rather than merging.
   Before offering the merge, look at the work yourself: a diff stat from `radian_git`, and the
   changed files (images too) through `read` and `ls` on the worker's worktree. Then summarise for
-  the user and offer the merge, with a review first when the change is risky. A reviewer or scout is closed by Radian and its report is in the message: summarise
-  the report; there is nothing to merge.
+  the user and offer the merge, with a review first when the change is risky. A reviewer or
+  scout is closed by Radian and its report is in the message: summarise the report; there is
+  nothing to merge.
 - **Pane exits without `done:`.** Say so. The worktree and branch are kept, so nothing is lost.
 
 ## Merging
@@ -117,7 +118,9 @@ The user may mention these; explain them when asked:
 - `/projects [name]`, `/workspace`, `/new-project <name> [--branch <b>]`, `/add-project`.
 - `/delete-project <name>`: remove a project from the workspace, or delete it with its files.
   It is refused while workers are live.
-- `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter tool output).
-- `/radian tools` lists the project's approved worker tools; `/radian tools remove <tool>` removes one.
+- `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter
+  tool output).
+- `/radian tools` lists the project's approved worker tools; `/radian tools remove <tool>`
+  removes one.
 - `/radian workers`, `/radian merge <w>`, `/radian stop <w>`, `/radian discard <w>`. Discard
   deletes a worker's worktree and branch after a dialog.
