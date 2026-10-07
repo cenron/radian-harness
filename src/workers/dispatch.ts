@@ -1,5 +1,6 @@
 import path from "node:path";
 import { renderBrief } from "../core/brief.ts";
+import { placeNextPane } from "../core/layout.ts";
 import { RadianError, errorMessage } from "../core/errors.ts";
 import { selectProfile, type Profile } from "../core/profiles.ts";
 import { assertRoleAllowedInMode, type Mode, type Role } from "../core/roles.ts";
@@ -72,8 +73,9 @@ async function launchWorker(
 ): Promise<WorkerRecord> {
   let worker = launch.worker;
   try {
-    const pane = await openPaneInTurn(env, worker, launch.piPane);
-    worker = { ...worker, pane };
+    const opened = await openPaneInTurn(env, worker, launch.piPane);
+    worker = opened.worker;
+    const pane = opened.pane;
     await renamePane(env.herdr, pane, paneLabel(worker.role, worker.title));
     const args = runtimeArgs({
       profile: launch.profile,
@@ -130,36 +132,38 @@ function newRecord(
 }
 
 // Pi runs parallel dispatches in one process. Opening panes one at a time lets each new pane
-// stack below the pane opened just before it instead of splitting Pi's pane again.
+// see the panes opened just before it, so the grid stays in order.
 let paneOpening: Promise<unknown> = Promise.resolve();
 
-function openPaneInTurn(env: WorkerEnv, worker: WorkerRecord, piPane: string): Promise<string> {
+function openPaneInTurn(
+  env: WorkerEnv,
+  worker: WorkerRecord,
+  piPane: string,
+): Promise<{ worker: WorkerRecord; pane: string }> {
   const opened = paneOpening.then(() => openPane(env, worker, piPane));
   // The caller still gets the failure; the queue only moves on to the next dispatch.
   paneOpening = opened.catch(() => undefined);
   return opened;
 }
 
-async function openPane(env: WorkerEnv, worker: WorkerRecord, piPane: string): Promise<string> {
-  const others = listWorkers(workersFileOf(env)).filter((other) => other.name !== worker.name);
+/** Opens the worker's pane at the next place in the grid beside Pi. */
+async function openPane(
+  env: WorkerEnv,
+  worker: WorkerRecord,
+  piPane: string,
+): Promise<{ worker: WorkerRecord; pane: string }> {
+  const gridPanes = listWorkers(workersFileOf(env)).filter(
+    (other) => other.name !== worker.name && hasOpenPane(other) && other.paneSlot !== undefined,
+  );
+  const placement = placeNextPane(gridPanes.map((other) => other.paneSlot ?? 0));
+  const parent = gridPanes.find((other) => other.paneSlot === placement.parentSlot);
   const pane = await splitPane(env.herdr, {
-    ...splitOrigin(others, piPane),
+    from: parent?.pane ?? piPane,
+    direction: placement.direction,
     cwd: worker.worktree,
     blankedEnv: SCRUBBED_ENV,
   });
-  update(env, { ...worker, pane });
-  return pane;
-}
-
-/** The first worker opens beside Pi; later ones stack below the newest open worker pane. */
-function splitOrigin(
-  workers: readonly WorkerRecord[],
-  piPane: string,
-): { from: string; direction: "right" | "down" } {
-  const newest = workers.filter(hasOpenPane).at(-1);
-  return newest?.pane
-    ? { from: newest.pane, direction: "down" }
-    : { from: piPane, direction: "right" };
+  return { worker: update(env, { ...worker, pane, paneSlot: placement.slot }), pane };
 }
 
 function requireHerdrPane(env: WorkerEnv): string {

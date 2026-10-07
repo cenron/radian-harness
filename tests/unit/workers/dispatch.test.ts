@@ -156,13 +156,22 @@ test("a screen that is still starting waits; a prompt appearing later is reporte
   assert.ok(!herdr.calls.some((call) => call[1] === "prompt"));
 });
 
-test("the first worker opens right of Pi; later ones stack below the newest worker", async () => {
+test("worker panes fill a grid beside Pi: 1|3, 2|4, 5|6", async () => {
   const { env, herdr } = await makeWorkerEnv();
-  const first = await dispatchWorker(env, { ...request, title: "A" }, "build");
-  await dispatchWorker(env, { ...request, title: "B" }, "build");
-  const splits = herdr.calls.filter((call) => call[1] === "split");
-  assert.deepEqual(splits[0]?.slice(2, 5), ["w1:p1", "--direction", "right"]);
-  assert.deepEqual(splits[1]?.slice(2, 5), [first.pane, "--direction", "down"]);
+  env.config.harness.maxWorkers = 6;
+  const panes: string[] = [];
+  for (const title of ["1", "2", "3", "4", "5", "6"]) {
+    panes.push((await dispatchWorker(env, { ...request, title }, "build")).pane ?? "");
+  }
+  const splits = herdr.calls.filter((call) => call[1] === "split").map((call) => call.slice(2, 5));
+  assert.deepEqual(splits, [
+    ["w1:p1", "--direction", "right"],
+    [panes[0], "--direction", "down"],
+    [panes[0], "--direction", "right"],
+    [panes[1], "--direction", "right"],
+    [panes[1], "--direction", "down"],
+    [panes[3], "--direction", "down"],
+  ]);
 });
 
 test("parallel dispatches get distinct names, as when Pi runs two tool calls at once", async () => {
@@ -195,7 +204,7 @@ test("a dispatch whose worktree cannot be created leaves no record behind", asyn
   assert.deepEqual(listWorkers(workersFileOf(env)), []);
 });
 
-test("parallel dispatches still stack: the second pane opens below the first", async () => {
+test("parallel dispatches still follow the grid: the second pane opens below the first", async () => {
   const { env, herdr } = await makeWorkerEnv();
   const [first] = await Promise.all([
     dispatchWorker(env, { ...request, title: "A" }, "build"),

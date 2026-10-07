@@ -27,6 +27,8 @@ export interface WorkerRecord {
   baseBranch: string;
   worktree: string;
   pane?: string;
+  /** The worker's place in the pane grid beside the coordinator (see placeNextPane). */
+  paneSlot?: number;
   /** The agent stopped at a startup prompt; the task is typed in once it is ready. */
   isTaskPending?: boolean;
   /** Herdr's last view of the agent in the pane (idle, working, blocked, ...). */

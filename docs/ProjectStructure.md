@@ -13,6 +13,7 @@ radian-harness/
 │   │   ├── worker.ts           Worker record and states, names, branches, pane labels
 │   │   ├── brief.ts            The brief text and the first prompt typed into a worker
 │   │   ├── status.ts           Loose parsing of `working|question|blocked|done|failed:` lines
+│   │   ├── layout.ts           Where each worker pane goes in the grid beside the coordinator
 │   │   └── runtime-args.ts     Command-line flags per runtime; blanked API-key/proxy variables
 │   ├── io/                     Files, git, and Herdr; imports core only
 │   │   ├── git.ts              Worktrees, branches, merge with abort on conflict, read-only git

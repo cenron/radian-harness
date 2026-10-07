@@ -72,8 +72,8 @@ write files or run external programs.
 
 ## Workers
 
-- **Launch.** The first worker's pane opens beside Pi's pane, later ones below the newest worker,
-  with API-key, custom-endpoint, and proxy variables blanked, so each runtime uses the user's
+- **Launch.** Worker panes fill a two-column grid to the right of Pi's pane (`1|3`, `2|4`,
+  `5|6`, …; `src/core/layout.ts`), with API-key, custom-endpoint, and proxy variables blanked, so each runtime uses the user's
   subscription login. The runtime starts with model, effort, and permission flags only
   (`src/core/runtime-args.ts`); the role prompt and brief are typed in afterwards and never
   passed on the command line. Pi workers get `--no-approve --no-extensions` so they never load

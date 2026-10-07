@@ -20,7 +20,8 @@ effort, follows its status, and merges its branch after you approve.
 
 - **Plan** mode: chat, read the code, write plans to `.radian/planning/`, send scouts.
 - **Build** mode (Shift+Tab): dispatch developers, testers, reviewers, and scouts.
-- Up to 3 workers at once by default, configurable.
+- Up to 3 workers at once by default, configurable. Their panes fill a two-column grid to the
+  right of Pi: `1|3`, `2|4`, `5|6`.
 - Workers report through a plain status file: `working`, `question`, `blocked`, `done`,
   `failed`.
 - Workers only change files. Radian commits a worker's changes on its branch when it reports
