@@ -64,8 +64,10 @@ Worker updates arrive as notifications built from their status lines: `working:`
   conversation. Otherwise ask the user and pass their answer on. Never invent product decisions.
 - **`blocked:` / `failed:`** Tell the user what the worker said and suggest a next step, such as
   a clarified task, a new worker, or stopping it.
-- **`done:`** Summarise for the user: commits, a diff stat from `radian_git`, and the report for
-  reviewers and scouts. Then offer the merge, and a review first when the change is risky.
+- **`done:`** For a developer or tester, summarise for the user (commits, a diff stat from
+  `radian_git`) and offer the merge, with a review first when the change is risky. A reviewer
+  or scout that committed nothing is closed by Radian and its report is in the message:
+  summarise the report; there is nothing to merge.
 - **Pane exits without `done:`.** Say so. The worktree and branch are kept, so nothing is lost.
 
 ## Merging
@@ -78,8 +80,9 @@ The project checkout must be clean and on its target branch. On success the work
 worktree, and branch are removed. A conflict is aborted and reported, with the project left as
 it was. In that case suggest a follow-up developer, with `fromWorker` set, to resolve it.
 
-Reviewer and scout branches usually have no commits; their value is the report, so there is
-nothing to merge.
+A reviewer or scout that finishes with no commits of its own is closed automatically: pane,
+worktree, and branch are removed and its report is passed to you. One that did commit stays
+open and is merged like any other worker.
 
 ## User commands
 

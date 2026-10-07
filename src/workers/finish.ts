@@ -1,10 +1,12 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { RadianError } from "../core/errors.ts";
+import { canEditCode } from "../core/roles.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import {
   branchExists,
   branchSummary,
+  countOwnCommits,
   currentBranch,
   deleteBranch,
   isClean,
@@ -54,6 +56,21 @@ export async function stopWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   await closePaneIfOpen(env, worker);
   saveWorker(workersFileOf(env), { ...worker, state: "stopped" });
   return `Stopped ${worker.name}; its worktree and branch ${worker.branch} are kept.`;
+}
+
+/**
+ * Scouts and reviewers only read. Once one is done with nothing committed there is nothing to
+ * merge or lose, so it is closed and its report returned. Undefined means the worker stays.
+ */
+export async function closeFinishedReader(
+  env: WorkerEnv,
+  worker: WorkerRecord,
+): Promise<string | undefined> {
+  if (canEditCode(worker.role) || worker.state !== "done") return undefined;
+  if ((await countOwnCommits(env.project.path, worker.branch)) > 0) return undefined;
+  const report = readReport(filesOf(env, worker).report) ?? "";
+  await removeWorkerCompletely(env, worker);
+  return report;
 }
 
 export async function sendToWorker(

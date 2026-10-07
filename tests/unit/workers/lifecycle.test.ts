@@ -124,3 +124,43 @@ test("send types text into the worker's session", async () => {
   herdr.panes.clear();
   await assert.rejects(sendToWorker(env, worker, "hello"), /no open pane/);
 });
+
+async function dispatchedReader(role: "scout" | "reviewer") {
+  const { env, herdr } = await makeWorkerEnv();
+  const worker = await dispatchWorker(env, { role, title: "Look", task: "Look around." }, "build");
+  return { env, herdr, worker };
+}
+
+function writeReport(worker: { worktree: string; name: string }, text: string): void {
+  const workerDir = path.join(path.dirname(path.dirname(worker.worktree)), "workers", worker.name);
+  writeFileSync(path.join(workerDir, "report.md"), text);
+}
+
+test("a scout that finishes without commits is closed and its report handed over", async () => {
+  const { env, herdr, worker } = await dispatchedReader("scout");
+  writeReport(worker, "Two files: README.md and a.txt.\n");
+  actAsWorker(worker, { status: ["done: listed the files"] });
+  const change = await pollWorker(env, worker);
+  assert.equal(change.isClosed, true);
+  assert.equal(change.report, "Two files: README.md and a.txt.\n");
+  assert.equal(herdr.panes.has(worker.pane ?? ""), false);
+  assert.equal(existsSync(worker.worktree), false);
+  assert.equal(git(env.project.path, "branch", "--list", worker.branch), "");
+  assert.deepEqual(listWorkers(workersFileOf(env)), []);
+});
+
+test("a reviewer that committed something is kept open for a merge", async () => {
+  const { env, herdr, worker } = await dispatchedReader("reviewer");
+  actAsWorker(worker, { file: "notes.txt", status: ["done: approve"] });
+  const change = await pollWorker(env, worker);
+  assert.equal(change.isClosed, false);
+  assert.ok(herdr.panes.has(worker.pane ?? ""));
+  assert.equal(listWorkers(workersFileOf(env))[0]?.state, "done");
+});
+
+test("a developer that finishes is never closed automatically", async () => {
+  const { env, herdr, worker } = await dispatchedDeveloper();
+  actAsWorker(worker, { status: ["done: nothing to change"] });
+  assert.equal((await pollWorker(env, worker)).isClosed, false);
+  assert.ok(herdr.panes.has(worker.pane ?? ""));
+});

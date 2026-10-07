@@ -4,6 +4,7 @@ import { getPane } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
 import { saveWorker } from "../io/worker-store.ts";
 import { deliverTask } from "./dispatch.ts";
+import { closeFinishedReader } from "./finish.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 export interface WorkerChange {
@@ -12,6 +13,10 @@ export interface WorkerChange {
   entries: StatusEntry[];
   /** The pane closed during this poll. */
   hasExited: boolean;
+  /** A finished scout or reviewer was closed: pane, worktree, branch, and record removed. */
+  isClosed: boolean;
+  /** The closed worker's report.md, or "" when it wrote none. */
+  report?: string;
 }
 
 const FINISHED_STATES: readonly WorkerState[] = ["done", "failed"];
@@ -37,9 +42,11 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   if (JSON.stringify(next) !== JSON.stringify(worker)) saveWorker(workersFileOf(env), next);
   // The user answered the agent's startup prompt, so the task can be typed in now.
   if (next.isTaskPending && pane?.agentStatus === "idle") {
-    return { worker: await deliverTask(env, next), entries, hasExited };
+    return { worker: await deliverTask(env, next), entries, hasExited, isClosed: false };
   }
-  return { worker: next, entries, hasExited };
+  const report = await closeFinishedReader(env, next);
+  if (report === undefined) return { worker: next, entries, hasExited, isClosed: false };
+  return { worker: next, entries, hasExited, isClosed: true, report };
 }
 
 function nextState(input: {

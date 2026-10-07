@@ -98,6 +98,19 @@ export async function branchSummary(
   return { commitCount: Number(count.trim()), diffStat: diffStat.trimEnd() };
 }
 
+/** Commits on this branch that no other branch has; robust when the branch's base is gone. */
+export async function countOwnCommits(repo: string, branch: string): Promise<number> {
+  const count = await runGit(repo, [
+    "rev-list",
+    "--count",
+    branch,
+    "--not",
+    `--exclude=${branch}`,
+    "--branches",
+  ]);
+  return Number(count.trim());
+}
+
 /** Merges into the checked-out branch; a conflicted merge is aborted so the checkout is unchanged. */
 export async function mergeBranch(repo: string, branch: string): Promise<MergeKind> {
   try {

@@ -7,6 +7,7 @@ import {
   addWorktree,
   branchExists,
   branchSummary,
+  countOwnCommits,
   currentBranch,
   deleteBranch,
   gitCommonDir,
@@ -113,4 +114,14 @@ test("runReadOnlyGit allows status, log, diff, and show only", async () => {
   await assert.rejects(runReadOnlyGit(repo, ["commit", "-m", "x"]), /read-only/);
   await assert.rejects(runReadOnlyGit(repo, ["diff", "--output=/tmp/x"]), /not allowed/);
   await assert.rejects(runReadOnlyGit(repo, []), /read-only/);
+});
+
+test("countOwnCommits counts commits found on no other branch", async () => {
+  const { repo, worktree } = repoWithWorktree();
+  await addWorktree(repo, { path: worktree, branch: "radian/w1", from: "main" });
+  assert.equal(await countOwnCommits(repo, "radian/w1"), 0);
+  commitFile(worktree, "a.txt", "a\n", "add a");
+  assert.equal(await countOwnCommits(repo, "radian/w1"), 1);
+  git(repo, "branch", "copy", "radian/w1");
+  assert.equal(await countOwnCommits(repo, "radian/w1"), 0);
 });

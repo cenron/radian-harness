@@ -34,19 +34,38 @@ export function startWatcher(state: RadianState, ctx: ExtensionContext): () => v
   return () => clearInterval(timer);
 }
 
+const CLOSED_NEXT_STEP = "Summarize its report (below) for the user; there is nothing to merge.";
+const MAX_REPORT_CHARS = 4000;
+
 /** The message Pi receives about one worker's change, or undefined when Pi need not react. */
 export function describeChange(change: WorkerChange): string | undefined {
   const { worker } = change;
   const label = `${worker.name} (${worker.role}: ${worker.title})`;
   const lines = change.entries
     .filter((entry) => entry.kind in NEXT_STEP)
-    .map((entry) => `${label} ${entry.kind}: ${entry.text}\n→ ${NEXT_STEP[entry.kind]}`);
+    .map((entry) => `${label} ${entry.kind}: ${entry.text}\n→ ${nextStep(change, entry.kind)}`);
+  if (change.isClosed) {
+    lines.push(
+      `${label}: pane, worktree, and branch were closed because it had nothing to merge. Report:\n${reportText(change.report)}`,
+    );
+  }
   if (change.hasExited && worker.state === "exited") {
     lines.push(
       `${label}: its pane closed before it reported done. Its worktree and branch are kept.`,
     );
   }
   return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function nextStep(change: WorkerChange, kind: string): string | undefined {
+  return kind === "done" && change.isClosed ? CLOSED_NEXT_STEP : NEXT_STEP[kind];
+}
+
+function reportText(report: string | undefined): string {
+  if (!report?.trim()) return "(no report written)";
+  return report.length > MAX_REPORT_CHARS
+    ? `${report.slice(0, MAX_REPORT_CHARS)}\n[report truncated]`
+    : report;
 }
 
 async function pollOnce(state: RadianState, ctx: ExtensionContext): Promise<void> {
