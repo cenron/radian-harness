@@ -126,7 +126,7 @@ Pi works through these tools; it has no shell and cannot edit project files.
 | Tool                              | Purpose                                                  |
 | --------------------------------- | -------------------------------------------------------- |
 | `radian_status`, `radian_workers` | Project, mode, and worker overview                       |
-| `read`, `ls`, `grep`, `find`      | Read the selected project (confined to it)               |
+| `read`, `ls`, `grep`, `find`      | Read the selected project and its workers' files only    |
 | `radian_git`                      | Read-only `status`, `log`, `diff`, `show`                |
 | `radian_write_doc`                | Write plans to `.radian/planning/` (kept out of git)     |
 | `radian_dispatch`                 | Start a worker                                           |
@@ -158,7 +158,7 @@ folder, so restarting Pi loses nothing. Details are in
 
 - **Approvals.** Merging and discarding always ask you first, with Cancel as the default.
 - **Coordinator limits.** Pi's `bash`, `write`, and `edit` tools are off in a Radian workspace,
-  and its read tools only see the selected project.
+  and its read tools only see the selected project and its workers' files.
 - **Subscriptions only.** Anthropic models run only through Claude Code, and workers start with
   API-key, custom-endpoint, and proxy variables blanked. Radian never switches a worker to another
   runtime or model on its own.

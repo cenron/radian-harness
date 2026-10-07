@@ -31,7 +31,8 @@ them.
 - `radian_status`: the project, the mode, and its workers.
 - `radian_write_doc {path, content}`: write a whole file under `.radian/planning/`.
 - `radian_git {args}`: read-only `status`, `log`, `diff`, and `show`.
-- `read`, `ls`, `grep`, `find`: confined to the project.
+- `read`, `ls`, `grep`, `find`: confined to the project and its workers' worktrees and files
+  (brief, status, report); `radian_workers` shows each worktree path.
 - `radian_dispatch {role, title, task, profile?, fromWorker?}`: start a worker.
 - `radian_workers`: list workers with their last status.
 - `radian_send {worker, text}`: type a message into a worker's session.
@@ -67,9 +68,10 @@ Worker updates arrive as notifications built from their status lines: `working:`
 - **`blocked:` / `failed:`** Tell the user what the worker said and suggest a next step, such as
   a clarified task, a new worker, stopping it, or discarding it with `radian_discard`.
 - **`done:`** Workers never commit; for a developer or tester, Radian commits its changes on
-  the worker branch when it reports `done:` and says so in the message. Summarise for the user
-  (a diff stat from `radian_git`) and offer the merge, with a review first when the change is
-  risky. A reviewer or scout is closed by Radian and its report is in the message: summarise
+  the worker branch when it reports `done:` and says so in the message. Before offering the
+  merge, look at the work yourself: a diff stat from `radian_git`, and the changed files (images
+  too) through `read` and `ls` on the worker's worktree. Then summarise for the user and offer
+  the merge, with a review first when the change is risky. A reviewer or scout is closed by Radian and its report is in the message: summarise
   the report; there is nothing to merge.
 - **Pane exits without `done:`.** Say so. The worktree and branch are kept, so nothing is lost.
 

@@ -12,6 +12,7 @@ const worker = {
   agentStatus: "idle",
   runtime: "claude",
   model: "claude-sonnet-5-5",
+  worktree: "/wt/demo-developer-1",
   lastStatus: "question: which db?",
 } as WorkerRecord;
 
@@ -21,7 +22,7 @@ test("projectReport shows the project, mode, and workers", () => {
   assert.match(report, /Mode: BUILD/);
   assert.match(
     report,
-    /demo-developer-1 \[question \(agent idle\)\] developer: Add login · claude claude-sonnet-5-5 — question: which db\?/,
+    /demo-developer-1 \[question \(agent idle\)\] developer: Add login · claude claude-sonnet-5-5 · worktree \/wt\/demo-developer-1 — question: which db\?/,
   );
 });
 
@@ -29,4 +30,9 @@ test("dashboard and empty reports guide the user", () => {
   assert.match(dashboardReport([]), /\/new-project/);
   assert.match(dashboardReport([project]), /- demo: \/ws\/demo[\s\S]*\/projects <name>/);
   assert.equal(workersReport([]), "No workers.");
+});
+
+test("the workers report shows where each worker's files are", () => {
+  const report = workersReport([{ ...worker, worktree: "/ws/.radian/projects/demo/worktrees/w" }]);
+  assert.match(report, / · worktree \/ws\/\.radian\/projects\/demo\/worktrees\/w/);
 });

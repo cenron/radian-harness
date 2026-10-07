@@ -6,7 +6,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "../core/errors.ts";
-import { listProjects } from "../io/workspace.ts";
+import { listProjects, projectPaths } from "../io/workspace.ts";
 import { resolveView, restoreCarriedModel } from "./activation.ts";
 import { calmResolver, readCalm } from "./calm.ts";
 import { registerCommands, toggleMode } from "./commands.ts";
@@ -91,7 +91,18 @@ function describeForModel(state: RadianState, options: BuildSystemPromptOptions)
   ].join(" ");
 }
 
+/**
+ * The selected project, plus its workers' worktrees and files (brief, status, report), so Pi can
+ * review a worker's work before offering a merge. All of it is read-only for Pi.
+ */
 function readScope(state: RadianState): ReadScope {
-  const root = state.view?.project?.path ?? state.view?.workspaceRoot ?? process.cwd();
-  return { root, extraRoots: state.skillRoots };
+  const view = state.view;
+  if (!view?.project) {
+    return { root: view?.workspaceRoot ?? process.cwd(), extraRoots: state.skillRoots };
+  }
+  const paths = projectPaths(view.workspaceRoot, view.project.name);
+  return {
+    root: view.project.path,
+    extraRoots: [...state.skillRoots, paths.worktreesDir, paths.workersDir],
+  };
 }

@@ -15,6 +15,7 @@ const dispatch = JSON.stringify({
 test("a dispatched worker reports done, Pi is told, and the approved merge lands", async () => {
   const workspace = startWorkspace();
   const { pi, root } = workspace;
+  const lastToolResult = () => workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "";
   try {
     await pi.prompt("/new-project demo");
     await waitForNote(pi, /Project demo selected/);
@@ -48,6 +49,23 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
           ),
         ),
     );
+
+    // Before offering the merge, Pi can review the worker's files and brief, read-only.
+    const worktree = path.join(
+      root,
+      ".radian",
+      "projects",
+      "demo",
+      "worktrees",
+      "demo-developer-1",
+    );
+    const workerDir = path.join(root, ".radian", "projects", "demo", "workers", "demo-developer-1");
+    await pi.prompt("TOOL radian_workers {}");
+    assert.match(lastToolResult(), new RegExp(`worktree ${worktree}`));
+    await pi.prompt(`TOOL read ${JSON.stringify({ path: path.join(worktree, "work.txt") })}`);
+    assert.match(lastToolResult(), /done by the fake worker/);
+    await pi.prompt(`TOOL read ${JSON.stringify({ path: path.join(workerDir, "brief.md") })}`);
+    assert.match(lastToolResult(), /# Add work/);
 
     chooseOption(pi, /^Merge$/);
     await pi.prompt('TOOL radian_merge {"worker":"demo-developer-1"}');
