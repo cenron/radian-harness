@@ -5,6 +5,7 @@ import { createFakePi } from "../../helpers/fake-pi.ts";
 import { git } from "../../helpers/git-fixtures.ts";
 import { actAsWorker, makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
+import { readWorkerTools } from "../../../src/io/worker-tools.ts";
 import { RADIAN_TOOL_NAMES, registerTools } from "../../../src/pi/tools.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
 import { workersFileOf } from "../../../src/workers/worker-env.ts";
@@ -52,4 +53,42 @@ test("radian_discard removes the pane, worktree, and branch once the user approv
   assert.equal(existsSync(worker.worktree), false);
   assert.equal(git(env.project.path, "branch", "--list", worker.branch), "");
   assert.deepEqual(listWorkers(workersFileOf(env)), []);
+});
+
+test("radian_allow_tool asks the user, and only Allow saves the tool for the project", async () => {
+  const { env, fake } = await setup();
+  let dialog = { title: "", options: [] as string[] };
+  fake.answer.pick = (options) => {
+    dialog = { ...dialog, options };
+    return undefined;
+  };
+  const ctxSelect = fake.ctx.ui.select;
+  fake.ctx.ui.select = async (title, options) => {
+    dialog.title = title;
+    return ctxSelect(title, options);
+  };
+  const params = { tool: "mcp__godot__run_project", reason: "Run the game to check movement." };
+  assert.match(await fake.callTool("radian_allow_tool", params), /not allowed: the user said no/);
+  assert.deepEqual(dialog.options, ["Cancel", "Allow"]);
+  assert.match(
+    dialog.title,
+    /^Allow workers in demo to use mcp__godot__run_project\?[\s\S]*Reason: Run the game to check movement\./,
+  );
+  assert.deepEqual(readWorkerTools(env.project.path), []);
+
+  fake.answer.pick = (options) => options.find((option) => option === "Allow");
+  assert.match(
+    await fake.callTool("radian_allow_tool", params),
+    /Allowed mcp__godot__run_project for new workers in demo\. Workers already running keep their tools/,
+  );
+  assert.deepEqual(readWorkerTools(env.project.path), ["mcp__godot__run_project"]);
+  assert.match(await fake.callTool("radian_allow_tool", params), /already allowed/);
+});
+
+test("radian_allow_tool refuses anything but an MCP tool name", async () => {
+  const { fake } = await setup();
+  await assert.rejects(
+    fake.callTool("radian_allow_tool", { tool: "Bash", reason: "x" }),
+    /MCP tool/,
+  );
 });

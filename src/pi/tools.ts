@@ -4,13 +4,15 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { Type, type TSchema } from "typebox";
 import { RadianError } from "../core/errors.ts";
 import { ROLES, parseRole } from "../core/roles.ts";
+import { assertWorkerToolName } from "../core/runtime-args.ts";
 import { runReadOnlyGit } from "../io/git.ts";
 import { listWorkers } from "../io/worker-store.ts";
+import { addWorkerTool, readWorkerTools } from "../io/worker-tools.ts";
 import { isWaitingForUser } from "../workers/delivery.ts";
 import { dispatchWorker } from "../workers/dispatch.ts";
 import { sendToWorker, stopWorker } from "../workers/finish.ts";
 import { workersFileOf } from "../workers/worker-env.ts";
-import { discardWithApproval, mergeWithApproval } from "./dialogs.ts";
+import { approveWorkerTool, discardWithApproval, mergeWithApproval } from "./dialogs.ts";
 import {
   currentMode,
   namedWorker,
@@ -30,6 +32,7 @@ export const RADIAN_TOOL_NAMES = [
   "radian_stop",
   "radian_merge",
   "radian_discard",
+  "radian_allow_tool",
 ];
 
 const MAX_GIT_OUTPUT_CHARS = 50_000;
@@ -141,6 +144,16 @@ export function registerTools(state: RadianState): void {
         return discardWithApproval(ctx, named.env, named.worker);
       },
     }),
+    tool({
+      name: "radian_allow_tool",
+      description:
+        "Ask the user to approve an MCP tool (mcp__<server> or mcp__<server>__<tool>) for this project's workers, for example when a worker reports the tool was denied. Only the user's approval adds it, and it applies to workers dispatched afterwards.",
+      parameters: Type.Object({
+        tool: Type.String({ description: "e.g. mcp__godot__run_project, or mcp__godot for all" }),
+        reason: Type.String({ description: "Why the workers need it, for the user" }),
+      }),
+      run: async (params, ctx) => allowWorkerTool(state, ctx, params),
+    }),
   ];
   for (const definition of tools) state.pi.registerTool(definition);
 }
@@ -157,6 +170,22 @@ function writeDoc(state: RadianState, relative: string, content: string): string
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content);
   return `Wrote ${path.join(PLANNING_DIR, normalized)}.`;
+}
+
+async function allowWorkerTool(
+  state: RadianState,
+  ctx: Parameters<ToolDefinition["execute"]>[4],
+  request: { tool: string; reason: string },
+): Promise<string> {
+  assertWorkerToolName(request.tool);
+  const { project } = requireProject(state);
+  if (readWorkerTools(project.path).includes(request.tool)) {
+    return `${request.tool} is already allowed for workers in ${project.name}.`;
+  }
+  const isApproved = await approveWorkerTool(ctx, { project: project.name, ...request });
+  if (!isApproved) return `${request.tool} not allowed: the user said no.`;
+  addWorkerTool(project.path, request.tool);
+  return `Allowed ${request.tool} for new workers in ${project.name}. Workers already running keep their tools; dispatch a new worker to use it.`;
 }
 
 /** Radian tools return plain text; thrown errors become failed tool results for the model. */

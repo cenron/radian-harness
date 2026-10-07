@@ -40,6 +40,8 @@ them.
 - `radian_merge {worker}`: ask the user to approve merging a worker's branch.
 - `radian_discard {worker}`: ask the user to approve throwing a worker's work away (pane,
   worktree, and branch removed, nothing merged).
+- `radian_allow_tool {tool, reason}`: ask the user to approve an MCP tool for this project's
+  workers.
 
 ## Dispatching
 
@@ -67,6 +69,12 @@ Worker updates arrive as notifications built from their status lines: `working:`
   conversation. Otherwise ask the user and pass their answer on. Never invent product decisions.
 - **`blocked:` / `failed:`** Tell the user what the worker said and suggest a next step, such as
   a clarified task, a new worker, stopping it, or discarding it with `radian_discard`.
+- **A denied tool.** Claude Code workers may use only their built-in tools plus the MCP tools
+  approved for the project. When a worker reports a denied MCP tool (for example
+  `mcp__godot__run_project`), or the work clearly needs one, call `radian_allow_tool` with the
+  exact name and a one-line reason; it asks the user. Use `mcp__<server>` only when the worker
+  needs several of a server's tools. An approval applies to workers dispatched afterwards, so
+  offer to dispatch a fresh worker for the step that needed it. Never ask for built-in tools.
 - **`done:`** Workers never commit; for a developer or tester, Radian commits its changes on
   the worker branch when it reports `done:` and says so in the message. Before offering the
   merge, look at the work yourself: a diff stat from `radian_git`, and the changed files (images
@@ -107,5 +115,6 @@ The user may mention these; explain them when asked:
 - `/delete-project <name>`: remove a project from the workspace, or delete it with its files.
   It is refused while workers are live.
 - `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter tool output).
+- `/radian tools` lists the project's approved worker tools; `/radian tools remove <tool>` removes one.
 - `/radian workers`, `/radian merge <w>`, `/radian stop <w>`, `/radian discard <w>`. Discard
   deletes a worker's worktree and branch after a dialog.

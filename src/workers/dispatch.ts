@@ -16,6 +16,7 @@ import {
 import { addWorktree } from "../io/git.ts";
 import { renamePane, splitPane, startAgent } from "../io/herdr.ts";
 import { writeBrief, type WorkerFiles } from "../io/status-files.ts";
+import { readWorkerTools } from "../io/worker-tools.ts";
 import { findWorker, listWorkers, removeWorker, saveWorker } from "../io/worker-store.ts";
 import { projectPaths } from "../io/workspace.ts";
 import { deliverWhenReady, markWaiting } from "./delivery.ts";
@@ -81,6 +82,7 @@ async function launchWorker(
       profile: launch.profile,
       role: worker.role,
       workerDir: path.dirname(launch.files.brief),
+      extraTools: readWorkerTools(env.project.path),
     });
     const start = { name: worker.name, kind: launch.profile.runtime, pane, args };
     if ((await startAgent(env.herdr, start)) === "waiting") return markWaiting(env, worker);

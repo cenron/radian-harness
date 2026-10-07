@@ -61,6 +61,17 @@ export async function discardWithApproval(
     : `Discard of ${worker.name} cancelled by the user.`;
 }
 
+/** Approval for one more tool for the project's workers; Cancel is first. */
+export async function approveWorkerTool(
+  ctx: ExtensionContext,
+  request: { project: string; tool: string; reason: string },
+): Promise<boolean> {
+  return approve(ctx, {
+    title: `Allow workers in ${request.project} to use ${request.tool}?\n\nReason: ${request.reason}\n\nIt applies to workers started from now on. Remove it any time with /radian tools remove ${request.tool}.`,
+    action: "Allow",
+  });
+}
+
 async function approve(
   ctx: ExtensionContext,
   dialog: { title: string; action: string },

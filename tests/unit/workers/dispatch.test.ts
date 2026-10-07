@@ -8,6 +8,7 @@ import { makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
 import { pollWorker } from "../../../src/workers/poll.ts";
+import { addWorkerTool } from "../../../src/io/worker-tools.ts";
 import { workersFileOf } from "../../../src/workers/worker-env.ts";
 
 const request = { role: "developer" as const, title: "Add login", task: "Add a login form." };
@@ -214,4 +215,12 @@ test("parallel dispatches still follow the grid: the second pane opens below the
   const splits = herdr.calls.filter((call) => call[1] === "split");
   assert.deepEqual(splits[0]?.slice(2, 5), ["w1:p1", "--direction", "right"]);
   assert.deepEqual(splits[1]?.slice(2, 5), ["w9:p1", "--direction", "down"]);
+});
+
+test("tools approved for the project are allowed for newly dispatched Claude Code workers", async () => {
+  const { env, herdr } = await makeWorkerEnv();
+  addWorkerTool(env.project.path, "mcp__godot__run_project");
+  await dispatchWorker(env, request, "build");
+  const start = herdr.calls.find((call) => call[1] === "start") ?? [];
+  assert.match(start[start.indexOf("--allowedTools") + 1] ?? "", /,mcp__godot__run_project$/);
 });

@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Profile } from "../../../src/core/profiles.ts";
-import { SCRUBBED_ENV, readScreen, runtimeArgs } from "../../../src/core/runtime-args.ts";
+import {
+  SCRUBBED_ENV,
+  assertWorkerToolName,
+  readScreen,
+  runtimeArgs,
+} from "../../../src/core/runtime-args.ts";
 
-const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1" };
+const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1", extraTools: [] as string[] };
 const claude: Profile = {
   name: "c",
   runtime: "claude",
@@ -154,4 +159,27 @@ test("readScreen treats anything else as still starting, so nothing is typed yet
     readScreen("claude", "radni@mac ~/ws % claude --model claude-sonnet-5-5"),
     "starting",
   );
+});
+
+test("a project's approved tools are allowed for Claude Code workers, never added as built-ins", () => {
+  const extraTools = ["mcp__godot__run_project", "mcp__figma"];
+  const args = runtimeArgs({ profile: claude, role: "developer", ...dirs, extraTools });
+  assert.equal(args[args.indexOf("--tools") + 1], "Read,Glob,Grep,Bash,Write,Edit");
+  assert.equal(
+    args[args.indexOf("--allowedTools") + 1],
+    "Read,Glob,Grep,Bash,Write,Edit,mcp__godot__run_project,mcp__figma",
+  );
+  for (const profile of [codex, pi]) {
+    const other = runtimeArgs({ profile, role: "developer", ...dirs, extraTools });
+    assert.ok(!other.some((arg) => arg.includes("mcp__")));
+  }
+});
+
+test("only MCP tools can be approved: a whole server or one of its tools", () => {
+  for (const name of ["mcp__godot", "mcp__godot__run_project", "mcp__my-server__do_it"]) {
+    assert.doesNotThrow(() => assertWorkerToolName(name), name);
+  }
+  for (const name of ["Bash", "WebFetch", "mcp__", "mcp__godot__run project", "mcp__x(*)"]) {
+    assert.throws(() => assertWorkerToolName(name), /MCP tool/, name);
+  }
 });
