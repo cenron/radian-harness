@@ -9,9 +9,9 @@ import {
   countOwnCommits,
   currentBranch,
   deleteBranch,
-  isClean,
   mergeBranch,
   removeWorktree,
+  uncommittedFiles,
 } from "../io/git.ts";
 import { closePane, getPane, promptAgent } from "../io/herdr.ts";
 import { readReport } from "../io/status-files.ts";
@@ -19,6 +19,7 @@ import { removeWorker, saveWorker } from "../io/worker-store.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 const REPORT_PREVIEW_CHARS = 1500;
+const MAX_LISTED_FILES = 8;
 
 /** What the user sees before approving a merge or discard. */
 export async function describeWorker(env: WorkerEnv, worker: WorkerRecord): Promise<string> {
@@ -94,12 +95,19 @@ async function assertCheckoutReady(env: WorkerEnv): Promise<void> {
       `${env.project.path} is on ${branch || "a detached HEAD"}; check out ${env.project.target} before merging.`,
     );
   }
-  if (!(await isClean(env.project.path))) {
+  const dirty = await uncommittedFiles(env.project.path);
+  if (dirty.length > 0) {
     throw new RadianError(
       "dirty_checkout",
-      `${env.project.path} has uncommitted changes; commit or stash them before merging.`,
+      `${env.project.path} has uncommitted changes: ${listFiles(dirty)}. Commit, stash, or discard them before merging.`,
     );
   }
+}
+
+function listFiles(files: readonly string[]): string {
+  const listed = files.slice(0, MAX_LISTED_FILES).join(", ");
+  const more = files.length - MAX_LISTED_FILES;
+  return more > 0 ? `${listed}, and ${more} more` : listed;
 }
 
 async function removeWorkerCompletely(env: WorkerEnv, worker: WorkerRecord): Promise<void> {
