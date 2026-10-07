@@ -5,6 +5,7 @@ import { RadianError } from "../core/errors.ts";
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const READ_ONLY_COMMANDS = ["status", "log", "diff", "show"];
+const CHANGE_KINDS: Record<string, string> = { A: "new", M: "changed", D: "deleted" };
 // These options make read-only commands write files or run external programs.
 const FORBIDDEN_OPTIONS = /^--(output|ext-diff|textconv)/;
 
@@ -65,12 +66,22 @@ export async function uncommittedFiles(repo: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-/** Commits every change in the checkout; false when there was nothing to commit. */
-export async function commitAll(repo: string, message: string): Promise<boolean> {
-  if (await isClean(repo)) return false;
+/**
+ * Commits every change in the checkout and returns the committed files as "path (new)",
+ * "path (changed)", and so on; empty when there was nothing to commit.
+ */
+export async function commitAll(repo: string, message: string): Promise<string[]> {
+  if (await isClean(repo)) return [];
   await runGit(repo, ["add", "-A"]);
   await runGit(repo, ["commit", "-q", "-m", message]);
-  return true;
+  const nameStatus = await runGit(repo, ["show", "--name-status", "--format=", "HEAD"]);
+  return nameStatus
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [status = "", ...paths] = line.split("\t");
+      return `${paths.at(-1) ?? ""} (${CHANGE_KINDS[status.charAt(0)] ?? "renamed"})`;
+    });
 }
 
 export async function addWorktree(

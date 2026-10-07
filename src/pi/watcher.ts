@@ -17,6 +17,7 @@ const NEXT_STEP: Record<string, string> = {
 
 const CLOSED_NEXT_STEP = "Summarize its report (below) for the user; there is nothing to merge.";
 const MAX_REPORT_CHARS = 4000;
+const MAX_LISTED_FILES = 10;
 
 /** Polls the selected project's workers and tells Pi about questions, results, and exits. */
 export function startWatcher(state: RadianState, ctx: ExtensionContext): () => void {
@@ -44,8 +45,8 @@ export function describeChange(change: WorkerChange): string | undefined {
   const lines = change.entries
     .filter((entry) => entry.kind in NEXT_STEP)
     .map((entry) => `${label} ${entry.kind}: ${entry.text}\n→ ${nextStep(change, entry.kind)}`);
-  if (change.hasRadianCommit) {
-    lines.push(`${label}: Radian committed its changes on ${worker.branch}.`);
+  if (change.committedFiles.length > 0) {
+    lines.push(`${label}: ${committedFilesText(change.committedFiles, worker.branch)}`);
   }
   if (change.isAwaitingUser) {
     lines.push(
@@ -63,6 +64,16 @@ export function describeChange(change: WorkerChange): string | undefined {
     );
   }
   return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+// A worker's tools or editors can leave files behind (a debug server a tool injected, for
+// example), and Radian commits everything at done, so Pi checks the list against the task.
+function committedFilesText(files: readonly string[], branch: string): string {
+  const listed = files.slice(0, MAX_LISTED_FILES).join(", ");
+  const more =
+    files.length > MAX_LISTED_FILES ? `, and ${files.length - MAX_LISTED_FILES} more` : "";
+  const count = `${files.length} file${files.length === 1 ? "" : "s"}`;
+  return `Radian committed ${count} on ${branch}: ${listed}${more}. Check that these files fit the task; flag any that do not (leftovers from a tool or an editor, for example) before offering the merge.`;
 }
 
 function nextStep(change: WorkerChange, kind: string): string | undefined {
