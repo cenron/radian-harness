@@ -234,6 +234,55 @@ test("remove deletes an empty settings file Radian created and keeps workspace s
   assert.deepEqual(readJson(projectsPath), { projects: [] });
 });
 
+test("remove also deletes the .pi folder when Radian's settings file was all it held", () => {
+  const workspace = makeTempDirectory();
+  install(workspace);
+
+  applyPlan(planRemove({ workspace }));
+
+  assert.ok(!fs.existsSync(path.join(workspace, ".pi")));
+  assert.ok(fs.existsSync(path.join(workspace, ".radian")));
+});
+
+test("remove keeps a .pi folder that holds other files", () => {
+  const workspace = makeTempDirectory();
+  install(workspace);
+  const otherFile = path.join(workspace, ".pi", "extensions", "mine.ts");
+  fs.mkdirSync(path.dirname(otherFile), { recursive: true });
+  fs.writeFileSync(otherFile, "export {};\n");
+
+  applyPlan(planRemove({ workspace }));
+
+  assert.ok(!fs.existsSync(settingsPath(workspace)));
+  assert.ok(fs.existsSync(otherFile));
+});
+
+test("remove deletes a settings file Radian created even after the user removed the entry", () => {
+  for (const leftOver of [{}, { packages: [] }]) {
+    const workspace = makeTempDirectory();
+    install(workspace);
+    writeJson(settingsPath(workspace), leftOver);
+
+    const plan = planRemove({ workspace });
+    assert.ok(plan.changes.some((change) => change.path === settingsPath(workspace)));
+    applyPlan(plan);
+
+    assert.ok(!fs.existsSync(settingsPath(workspace)), JSON.stringify(leftOver));
+    assert.ok(!fs.existsSync(path.join(workspace, ".pi")));
+  }
+});
+
+test("remove leaves an empty settings file alone when Radian did not create it", () => {
+  const workspace = makeTempDirectory();
+  writeJson(settingsPath(workspace), {});
+  install(workspace);
+  writeJson(settingsPath(workspace), {});
+
+  applyPlan(planRemove({ workspace }));
+
+  assert.deepEqual(readJson(settingsPath(workspace)), {});
+});
+
 test("remove is refused without a manifest", () => {
   const workspace = makeTempDirectory();
   assert.throws(() => planRemove({ workspace }), assertRadianError("not_installed"));

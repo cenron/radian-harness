@@ -256,18 +256,27 @@ function removeEntryChange(file: SettingsFile, manifest: InstallManifest): FileC
   const { packages: _packages, ...otherSettings } = file.settings;
   const packages = readPackages(file.settings);
   const remaining = packages.filter((entry) => entry !== manifest.packageEntry);
+  const settings = remaining.length > 0 ? { ...otherSettings, packages: remaining } : otherSettings;
+  // Checked even when the entry is already gone: the user may have removed it by hand,
+  // leaving the file Radian created as `{}`.
+  const isEmptyOwnedFile =
+    file.text !== undefined && manifest.createdSettingsFile && Object.keys(settings).length === 0;
+  if (isEmptyOwnedFile) {
+    return {
+      path: file.path,
+      description: "delete (Radian created it and it is now empty; an empty .pi/ folder goes too)",
+      before: file.text,
+      after: undefined,
+    };
+  }
   if (remaining.length === packages.length) {
     return { path: file.path, description: "", before: file.text, after: file.text };
   }
-  const settings = remaining.length > 0 ? { ...otherSettings, packages: remaining } : otherSettings;
-  const isEmptyOwnedFile = manifest.createdSettingsFile && Object.keys(settings).length === 0;
   return {
     path: file.path,
-    description: isEmptyOwnedFile
-      ? "delete (Radian created it and it is now empty)"
-      : "remove Radian package entry (other settings preserved)",
+    description: "remove Radian package entry (other settings preserved)",
     before: file.text,
-    after: file.text === undefined || isEmptyOwnedFile ? undefined : toJsonText(settings),
+    after: toJsonText(settings),
   };
 }
 
@@ -307,10 +316,16 @@ function buildPlan(
 function writeOrDelete(file: string, content: string | undefined): void {
   if (content === undefined) {
     fs.rmSync(file, { force: true });
+    removeFolderIfEmpty(path.dirname(file));
     return;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
+}
+
+/** A folder left empty by deleting Radian's file was only there for that file. */
+function removeFolderIfEmpty(folder: string): void {
+  if (fs.existsSync(folder) && fs.readdirSync(folder).length === 0) fs.rmdirSync(folder);
 }
 
 function readOptionalFile(file: string): string | undefined {
