@@ -58,8 +58,7 @@ export async function dispatchWorker(
   }
   const files = filesOf(env, worker);
   writeBrief(files, briefFor(worker, { task: request.task, target: env.project.target, files }));
-  const origin = splitOrigin(workers, paneId);
-  return launchWorker(env, { worker, profile, files, origin });
+  return launchWorker(env, { worker, profile, files, piPane: paneId });
 }
 
 async function launchWorker(
@@ -68,17 +67,13 @@ async function launchWorker(
     worker: WorkerRecord;
     profile: Profile;
     files: WorkerFiles;
-    origin: { from: string; direction: "right" | "down" };
+    piPane: string;
   },
 ): Promise<WorkerRecord> {
   let worker = launch.worker;
   try {
-    const pane = await splitPane(env.herdr, {
-      ...launch.origin,
-      cwd: worker.worktree,
-      blankedEnv: SCRUBBED_ENV,
-    });
-    worker = update(env, { ...worker, pane });
+    const pane = await openPaneInTurn(env, worker, launch.piPane);
+    worker = { ...worker, pane };
     await renamePane(env.herdr, pane, paneLabel(worker.role, worker.title));
     const args = runtimeArgs({
       profile: launch.profile,
@@ -132,6 +127,28 @@ function newRecord(
     statusLinesSeen: 0,
     createdAt: new Date().toISOString(),
   };
+}
+
+// Pi runs parallel dispatches in one process. Opening panes one at a time lets each new pane
+// stack below the pane opened just before it instead of splitting Pi's pane again.
+let paneOpening: Promise<unknown> = Promise.resolve();
+
+function openPaneInTurn(env: WorkerEnv, worker: WorkerRecord, piPane: string): Promise<string> {
+  const opened = paneOpening.then(() => openPane(env, worker, piPane));
+  // The caller still gets the failure; the queue only moves on to the next dispatch.
+  paneOpening = opened.catch(() => undefined);
+  return opened;
+}
+
+async function openPane(env: WorkerEnv, worker: WorkerRecord, piPane: string): Promise<string> {
+  const others = listWorkers(workersFileOf(env)).filter((other) => other.name !== worker.name);
+  const pane = await splitPane(env.herdr, {
+    ...splitOrigin(others, piPane),
+    cwd: worker.worktree,
+    blankedEnv: SCRUBBED_ENV,
+  });
+  update(env, { ...worker, pane });
+  return pane;
 }
 
 /** The first worker opens beside Pi; later ones stack below the newest open worker pane. */

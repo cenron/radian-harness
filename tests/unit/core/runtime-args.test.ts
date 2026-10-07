@@ -135,7 +135,13 @@ test("readScreen finds a startup prompt, even wrapped in a narrow pane", () => {
   assert.equal(readScreen("codex", CODEX_TRUST_NARROW), "asking");
 });
 
+// A 32-column pane cuts Claude Code's footer short (captured live).
+const CLAUDE_READY_NARROW = `❯ Try "refactor <filepath>"
+──────────────────────────────
+  ⏵⏵ don't ask on (shift+tab`;
+
 test("readScreen reports ready only when the runtime's input is showing", () => {
+  assert.equal(readScreen("claude", CLAUDE_READY_NARROW), "ready");
   assert.equal(readScreen("claude", CLAUDE_READY), "ready");
   assert.equal(readScreen("codex", CODEX_READY_NARROW), "ready");
   assert.equal(readScreen("pi", PI_READY), "ready");

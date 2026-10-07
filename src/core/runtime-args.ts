@@ -16,7 +16,7 @@ export type ScreenState = "asking" | "ready" | "starting";
 // Patterns allow line breaks anywhere because narrow panes wrap mid-word.
 const STARTUP_PROMPT = /trust\s*(this|project)\s*folder|quick\s*safety\s*check/i;
 const READY_SCREEN: Record<Runtime, RegExp> = {
-  claude: /shift\s*\+\s*tab\s*to\s*cycle|for\s*shortcuts/i,
+  claude: /shift\s*\+\s*tab|for\s*shortcuts/i,
   codex: /ask\s*codex|for\s*shortcuts/i,
   pi: /escape\s*interrupt/i,
 };
