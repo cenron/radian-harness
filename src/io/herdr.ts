@@ -32,7 +32,7 @@ export function createHerdrRunner(executable = "herdr"): HerdrRunner {
 
 export async function splitPane(
   run: HerdrRunner,
-  input: { from: string; cwd: string; blankedEnv: readonly string[] },
+  input: { from: string; direction: "right" | "down"; cwd: string; blankedEnv: readonly string[] },
 ): Promise<string> {
   const envFlags = input.blankedEnv.flatMap((key) => ["--env", `${key}=`]);
   const args = [
@@ -40,7 +40,7 @@ export async function splitPane(
     "split",
     input.from,
     "--direction",
-    "right",
+    input.direction,
     "--cwd",
     input.cwd,
     "--no-focus",

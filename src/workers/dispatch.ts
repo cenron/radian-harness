@@ -1,22 +1,23 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
-import { firstPrompt, renderBrief } from "../core/brief.ts";
+import { renderBrief } from "../core/brief.ts";
 import { RadianError, errorMessage } from "../core/errors.ts";
 import { selectProfile, type Profile } from "../core/profiles.ts";
 import { assertRoleAllowedInMode, type Mode, type Role } from "../core/roles.ts";
-import { SCRUBBED_ENV, runtimeArgs, showsStartupPrompt } from "../core/runtime-args.ts";
+import { SCRUBBED_ENV, runtimeArgs } from "../core/runtime-args.ts";
 import {
   countsTowardLimit,
+  hasOpenPane,
   nextWorkerName,
   paneLabel,
   workerBranch,
   type WorkerRecord,
 } from "../core/worker.ts";
 import { addWorktree, gitCommonDir } from "../io/git.ts";
-import { promptAgent, readPaneText, renamePane, splitPane, startAgent } from "../io/herdr.ts";
+import { renamePane, splitPane, startAgent } from "../io/herdr.ts";
 import { writeBrief, type WorkerFiles } from "../io/status-files.ts";
 import { findWorker, listWorkers, removeWorker, saveWorker } from "../io/worker-store.ts";
 import { projectPaths } from "../io/workspace.ts";
+import { deliverWhenReady, markWaiting } from "./delivery.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 export interface DispatchRequest {
@@ -57,17 +58,23 @@ export async function dispatchWorker(
   }
   const files = filesOf(env, worker);
   writeBrief(files, briefFor(worker, { task: request.task, target: env.project.target, files }));
-  return launchWorker(env, { worker, profile, files, paneId });
+  const origin = splitOrigin(workers, paneId);
+  return launchWorker(env, { worker, profile, files, origin });
 }
 
 async function launchWorker(
   env: WorkerEnv,
-  launch: { worker: WorkerRecord; profile: Profile; files: WorkerFiles; paneId: string },
+  launch: {
+    worker: WorkerRecord;
+    profile: Profile;
+    files: WorkerFiles;
+    origin: { from: string; direction: "right" | "down" };
+  },
 ): Promise<WorkerRecord> {
   let worker = launch.worker;
   try {
     const pane = await splitPane(env.herdr, {
-      from: launch.paneId,
+      ...launch.origin,
       cwd: worker.worktree,
       blankedEnv: SCRUBBED_ENV,
     });
@@ -80,15 +87,11 @@ async function launchWorker(
       gitCommonDir: await gitCommonDir(env.project.path),
     });
     const start = { name: worker.name, kind: launch.profile.runtime, pane, args };
-    const isWaiting =
-      (await startAgent(env.herdr, start)) === "waiting" ||
-      showsStartupPrompt(await readPaneText(env.herdr, pane));
-    if (!isWaiting) return await deliverTask(env, worker);
-    return update(env, {
-      ...worker,
-      isTaskPending: true,
-      lastStatus: `waiting: answer the prompt in pane ${pane} (for example, trusting the worktree folder); Radian then types in the task`,
-    });
+    if ((await startAgent(env.herdr, start)) === "waiting") return markWaiting(env, worker);
+    const delivered = (await deliverWhenReady(env, worker)).worker;
+    // Not ready yet: the watcher takes over and types the task in once the agent is.
+    if (delivered.state === "starting") return update(env, { ...delivered, isTaskPending: true });
+    return delivered;
   } catch (error) {
     update(env, {
       ...worker,
@@ -97,15 +100,6 @@ async function launchWorker(
     });
     throw error;
   }
-}
-
-/** Types the role prompt and the brief into the worker's session. */
-export async function deliverTask(env: WorkerEnv, worker: WorkerRecord): Promise<WorkerRecord> {
-  const rolePrompt = readRolePrompt(env.harnessRoot, worker.role);
-  if (!worker.pane) throw new RadianError("no_pane", `${worker.name} has no pane to type into.`);
-  await promptAgent(env.herdr, worker.pane, firstPrompt(rolePrompt, filesOf(env, worker).brief));
-  const { lastStatus: _waitingNote, ...rest } = worker;
-  return update(env, { ...rest, state: "working", isTaskPending: false });
 }
 
 function newRecord(
@@ -139,6 +133,17 @@ function newRecord(
     statusLinesSeen: 0,
     createdAt: new Date().toISOString(),
   };
+}
+
+/** The first worker opens beside Pi; later ones stack below the newest open worker pane. */
+function splitOrigin(
+  workers: readonly WorkerRecord[],
+  piPane: string,
+): { from: string; direction: "right" | "down" } {
+  const newest = workers.filter(hasOpenPane).at(-1);
+  return newest?.pane
+    ? { from: newest.pane, direction: "down" }
+    : { from: piPane, direction: "right" };
 }
 
 function requireHerdrPane(env: WorkerEnv): string {
@@ -177,10 +182,6 @@ function briefFor(
     statusPath: input.files.status,
     reportPath: input.files.report,
   });
-}
-
-function readRolePrompt(harnessRoot: string, role: Role): string {
-  return readFileSync(path.join(harnessRoot, "roles", `${role}.md`), "utf8");
 }
 
 function update(env: WorkerEnv, worker: WorkerRecord): WorkerRecord {

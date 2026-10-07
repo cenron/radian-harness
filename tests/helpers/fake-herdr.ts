@@ -7,9 +7,13 @@ export interface FakeHerdr {
   panes: Map<string, string>;
   /** Makes `agent start` report a startup prompt (such as folder trust), as real Herdr does. */
   options: { isStartupBlocked: boolean };
-  /** What `pane read` shows for a pane; empty by default. */
+  /** What `pane read` shows for a pane; by default a screen every runtime reads as ready. */
   screens: Map<string, string>;
 }
+
+export const READY_SCREEN = "› Ask Codex · ⏵⏵ don't ask on (shift+tab to cycle) · escape interrupt";
+export const TRUST_SCREEN =
+  "Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue";
 
 // The exact output Herdr 0.9.1 gives when the agent shows a prompt before it is ready.
 const STARTUP_BLOCKED = JSON.stringify({
@@ -48,7 +52,7 @@ export function createFakeHerdr(): FakeHerdr {
       return ok({ result: { pane: { pane_id: target, agent_status: status } } });
     }
     if (group === "pane" && command === "read") {
-      return { stdout: screens.get(target ?? "") ?? "", stderr: "", exitCode: 0 };
+      return { stdout: screens.get(target ?? "") ?? READY_SCREEN, stderr: "", exitCode: 0 };
     }
     if (group === "pane" && command === "close") panes.delete(target ?? "");
     return ok({ result: {} });

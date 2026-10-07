@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { git } from "../../helpers/git-fixtures.ts";
+import { READY_SCREEN, TRUST_SCREEN } from "../../helpers/fake-herdr.ts";
 import { makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
@@ -105,46 +106,63 @@ test("a launch failure marks the worker failed and reports the error", async () 
   assert.match(worker?.lastStatus ?? "", /launch failed/);
 });
 
-test("a startup prompt in the worker pane delays the task until the agent is ready", async () => {
+test("a startup prompt Herdr reports as blocked delays the task until the screen is ready", async () => {
   const { env, herdr } = await makeWorkerEnv();
   herdr.options.isStartupBlocked = true;
+  herdr.screens.set("w9:p1", TRUST_SCREEN);
   const worker = await dispatchWorker(env, request, "build");
   assert.equal(worker.state, "starting");
   assert.equal(worker.isTaskPending, true);
   assert.match(worker.lastStatus ?? "", /answer the prompt in pane w9:p1/);
-  assert.ok(
-    !herdr.calls.some((call) => call[1] === "prompt"),
-    "nothing is typed while the agent asks",
-  );
+  assert.ok(!herdr.calls.some((call) => call[1] === "prompt"), "nothing is typed into a prompt");
 
-  const stillBlocked = await pollWorker(env, worker);
-  assert.equal(stillBlocked.worker.isTaskPending, true);
+  const stillAsking = await pollWorker(env, worker);
+  assert.equal(stillAsking.worker.isTaskPending, true);
+  assert.equal(stillAsking.isAwaitingUser, false, "Pi was already told at dispatch");
 
-  herdr.panes.set(worker.pane ?? "", "idle");
-  const delivered = await pollWorker(env, stillBlocked.worker);
+  herdr.screens.set("w9:p1", READY_SCREEN);
+  const delivered = await pollWorker(env, stillAsking.worker);
   assert.equal(delivered.worker.isTaskPending, false);
   assert.equal(delivered.worker.state, "working");
   const prompt = herdr.calls.find((call) => call[1] === "prompt");
   assert.match(prompt?.[3] ?? "", /Read and do the task in .*brief\.md$/);
 });
 
-test("a startup prompt Herdr does not report is found on the screen, and the task waits for it", async () => {
+test("a prompt Herdr calls ready is found on the screen, and nothing is typed into it", async () => {
   const { env, herdr } = await makeWorkerEnv();
-  herdr.screens.set(
-    "w9:p1",
-    "Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue",
-  );
+  herdr.screens.set("w9:p1", TRUST_SCREEN);
   const worker = await dispatchWorker(env, { ...request, profile: "developer-codex" }, "build");
   assert.equal(worker.isTaskPending, true);
   assert.ok(!herdr.calls.some((call) => call[1] === "prompt"));
 
-  const stillAsking = await pollWorker(env, worker);
-  assert.equal(stillAsking.worker.isTaskPending, true);
-
-  herdr.screens.set("w9:p1", "› Ask Codex to do anything");
-  const delivered = await pollWorker(env, stillAsking.worker);
+  herdr.screens.set("w9:p1", READY_SCREEN);
+  const delivered = await pollWorker(env, worker);
   assert.equal(delivered.worker.state, "working");
   assert.ok(herdr.calls.some((call) => call[1] === "prompt" && call[2] === "w9:p1"));
+});
+
+test("a screen that is still starting waits; a prompt appearing later is reported once", async () => {
+  const { env, herdr } = await makeWorkerEnv();
+  herdr.screens.set("w9:p1", "");
+  const worker = await dispatchWorker(env, request, "build");
+  assert.equal(worker.isTaskPending, true);
+  assert.equal(worker.lastStatus, undefined);
+
+  herdr.screens.set("w9:p1", TRUST_SCREEN);
+  const asking = await pollWorker(env, worker);
+  assert.equal(asking.isAwaitingUser, true);
+  assert.match(asking.worker.lastStatus ?? "", /answer the prompt in pane w9:p1/);
+  assert.equal((await pollWorker(env, asking.worker)).isAwaitingUser, false);
+  assert.ok(!herdr.calls.some((call) => call[1] === "prompt"));
+});
+
+test("the first worker opens right of Pi; later ones stack below the newest worker", async () => {
+  const { env, herdr } = await makeWorkerEnv();
+  const first = await dispatchWorker(env, { ...request, title: "A" }, "build");
+  await dispatchWorker(env, { ...request, title: "B" }, "build");
+  const splits = herdr.calls.filter((call) => call[1] === "split");
+  assert.deepEqual(splits[0]?.slice(2, 5), ["w1:p1", "--direction", "right"]);
+  assert.deepEqual(splits[1]?.slice(2, 5), [first.pane, "--direction", "down"]);
 });
 
 test("parallel dispatches get distinct names, as when Pi runs two tool calls at once", async () => {

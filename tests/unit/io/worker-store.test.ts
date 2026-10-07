@@ -3,7 +3,13 @@ import path from "node:path";
 import { test } from "node:test";
 import type { WorkerRecord } from "../../../src/core/worker.ts";
 import { makeTempDir } from "../../helpers/git-fixtures.ts";
-import { findWorker, listWorkers, removeWorker, saveWorker } from "../../../src/io/worker-store.ts";
+import {
+  findWorker,
+  listWorkers,
+  removeWorker,
+  replaceWorker,
+  saveWorker,
+} from "../../../src/io/worker-store.ts";
 
 function record(name: string, overrides: Partial<WorkerRecord> = {}): WorkerRecord {
   return {
@@ -55,4 +61,13 @@ test("removeWorker deletes the record", () => {
   saveWorker(file, record("a"));
   removeWorker(file, "a");
   assert.deepEqual(listWorkers(file), []);
+});
+
+test("replaceWorker updates an existing record and never inserts one", () => {
+  const file = path.join(makeTempDir(), "workers.json");
+  assert.equal(replaceWorker(file, record("a")), false);
+  assert.deepEqual(listWorkers(file), []);
+  saveWorker(file, record("a"));
+  assert.equal(replaceWorker(file, record("a", { state: "done" })), true);
+  assert.equal(listWorkers(file)[0]?.state, "done");
 });

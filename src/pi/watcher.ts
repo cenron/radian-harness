@@ -44,6 +44,11 @@ export function describeChange(change: WorkerChange): string | undefined {
   const lines = change.entries
     .filter((entry) => entry.kind in NEXT_STEP)
     .map((entry) => `${label} ${entry.kind}: ${entry.text}\n→ ${nextStep(change, entry.kind)}`);
+  if (change.isAwaitingUser) {
+    lines.push(
+      `${label}: its ${worker.runtime} session is asking a startup question in pane ${worker.pane} (for example, whether to trust the folder). Ask the user to answer it there; Radian types in the task afterwards.`,
+    );
+  }
   if (change.isClosed) {
     lines.push(
       `${label}: pane, worktree, and branch were closed because it had nothing to merge. Report:\n${reportText(change.report)}`,

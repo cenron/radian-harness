@@ -1,4 +1,4 @@
-import { assertProfileAllowed, type Profile } from "./profiles.ts";
+import { assertProfileAllowed, type Profile, type Runtime } from "./profiles.ts";
 import { canEditCode, type Role } from "./roles.ts";
 
 export interface LaunchInput {
@@ -10,9 +10,18 @@ export interface LaunchInput {
   gitCommonDir: string;
 }
 
-// Claude Code and Codex ask to trust a new folder before they accept input. Herdr reports
-// Claude's prompt as blocked but sees Codex's as idle, so the screen itself is checked.
-const STARTUP_PROMPT = /trust (this|project) folder|quick safety check/i;
+export type ScreenState = "asking" | "ready" | "starting";
+
+// Claude Code and Codex ask to trust a new folder before they accept input, and Herdr does
+// not always report that (it sees Codex's dialog as idle). Typing the task then would answer
+// the dialog with its Enter, so the task waits until the runtime's own input is on screen.
+// Patterns allow line breaks anywhere because narrow panes wrap mid-word.
+const STARTUP_PROMPT = /trust\s*(this|project)\s*folder|quick\s*safety\s*check/i;
+const READY_SCREEN: Record<Runtime, RegExp> = {
+  claude: /shift\s*\+\s*tab\s*to\s*cycle|for\s*shortcuts/i,
+  codex: /ask\s*codex|for\s*shortcuts/i,
+  pi: /escape\s*interrupt/i,
+};
 
 /** Variables that would move a worker off the user's subscription login onto API billing, a custom endpoint, or a proxy. */
 export const SCRUBBED_ENV: readonly string[] = [
@@ -115,7 +124,9 @@ function piArgs({ profile, role }: LaunchInput): string[] {
   ];
 }
 
-/** Whether the agent's screen shows a startup prompt the user must answer before the task. */
-export function showsStartupPrompt(screen: string): boolean {
-  return STARTUP_PROMPT.test(screen);
+/** Whether a worker's screen asks the user something, accepts input, or is still starting. */
+export function readScreen(runtime: Runtime, screen: string): ScreenState {
+  const text = screen.replace(/\s*\r?\n\s*/g, "");
+  if (STARTUP_PROMPT.test(text)) return "asking";
+  return READY_SCREEN[runtime].test(text) ? "ready" : "starting";
 }

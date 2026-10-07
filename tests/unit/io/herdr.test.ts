@@ -17,6 +17,7 @@ test("splitPane opens a pane to the right without focus and blanks the given var
   const herdr = createFakeHerdr();
   const pane = await splitPane(herdr.run, {
     from: "w1:p1",
+    direction: "right",
     cwd: "/ws/wt",
     blankedEnv: ["ANTHROPIC_API_KEY", "HTTPS_PROXY"],
   });
@@ -73,7 +74,12 @@ test("renamePane, startAgent, promptAgent, and closePane use Herdr's command sha
 
 test("startAgent reports a startup prompt as waiting, and other failures as errors", async () => {
   const herdr = createFakeHerdr();
-  const pane = await splitPane(herdr.run, { from: "w1:p1", cwd: "/", blankedEnv: [] });
+  const pane = await splitPane(herdr.run, {
+    from: "w1:p1",
+    direction: "down",
+    cwd: "/",
+    blankedEnv: [],
+  });
   assert.equal(await startAgent(herdr.run, { name: "w", kind: "claude", pane, args: [] }), "ready");
   herdr.options.isStartupBlocked = true;
   assert.equal(
@@ -89,7 +95,12 @@ test("startAgent reports a startup prompt as waiting, and other failures as erro
 
 test("getPane reads the agent status, and is undefined once the pane is closed", async () => {
   const herdr = createFakeHerdr();
-  const pane = await splitPane(herdr.run, { from: "w1:p1", cwd: "/", blankedEnv: [] });
+  const pane = await splitPane(herdr.run, {
+    from: "w1:p1",
+    direction: "down",
+    cwd: "/",
+    blankedEnv: [],
+  });
   await startAgent(herdr.run, { name: "w", kind: "pi", pane, args: [] });
   herdr.panes.set(pane, "working");
   assert.deepEqual(await getPane(herdr.run, pane), { agentStatus: "working" });

@@ -164,3 +164,19 @@ test("a developer that finishes is never closed automatically", async () => {
   assert.equal((await pollWorker(env, worker)).isClosed, false);
   assert.ok(herdr.panes.has(worker.pane ?? ""));
 });
+
+test("the watcher leaves a worker alone while dispatch is still launching it", async () => {
+  const { env, herdr, worker } = await dispatchedDeveloper();
+  const launching = { ...worker, state: "starting" as const, isTaskPending: false };
+  const callsBefore = herdr.calls.length;
+  const change = await pollWorker(env, launching);
+  assert.equal(change.worker, launching);
+  assert.equal(herdr.calls.length, callsBefore, "no Herdr calls, no typing");
+});
+
+test("a poll never brings back a worker that was removed meanwhile", async () => {
+  const { env, worker } = await dispatchedDeveloper();
+  await discardWorker(env, worker);
+  await pollWorker(env, worker);
+  assert.deepEqual(listWorkers(workersFileOf(env)), []);
+});

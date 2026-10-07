@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Profile } from "../../../src/core/profiles.ts";
-import { SCRUBBED_ENV, runtimeArgs, showsStartupPrompt } from "../../../src/core/runtime-args.ts";
+import { SCRUBBED_ENV, readScreen, runtimeArgs } from "../../../src/core/runtime-args.ts";
 
 const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1", gitCommonDir: "/ws/demo/.git" };
 const claude: Profile = {
@@ -104,19 +104,50 @@ test("SCRUBBED_ENV blanks API keys, endpoints, and proxies", () => {
   }
 });
 
-test("showsStartupPrompt recognises the trust prompts of Claude Code and Codex", () => {
+// Screens captured from real Herdr panes during the smoke test, including narrow ones.
+const CLAUDE_TRUST = ` Accessing workspace:
+ /Users/x/ws/.radian/projects/demo/worktrees/demo-developer-1
+ Quick safety check: Is this a project you created or one
+ you trust? (Like your own code, a well-known open source
+ Claude Code'll be able to read, edit, and execute files
+ ❯ No, exit
+   Yes, I trust this folder
+ Enter to confirm · Esc to cancel`;
+const CLAUDE_READY = ` ▐▛███▛█   Claude Code v2.1.285
+❯ Try "write a test for <filepath>"
+  ⏵⏵ don't ask on (shift+tab to cycle) · ← for agents`;
+const CODEX_TRUST = `  Note: You’re in a subdirectory of a Git project. Trusting
+  Trust this folder? Codex can read, edit, and run files
+  here, subject to your permission settings.
+› 1. Trust and continue
+  2. Quit`;
+const CODEX_TRUST_NARROW = `  Trust this fol
+  der? Codex can
+› 1. Trust and c`;
+const CODEX_READY_NARROW = `  >_ OpenAI C…
+› Ask Codex t
+  GPT-6.1-Sol…`;
+const PI_READY = ` ▀▀█  v1.0.2
+ █▀ █ escape interrupt ·
+ ctrl+c/ctrl+d clear/exit`;
+
+test("readScreen finds a startup prompt, even wrapped in a narrow pane", () => {
+  assert.equal(readScreen("claude", CLAUDE_TRUST), "asking");
+  assert.equal(readScreen("codex", CODEX_TRUST), "asking");
+  assert.equal(readScreen("codex", CODEX_TRUST_NARROW), "asking");
+});
+
+test("readScreen reports ready only when the runtime's input is showing", () => {
+  assert.equal(readScreen("claude", CLAUDE_READY), "ready");
+  assert.equal(readScreen("codex", CODEX_READY_NARROW), "ready");
+  assert.equal(readScreen("pi", PI_READY), "ready");
+});
+
+test("readScreen treats anything else as still starting, so nothing is typed yet", () => {
+  for (const runtime of ["claude", "codex", "pi"] as const)
+    assert.equal(readScreen(runtime, ""), "starting");
   assert.equal(
-    showsStartupPrompt(
-      "Quick safety check: Is this a project you created or one you trust?\n❯ No, exit\n  Yes, I trust this folder",
-    ),
-    true,
+    readScreen("claude", "radni@mac ~/ws % claude --model claude-sonnet-5-5"),
+    "starting",
   );
-  assert.equal(
-    showsStartupPrompt(
-      "Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue",
-    ),
-    true,
-  );
-  assert.equal(showsStartupPrompt("› Ask Codex to do anything"), false);
-  assert.equal(showsStartupPrompt('❯ Try "write a test for <filepath>"'), false);
 });

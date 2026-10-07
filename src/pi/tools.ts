@@ -81,8 +81,11 @@ export function registerTools(state: RadianState): void {
         const request = { ...params, role: parseRole(params.role) };
         const worker = await dispatchWorker(workerEnvOf(state), request, currentMode(view));
         const started = `Started ${worker.name} (${worker.runtime} ${worker.model}, effort ${worker.effort}) in pane ${worker.pane} on branch ${worker.branch}.`;
+        if (worker.lastStatus?.startsWith("waiting:")) {
+          return `${started} Its agent is asking a startup question (for example, whether to trust the worktree folder). Ask the user to answer it in pane ${worker.pane}; Radian types in the task once the agent is ready.`;
+        }
         if (worker.isTaskPending) {
-          return `${started} Its agent is showing a startup prompt (for example, asking to trust the worktree folder). Ask the user to answer it in pane ${worker.pane}; Radian types in the task once the agent is ready.`;
+          return `${started} Radian types in the task as soon as the agent is ready. Its status updates arrive as messages.`;
         }
         return `${started} Its status updates arrive as messages.`;
       },

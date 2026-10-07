@@ -21,7 +21,7 @@ if (output === undefined) {
   process.stderr.write(`fake herdr: no such target ${args.join(" ")}\n`);
   process.exitCode = 1;
 } else {
-  process.stdout.write(JSON.stringify(output));
+  process.stdout.write(typeof output === "string" ? output : JSON.stringify(output));
 }
 
 function handle([group, command, target = ""]: string[]): unknown {
@@ -34,6 +34,10 @@ function handle([group, command, target = ""]: string[]): unknown {
     return state.panes[target]
       ? { result: { pane: { pane_id: target, agent_status: "idle" } } }
       : undefined;
+  }
+  if (group === "pane" && command === "read") {
+    // What Claude Code shows once its input is live, so Radian types the task in.
+    return state.panes[target] ? "❯ \n  ⏵⏵ don't ask on (shift+tab to cycle)" : undefined;
   }
   if (group === "pane" && command === "close") {
     if (!state.panes[target]) return undefined;
