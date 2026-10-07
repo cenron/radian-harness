@@ -53,7 +53,16 @@ export async function branchExists(repo: string, branch: string): Promise<boolea
 }
 
 export async function isClean(repo: string): Promise<boolean> {
-  return (await runGit(repo, ["status", "--porcelain"])).trim() === "";
+  return (await uncommittedFiles(repo)).length === 0;
+}
+
+/** Changed and untracked files, one short status line each, for example "M README.md". */
+export async function uncommittedFiles(repo: string): Promise<string[]> {
+  const status = await runGit(repo, ["status", "--porcelain"]);
+  return status
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 /** Commits every change in the checkout; false when there was nothing to commit. */

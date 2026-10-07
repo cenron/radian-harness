@@ -13,6 +13,7 @@ import {
   deleteBranch,
   initRepository,
   isClean,
+  uncommittedFiles,
   isRepository,
   mergeBranch,
   removeWorktree,
@@ -128,4 +129,12 @@ test("commitAll commits every change, including new files, and reports a clean t
   assert.equal(await commitAll(repo, "Add new.txt\n\nBody"), true);
   assert.equal(git(repo, "log", "-1", "--format=%s"), "Add new.txt");
   assert.equal(git(repo, "status", "--porcelain"), "");
+});
+
+test("uncommittedFiles lists changed and untracked files as git status shows them", async () => {
+  const repo = makeRepository();
+  assert.deepEqual(await uncommittedFiles(repo), []);
+  writeFileSync(path.join(repo, "README.md"), "changed\n");
+  writeFileSync(path.join(repo, "new.txt"), "x");
+  assert.deepEqual(await uncommittedFiles(repo), ["M README.md", "?? new.txt"]);
 });

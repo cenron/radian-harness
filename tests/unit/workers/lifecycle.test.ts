@@ -99,6 +99,29 @@ test("merge refuses a dirty checkout or the wrong branch", async () => {
   await assert.rejects(mergeWorker(env, worker), /check out main/);
 });
 
+test("a refused merge names the uncommitted files, so Pi can tell the user", async () => {
+  const { env, worker } = await dispatchedDeveloper();
+  commitFile(env.project.path, "README.md", "original\n", "add readme");
+  writeFileSync(path.join(env.project.path, "README.md"), "edited\n");
+  for (const name of [
+    "a.uid",
+    "b.uid",
+    "c.uid",
+    "d.uid",
+    "e.uid",
+    "f.uid",
+    "g.uid",
+    "h.uid",
+    "i.uid",
+  ]) {
+    writeFileSync(path.join(env.project.path, name), "x");
+  }
+  await assert.rejects(
+    mergeWorker(env, worker),
+    /uncommitted changes: M README\.md, \?\? a\.uid, .*, \?\? g\.uid, and 2 more\. Commit, stash, or discard them/,
+  );
+});
+
 test("discard removes unmerged work entirely", async () => {
   const { env, herdr, worker } = await dispatchedDeveloper();
   actAsWorker(worker, { file: "a.txt", status: [] });
