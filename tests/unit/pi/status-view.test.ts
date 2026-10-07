@@ -62,7 +62,7 @@ test("the footer says how many workers are open and how many slots they use", ()
   );
 });
 
-test("the worker list under Pi is short: no project prefix, paths, or model, and a trimmed summary", () => {
+test("the worker list under Pi is short: no project prefix, paths, or model; summaries indented below", () => {
   const plain = (_color: string, text: string) => text;
   const lines = workerWidgetLines(
     [
@@ -73,7 +73,7 @@ test("the worker list under Pi is short: no project prefix, paths, or model, and
         state: "done",
         title: "Complete playable prototype",
         lastStatus:
-          "done: WASD movement; screenshots at /opt/ws/.radian/projects/x/worktrees/y/docs/screenshots/a.png, tests pass and everything else in this long summary is fine",
+          "done: WASD movement; screenshots at /opt/ws/.radian/projects/x/worktrees/y/docs/screenshots/a.png, tests pass",
       },
       {
         ...worker,
@@ -88,35 +88,35 @@ test("the worker list under Pi is short: no project prefix, paths, or model, and
     plain,
   );
   assert.deepEqual(lines, [
-    "✓ developer-1  done    Complete playable prototype — WASD movement; screenshots at …/screenshots/a.png, tests pass and everything els…",
-    "? tester-1     asking  Validate — which Godot version?",
+    "✓ developer-1  done    Complete playable prototype",
+    "    WASD movement; screenshots at …/screenshots/a.png, tests pass",
+    "? tester-1     asking  Validate",
+    "    which Godot version?",
   ]);
   assert.ok(lines.every((line) => !line.includes("worktree") && !line.includes("claude-sonnet")));
 });
 
-test("each worker's state is colored: working accent, asking warning, done success, failed error", () => {
+test("each worker's state is colored, and its summary is muted", () => {
   const tag = (color: string, text: string) => `<${color}>${text}`;
-  const line = (state: WorkerRecord["state"]) =>
-    workerWidgetLines([{ ...worker, project: "demo", state } as WorkerRecord], tag)[0] ?? "";
-  assert.match(line("working"), /^<accent>● developer-1/);
-  assert.match(line("question"), /^<warning>\? developer-1/);
-  assert.match(line("blocked"), /^<warning>! developer-1/);
-  assert.match(line("done"), /^<success>✓ developer-1/);
-  assert.match(line("failed"), /^<error>✗ developer-1/);
-  assert.match(line("stopped"), /^<muted>■ developer-1/);
+  const lines = (state: WorkerRecord["state"]) =>
+    workerWidgetLines([{ ...worker, project: "demo", state } as WorkerRecord], tag);
+  assert.match(lines("working")[0] ?? "", /^<accent>● developer-1/);
+  assert.match(lines("question")[0] ?? "", /^<warning>\? developer-1/);
+  assert.match(lines("blocked")[0] ?? "", /^<warning>! developer-1/);
+  assert.match(lines("done")[0] ?? "", /^<success>✓ developer-1/);
+  assert.match(lines("failed")[0] ?? "", /^<error>✗ developer-1/);
+  assert.match(lines("stopped")[0] ?? "", /^<muted>■ developer-1/);
+  assert.equal(lines("done")[1], "    <muted>which db?");
 });
 
-test("each worker stays on one line: the summary shrinks to the pane width, or is left out", () => {
+test("a long summary wraps to the pane width and is cut only after two lines", () => {
   const plain = (_color: string, text: string) => text;
-  const long = {
-    ...worker,
-    project: "demo",
-    state: "done",
-    lastStatus: `done: ${"x".repeat(200)}`,
-  };
-  const [fitted] = workerWidgetLines([long as WorkerRecord], plain, 60);
-  assert.equal(fitted?.length, 60);
-  assert.ok(fitted?.endsWith("…"));
-  const [narrow] = workerWidgetLines([long as WorkerRecord], plain, 30);
-  assert.equal(narrow, "✓ developer-1  done  Add login");
+  const words = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
+  const long = { ...worker, project: "demo", state: "done", lastStatus: `done: ${words}` };
+  const lines = workerWidgetLines([long as WorkerRecord], plain, 40);
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0], "✓ developer-1  done  Add login");
+  assert.ok(lines.slice(1).every((line) => line.startsWith("    ") && line.length <= 40));
+  assert.ok(lines[2]?.endsWith("…"));
+  assert.match(lines[1] ?? "", /^ {4}word0 word1 word2 /);
 });

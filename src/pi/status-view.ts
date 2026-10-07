@@ -17,8 +17,9 @@ const STATE_ORDER: readonly WorkerState[] = [
   "stopped",
 ];
 const STATE_LABELS: Partial<Record<WorkerState, string>> = { question: "asking" };
-const SUMMARY_LENGTH = 80;
-const MIN_SUMMARY_LENGTH = 12;
+const SUMMARY_INDENT = "    ";
+const SUMMARY_LINES = 2;
+const MIN_SUMMARY_ROOM = 12;
 const WIDGET_MARGIN = 2;
 
 export type WidgetColor = "accent" | "warning" | "success" | "error" | "muted";
@@ -103,8 +104,9 @@ export function projectStatusLine(status: ProjectStatus): string {
 }
 
 /**
- * The worker list under Pi, for people: one aligned line per worker with a colored state,
- * its title, and a trimmed summary. Paths and model IDs stay in the radian_workers report.
+ * The worker list under Pi, for people: an aligned line per worker with a colored state and its
+ * title, and its last status on indented lines below. Paths and model IDs stay in the
+ * radian_workers report.
  */
 export function workerWidgetLines(
   workers: readonly WorkerRecord[],
@@ -115,14 +117,15 @@ export function workerWidgetLines(
   const labels = workers.map((worker) => STATE_LABELS[worker.state] ?? worker.state);
   const nameWidth = Math.max(0, ...names.map((name) => name.length));
   const labelWidth = Math.max(0, ...labels.map((label) => label.length));
-  return workers.map((worker, index) => {
+  return workers.flatMap((worker, index) => {
     const style = STATE_STYLE[worker.state];
-    const name = (names[index] ?? "").padEnd(nameWidth);
-    const label = (labels[index] ?? "").padEnd(labelWidth);
-    const head = `${style.icon} ${name}  ${label}`;
-    const summary = summaryOf(worker, width - `${head}  ${worker.title} — `.length);
-    const detail = summary ? ` — ${paint("muted", summary)}` : "";
-    return `${paint(style.color, head)}  ${worker.title}${detail}`;
+    const head = `${style.icon} ${(names[index] ?? "").padEnd(nameWidth)}  ${(labels[index] ?? "").padEnd(labelWidth)}`;
+    const title = fit(worker.title, width - head.length - 2);
+    const summary = wrap(summaryOf(worker), width - SUMMARY_INDENT.length, SUMMARY_LINES);
+    return [
+      `${paint(style.color, head)}  ${title}`,
+      ...summary.map((line) => `${SUMMARY_INDENT}${paint("muted", line)}`),
+    ];
   });
 }
 
@@ -174,15 +177,35 @@ function shortName(worker: WorkerRecord): string {
   return worker.name.startsWith(prefix) ? worker.name.slice(prefix.length) : worker.name;
 }
 
-/**
- * The last status without its kind (the state shows it) and with long paths cut to their last
- * two parts, shortened to fit `room` columns; left out when there is no useful room.
- */
-function summaryOf(worker: WorkerRecord, room: number): string {
-  const text = (worker.lastStatus ?? "")
+/** The last status without its kind (the state shows it) and with long paths cut to their last two parts. */
+function summaryOf(worker: WorkerRecord): string {
+  return (worker.lastStatus ?? "")
     .replace(/^(working|question|blocked|done|failed|waiting):\s*/, "")
     .replace(/\/(?:[^\s/]+\/)+([^\s/]+\/[^\s/]+)/g, "…/$1");
-  const limit = Math.min(SUMMARY_LENGTH, room - 1);
-  if (limit < MIN_SUMMARY_LENGTH) return "";
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/** Word-wraps to `room` columns, keeping at most `maxLines` and marking the cut with "…". */
+function wrap(text: string, room: number, maxLines: number): string[] {
+  if (!text || room < MIN_SUMMARY_ROOM) return [];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/)) {
+    const joined = current ? `${current} ${word}` : word;
+    if (joined.length <= room || !current) {
+      current = joined;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+  }
+  lines.push(current);
+  const kept = lines.slice(0, maxLines).map((line) => fit(line, room));
+  if (lines.length <= maxLines) return kept;
+  const last = kept[maxLines - 1] ?? "";
+  kept[maxLines - 1] = `${last.length < room ? last : last.slice(0, room - 1)}…`;
+  return kept;
+}
+
+function fit(text: string, room: number): string {
+  return text.length <= room ? text : `${text.slice(0, Math.max(0, room - 1))}…`;
 }
