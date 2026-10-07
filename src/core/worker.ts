@@ -27,6 +27,8 @@ export interface WorkerRecord {
   baseBranch: string;
   worktree: string;
   pane?: string;
+  /** The agent stopped at a startup prompt; the task is typed in once it is ready. */
+  isTaskPending?: boolean;
   /** Herdr's last view of the agent in the pane (idle, working, blocked, ...). */
   agentStatus?: string;
   state: WorkerState;

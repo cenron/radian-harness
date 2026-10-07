@@ -72,10 +72,13 @@ async function launchWorker(
       workerDir: path.dirname(launch.files.brief),
       gitCommonDir: await gitCommonDir(env.project.path),
     });
-    await startAgent(env.herdr, { name: worker.name, kind: launch.profile.runtime, pane, args });
-    const rolePrompt = readRolePrompt(env.harnessRoot, worker.role);
-    await promptAgent(env.herdr, worker.name, firstPrompt(rolePrompt, launch.files.brief));
-    return update(env, { ...worker, state: "working" });
+    const start = { name: worker.name, kind: launch.profile.runtime, pane, args };
+    if ((await startAgent(env.herdr, start)) === "ready") return await deliverTask(env, worker);
+    return update(env, {
+      ...worker,
+      isTaskPending: true,
+      lastStatus: `waiting: answer the prompt in pane ${pane} (for example, trusting the worktree folder); Radian then types in the task`,
+    });
   } catch (error) {
     update(env, {
       ...worker,
@@ -84,6 +87,14 @@ async function launchWorker(
     });
     throw error;
   }
+}
+
+/** Types the role prompt and the brief into the worker's session. */
+export async function deliverTask(env: WorkerEnv, worker: WorkerRecord): Promise<WorkerRecord> {
+  const rolePrompt = readRolePrompt(env.harnessRoot, worker.role);
+  await promptAgent(env.herdr, worker.name, firstPrompt(rolePrompt, filesOf(env, worker).brief));
+  const { lastStatus: _waitingNote, ...rest } = worker;
+  return update(env, { ...rest, state: "working", isTaskPending: false });
 }
 
 function newRecord(

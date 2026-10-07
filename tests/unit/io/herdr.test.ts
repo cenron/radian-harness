@@ -68,6 +68,22 @@ test("renamePane, startAgent, promptAgent, and closePane use Herdr's command sha
   ]);
 });
 
+test("startAgent reports a startup prompt as waiting, and other failures as errors", async () => {
+  const herdr = createFakeHerdr();
+  const pane = await splitPane(herdr.run, { from: "w1:p1", cwd: "/", blankedEnv: [] });
+  assert.equal(await startAgent(herdr.run, { name: "w", kind: "claude", pane, args: [] }), "ready");
+  herdr.options.isStartupBlocked = true;
+  assert.equal(
+    await startAgent(herdr.run, { name: "w", kind: "claude", pane, args: [] }),
+    "waiting",
+  );
+  const failing: HerdrRunner = async () => ({ stdout: "", stderr: "no such pane", exitCode: 1 });
+  await assert.rejects(
+    startAgent(failing, { name: "w", kind: "claude", pane, args: [] }),
+    /no such pane/,
+  );
+});
+
 test("getPane reads the agent status, and is undefined once the pane is closed", async () => {
   const herdr = createFakeHerdr();
   const pane = await splitPane(herdr.run, { from: "w1:p1", cwd: "/", blankedEnv: [] });

@@ -3,6 +3,7 @@ import { hasOpenPane, type WorkerRecord, type WorkerState } from "../core/worker
 import { getPane } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
 import { saveWorker } from "../io/worker-store.ts";
+import { deliverTask } from "./dispatch.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 export interface WorkerChange {
@@ -34,6 +35,10 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   };
   if (latest) next.lastStatus = `${latest.kind}: ${latest.text}`;
   if (JSON.stringify(next) !== JSON.stringify(worker)) saveWorker(workersFileOf(env), next);
+  // The user answered the agent's startup prompt, so the task can be typed in now.
+  if (next.isTaskPending && pane?.agentStatus === "idle") {
+    return { worker: await deliverTask(env, next), entries, hasExited };
+  }
   return { worker: next, entries, hasExited };
 }
 

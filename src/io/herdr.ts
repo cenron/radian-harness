@@ -18,6 +18,7 @@ export interface PaneInfo {
 
 // Claude Code and Codex can take a while to show their prompt on first start.
 const AGENT_START_TIMEOUT_MS = 120_000;
+const AGENT_NOT_READY = "agent_not_ready";
 
 export function createHerdrRunner(executable = "herdr"): HerdrRunner {
   return (args) =>
@@ -51,13 +52,15 @@ export async function renamePane(run: HerdrRunner, pane: string, label: string):
   await runChecked(run, ["pane", "rename", pane, label]);
 }
 
-/** Herdr returns once the agent is ready for input. */
+/**
+ * Herdr returns once the agent is ready for input. "waiting" means the agent stopped at a
+ * startup prompt, such as Claude Code asking to trust the new worktree; the user answers it.
+ */
 export async function startAgent(
   run: HerdrRunner,
   input: { name: string; kind: Runtime; pane: string; args: readonly string[] },
-): Promise<void> {
-  const timeout = String(AGENT_START_TIMEOUT_MS);
-  await runChecked(run, [
+): Promise<"ready" | "waiting"> {
+  const result = await run([
     "agent",
     "start",
     input.name,
@@ -66,10 +69,13 @@ export async function startAgent(
     "--pane",
     input.pane,
     "--timeout",
-    timeout,
+    String(AGENT_START_TIMEOUT_MS),
     "--",
     ...input.args,
   ]);
+  if (result.exitCode === 0) return "ready";
+  if (`${result.stdout}${result.stderr}`.includes(AGENT_NOT_READY)) return "waiting";
+  throw new RadianError("herdr_failed", `herdr agent start failed: ${failureDetail(result)}`);
 }
 
 export async function promptAgent(run: HerdrRunner, name: string, text: string): Promise<void> {
@@ -100,10 +106,16 @@ export function parseCreatedPane(stdout: string): string {
 async function runChecked(run: HerdrRunner, args: readonly string[]): Promise<string> {
   const result = await run(args);
   if (result.exitCode !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim();
-    throw new RadianError("herdr_failed", `herdr ${args[0]} ${args[1]} failed: ${detail}`);
+    throw new RadianError(
+      "herdr_failed",
+      `herdr ${args[0]} ${args[1]} failed: ${failureDetail(result)}`,
+    );
   }
   return result.stdout;
+}
+
+function failureDetail(result: HerdrResult): string {
+  return result.stderr.trim() || result.stdout.trim();
 }
 
 function parseJson(text: string): unknown {

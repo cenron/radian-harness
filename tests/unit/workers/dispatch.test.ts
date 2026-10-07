@@ -6,6 +6,7 @@ import { git } from "../../helpers/git-fixtures.ts";
 import { makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
+import { pollWorker } from "../../../src/workers/poll.ts";
 import { workersFileOf } from "../../../src/workers/worker-env.ts";
 
 const request = { role: "developer" as const, title: "Add login", task: "Add a login form." };
@@ -101,4 +102,27 @@ test("a launch failure marks the worker failed and reports the error", async () 
   const [worker] = listWorkers(workersFileOf(env));
   assert.equal(worker?.state, "failed");
   assert.match(worker?.lastStatus ?? "", /launch failed/);
+});
+
+test("a startup prompt in the worker pane delays the task until the agent is ready", async () => {
+  const { env, herdr } = await makeWorkerEnv();
+  herdr.options.isStartupBlocked = true;
+  const worker = await dispatchWorker(env, request, "build");
+  assert.equal(worker.state, "starting");
+  assert.equal(worker.isTaskPending, true);
+  assert.match(worker.lastStatus ?? "", /answer the prompt in pane w9:p1/);
+  assert.ok(
+    !herdr.calls.some((call) => call[1] === "prompt"),
+    "nothing is typed while the agent asks",
+  );
+
+  const stillBlocked = await pollWorker(env, worker);
+  assert.equal(stillBlocked.worker.isTaskPending, true);
+
+  herdr.panes.set(worker.pane ?? "", "idle");
+  const delivered = await pollWorker(env, stillBlocked.worker);
+  assert.equal(delivered.worker.isTaskPending, false);
+  assert.equal(delivered.worker.state, "working");
+  const prompt = herdr.calls.find((call) => call[1] === "prompt");
+  assert.match(prompt?.[3] ?? "", /Read and do the task in .*brief\.md$/);
 });
