@@ -154,3 +154,24 @@ test("a long list of committed files is shortened", () => {
   });
   assert.match(message ?? "", /Radian committed 14 files on .*f9\.txt \(new\), and 4 more\./);
 });
+
+test("a closed developer is reported with its summary and no report section", () => {
+  const message = describeChange({
+    worker: { ...worker, state: "done" } as WorkerRecord,
+    entries: [{ kind: "done", text: "nothing to change" }],
+    hasExited: false,
+    isClosed: true,
+    isAwaitingUser: false,
+    committedFiles: [],
+    report: "",
+  });
+  assert.match(
+    message ?? "",
+    /done: nothing to change\n→ Tell the user what it reported; there is nothing to merge\./,
+  );
+  assert.match(
+    message ?? "",
+    /pane, worktree, and branch were closed because it had nothing to merge\.$/,
+  );
+  assert.doesNotMatch(message ?? "", /Report:/);
+});

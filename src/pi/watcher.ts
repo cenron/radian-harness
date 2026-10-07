@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "../core/errors.ts";
+import { canEditCode } from "../core/roles.ts";
 import { hasOpenPane } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { pollWorker, type WorkerChange } from "../workers/poll.ts";
@@ -15,7 +16,9 @@ const NEXT_STEP: Record<string, string> = {
   done: "Summarize the work for the user and offer the merge (radian_merge asks the user to approve).",
 };
 
-const CLOSED_NEXT_STEP = "Summarize its report (below) for the user; there is nothing to merge.";
+const CLOSED_READER_NEXT_STEP =
+  "Summarize its report (below) for the user; there is nothing to merge.";
+const CLOSED_NEXT_STEP = "Tell the user what it reported; there is nothing to merge.";
 const MAX_REPORT_CHARS = 4000;
 const MAX_LISTED_FILES = 10;
 
@@ -54,8 +57,10 @@ export function describeChange(change: WorkerChange): string | undefined {
     );
   }
   if (change.isClosed) {
+    // Scouts and reviewers put their findings in a report; developers and testers do not.
+    const report = canEditCode(worker.role) ? "" : ` Report:\n${reportText(change.report)}`;
     lines.push(
-      `${label}: pane, worktree, and branch were closed because it had nothing to merge. Report:\n${reportText(change.report)}`,
+      `${label}: pane, worktree, and branch were closed because it had nothing to merge.${report}`,
     );
   }
   if (change.hasExited && worker.state === "exited") {
@@ -77,7 +82,8 @@ function committedFilesText(files: readonly string[], branch: string): string {
 }
 
 function nextStep(change: WorkerChange, kind: string): string | undefined {
-  return kind === "done" && change.isClosed ? CLOSED_NEXT_STEP : NEXT_STEP[kind];
+  if (kind !== "done" || !change.isClosed) return NEXT_STEP[kind];
+  return canEditCode(change.worker.role) ? CLOSED_NEXT_STEP : CLOSED_READER_NEXT_STEP;
 }
 
 function reportText(report: string | undefined): string {

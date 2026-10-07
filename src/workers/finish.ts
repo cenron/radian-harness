@@ -1,7 +1,6 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { RadianError } from "../core/errors.ts";
-import { canEditCode } from "../core/roles.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import {
   branchExists,
@@ -60,14 +59,15 @@ export async function stopWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
 }
 
 /**
- * Scouts and reviewers only read. Once one is done with nothing committed there is nothing to
- * merge or lose, so it is closed and its report returned. Undefined means the worker stays.
+ * A done worker with no commits of its own has nothing to merge or lose: a scout or reviewer,
+ * a developer that changed nothing, or one whose work already reached the target through
+ * another worker. It is closed and its report returned. Undefined means the worker stays.
  */
-export async function closeFinishedReader(
+export async function closeIfNothingToMerge(
   env: WorkerEnv,
   worker: WorkerRecord,
 ): Promise<string | undefined> {
-  if (canEditCode(worker.role) || worker.state !== "done") return undefined;
+  if (worker.state !== "done") return undefined;
   if ((await countOwnCommits(env.project.path, worker.branch)) > 0) return undefined;
   const report = readReport(filesOf(env, worker).report) ?? "";
   await removeWorkerCompletely(env, worker);

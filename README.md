@@ -94,12 +94,15 @@ loads. Then create a project and start talking:
 
 ### Roles
 
-| Role      | Default model              | What it does                                                                   |
-| --------- | -------------------------- | ------------------------------------------------------------------------------ |
-| developer | Claude Sonnet 5.5 (medium) | Implements the task and its tests                                              |
-| tester    | Claude Sonnet 5.5 (medium) | Writes and runs tests, in parallel with a developer or on its branch           |
-| reviewer  | Claude Sonnet 5.5 (medium) | Reviews a developer's branch and writes a report; closes itself when done      |
-| scout     | Claude Haiku 4.5 (low)     | Explores read-only and reports (allowed in Plan mode); closes itself when done |
+| Role      | Default model              | What it does                                                         |
+| --------- | -------------------------- | -------------------------------------------------------------------- |
+| developer | Claude Sonnet 5.5 (medium) | Implements the task and its tests                                    |
+| tester    | Claude Sonnet 5.5 (medium) | Writes and runs tests, in parallel with a developer or on its branch |
+| reviewer  | Claude Sonnet 5.5 (medium) | Reviews a developer's branch and writes a report                     |
+| scout     | Claude Haiku 4.5 (low)     | Explores read-only and reports (allowed in Plan mode)                |
+
+A worker that finishes with nothing of its own to merge (a reviewer or scout, or a developer
+whose work already reached `main` another way) closes itself, and Pi passes on what it reported.
 
 Other shipped profiles: `deep-review` (Claude Opus 5.5, high effort), `developer-codex` (Codex),
 and `developer-pi` (an OpenAI model through Pi). Pi uses them only when you ask.
