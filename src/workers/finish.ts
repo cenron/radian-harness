@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { RadianError } from "../core/errors.ts";
+import { FILE_LIST_LIMIT, listSome } from "../core/text.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import {
   branchExists,
@@ -18,7 +19,6 @@ import { removeWorker, saveWorker } from "../io/worker-store.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
 const REPORT_PREVIEW_CHARS = 1500;
-const MAX_LISTED_FILES = 8;
 
 /** What the user sees before approving a merge or discard. */
 export async function describeWorker(env: WorkerEnv, worker: WorkerRecord): Promise<string> {
@@ -99,15 +99,9 @@ async function assertCheckoutReady(env: WorkerEnv): Promise<void> {
   if (dirty.length > 0) {
     throw new RadianError(
       "dirty_checkout",
-      `${env.project.path} has uncommitted changes: ${listFiles(dirty)}. Commit, stash, or discard them before merging.`,
+      `${env.project.path} has uncommitted changes: ${listSome(dirty, FILE_LIST_LIMIT)}. Commit, stash, or discard them before merging.`,
     );
   }
-}
-
-function listFiles(files: readonly string[]): string {
-  const listed = files.slice(0, MAX_LISTED_FILES).join(", ");
-  const more = files.length - MAX_LISTED_FILES;
-  return more > 0 ? `${listed}, and ${more} more` : listed;
 }
 
 async function removeWorkerCompletely(env: WorkerEnv, worker: WorkerRecord): Promise<void> {

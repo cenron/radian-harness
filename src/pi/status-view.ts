@@ -72,7 +72,7 @@ function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
   ctx.ui.setStatus(STATUS_KEY, projectStatusLine(status));
   const paint: Paint =
     ctx.mode === "tui" ? (color, text) => ctx.ui.theme.fg(color, text) : (_color, text) => text;
-  // Pi's own pane width, less the widget's indent, so each worker stays on one line.
+  // Pi's own pane width, less the widget's indent, so summaries wrap instead of running off.
   const width = (process.stdout.columns ?? Number.POSITIVE_INFINITY) - WIDGET_MARGIN;
   const lines = workerWidgetLines(status.workers, paint, width);
   ctx.ui.setWidget(STATUS_KEY, lines.length > 0 ? lines : undefined);

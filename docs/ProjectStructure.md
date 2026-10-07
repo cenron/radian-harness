@@ -14,6 +14,7 @@ radian-harness/
 │   │   ├── brief.ts            The brief text and the first prompt typed into a worker
 │   │   ├── status.ts           Loose parsing of `working|question|blocked|done|failed:` lines
 │   │   ├── layout.ts           Where each worker pane goes in the grid beside the coordinator
+│   │   ├── text.ts             Short lists for messages ("a, b, and 2 more")
 │   │   └── runtime-args.ts     Command-line flags per runtime; blanked API-key/proxy variables
 │   ├── io/                     Files, git, and Herdr; imports core only
 │   │   ├── git.ts              Worktrees, branches, merge with abort on conflict, read-only git
@@ -29,7 +30,7 @@ radian-harness/
 │   │   ├── dispatch.ts         Cap check, profile, worktree, brief, grid pane, agent start
 │   │   ├── delivery.ts         Types the task in once the agent's input is on screen
 │   │   ├── poll.ts             New status lines, pane state, task delivery, commit at done
-│   │   └── finish.ts           Describe, merge, discard, stop, send, close finished readers
+│   │   └── finish.ts           Describe, merge, discard, stop, send, close if nothing to merge
 │   ├── pi/                     Pi integration; may import everything above
 │   │   ├── register.ts         registerRadian(): tools, commands, events, system prompt section
 │   │   ├── state.ts            Per-session state, the current view, WorkerEnv construction

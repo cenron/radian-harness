@@ -103,22 +103,12 @@ test("a refused merge names the uncommitted files, so Pi can tell the user", asy
   const { env, worker } = await dispatchedDeveloper();
   commitFile(env.project.path, "README.md", "original\n", "add readme");
   writeFileSync(path.join(env.project.path, "README.md"), "edited\n");
-  for (const name of [
-    "a.uid",
-    "b.uid",
-    "c.uid",
-    "d.uid",
-    "e.uid",
-    "f.uid",
-    "g.uid",
-    "h.uid",
-    "i.uid",
-  ]) {
-    writeFileSync(path.join(env.project.path, name), "x");
+  for (const letter of "abcdefghijk") {
+    writeFileSync(path.join(env.project.path, `${letter}.uid`), "x");
   }
   await assert.rejects(
     mergeWorker(env, worker),
-    /uncommitted changes: M README\.md, \?\? a\.uid, .*, \?\? g\.uid, and 2 more\. Commit, stash, or discard them/,
+    /uncommitted changes: M README\.md, \?\? a\.uid, .*, \?\? i\.uid, and 2 more\. Commit, stash, or discard them/,
   );
 });
 
