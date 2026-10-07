@@ -25,9 +25,10 @@ radian-harness/
 │   │   └── json-file.ts        JSON read with fallback; write through a temporary file
 │   ├── workers/                Worker lifecycle; imports core and io
 │   │   ├── worker-env.ts       WorkerEnv: the project, config, Herdr runner, and Pi's pane
-│   │   ├── dispatch.ts         Cap check, profile, worktree, brief, pane, agent start, prompt
-│   │   ├── poll.ts             New status lines and pane state → updated worker record
-│   │   └── finish.ts           Describe, merge, discard, stop, and send
+│   │   ├── dispatch.ts         Cap check, profile, worktree, brief, grid pane, agent start
+│   │   ├── delivery.ts         Types the task in once the agent's input is on screen
+│   │   ├── poll.ts             New status lines, pane state, task delivery, commit at done
+│   │   └── finish.ts           Describe, merge, discard, stop, send, close finished readers
 │   ├── pi/                     Pi integration; may import everything above
 │   │   ├── register.ts         registerRadian(): tools, commands, events, system prompt section
 │   │   ├── state.ts            Per-session state, the current view, WorkerEnv construction

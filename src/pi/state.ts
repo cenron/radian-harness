@@ -2,9 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RadianError } from "../core/errors.ts";
 import type { Mode } from "../core/roles.ts";
 import type { RadianConfig } from "../io/config.ts";
+import type { WorkerRecord } from "../core/worker.ts";
 import type { HerdrRunner } from "../io/herdr.ts";
+import { findWorker } from "../io/worker-store.ts";
 import { readMode, type Project } from "../io/workspace.ts";
-import type { WorkerEnv } from "../workers/worker-env.ts";
+import { workersFileOf, type WorkerEnv } from "../workers/worker-env.ts";
 
 export interface RadianDeps {
   harnessRoot: string;
@@ -65,4 +67,13 @@ export function workerEnvOf(state: RadianState): WorkerEnv {
     herdr: state.deps.herdr,
     paneId: state.deps.paneId,
   };
+}
+
+/** The selected project's worker environment and the worker with this name in it. */
+export function namedWorker(
+  state: RadianState,
+  name: string,
+): { env: WorkerEnv; worker: WorkerRecord } {
+  const env = workerEnvOf(state);
+  return { env, worker: findWorker(workersFileOf(env), name) };
 }

@@ -3,7 +3,7 @@ import type { Mode } from "../core/roles.ts";
 import { countsTowardLimit, type WorkerRecord } from "../core/worker.ts";
 import { listWorkers } from "../io/worker-store.ts";
 import { listProjects, projectPaths, readMode, type Project } from "../io/workspace.ts";
-import type { RadianState } from "./state.ts";
+import { requireView, type RadianState } from "./state.ts";
 
 const STATUS_KEY = "radian";
 
@@ -37,7 +37,7 @@ export function projectStatusOf(
   };
 }
 
-export function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
+function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
   if (!ctx.hasUI) return;
   const running = status.workers.filter(countsTowardLimit).length;
   ctx.ui.setStatus(
@@ -50,7 +50,7 @@ export function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus):
   );
 }
 
-export function showDashboardStatus(ctx: ExtensionContext, projectCount: number): void {
+function showDashboardStatus(ctx: ExtensionContext, projectCount: number): void {
   if (!ctx.hasUI) return;
   ctx.ui.setStatus(STATUS_KEY, `Radian · workspace · ${projectCount} project(s)`);
   ctx.ui.setWidget(STATUS_KEY, undefined);
@@ -60,6 +60,13 @@ export function clearStatus(ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
   ctx.ui.setStatus(STATUS_KEY, undefined);
   ctx.ui.setWidget(STATUS_KEY, undefined);
+}
+
+/** What /radian status and radian_status show: the selected project, or the dashboard. */
+export function statusReport(state: RadianState): string {
+  const view = requireView(state);
+  if (!view.project) return dashboardReport(listProjects(view.workspaceRoot));
+  return projectReport(projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
 }
 
 export function projectReport(status: ProjectStatus): string {

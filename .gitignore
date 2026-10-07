@@ -4,9 +4,8 @@
 node_modules/
 *.tgz
 coverage/
-# Private run, evidence, and scratch artifacts never belong in this public repository.
+# Radian workspace state, if this checkout is ever used as a workspace.
 .radian/
-.radian-scratch/
 # Local environment and credential files.
 .env
 .env.*

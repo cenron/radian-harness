@@ -35,8 +35,6 @@ export function projectPaths(workspaceRoot: string, project: string) {
   };
 }
 
-export type ProjectPaths = ReturnType<typeof projectPaths>;
-
 export function listProjects(workspaceRoot: string): Project[] {
   return readRegistry(workspaceRoot).projects;
 }

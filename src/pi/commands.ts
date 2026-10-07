@@ -3,7 +3,7 @@ import { RadianError, errorMessage } from "../core/errors.ts";
 import { parseMode, type Mode } from "../core/roles.ts";
 import { hasOpenPane } from "../core/worker.ts";
 import { getPane } from "../io/herdr.ts";
-import { findWorker, listWorkers } from "../io/worker-store.ts";
+import { listWorkers } from "../io/worker-store.ts";
 import {
   addProject,
   createProject,
@@ -25,18 +25,13 @@ import {
 } from "./dialogs.ts";
 import {
   currentMode,
+  namedWorker,
   requireProject,
   requireView,
   workerEnvOf,
   type RadianState,
 } from "./state.ts";
-import {
-  dashboardReport,
-  projectReport,
-  projectStatusOf,
-  refreshStatus,
-  workersReport,
-} from "./status-view.ts";
+import { dashboardReport, refreshStatus, statusReport, workersReport } from "./status-view.ts";
 
 type CommandAction = (args: string[], ctx: ExtensionCommandContext) => Promise<string | undefined>;
 
@@ -85,7 +80,7 @@ export function registerCommands(state: RadianState): void {
   }
 }
 
-export function setMode(state: RadianState, ctx: ExtensionContext, mode: Mode): string {
+function setMode(state: RadianState, ctx: ExtensionContext, mode: Mode): string {
   const view = requireProject(state);
   writeMode(view.workspaceRoot, view.project.name, mode);
   refreshStatus(ctx, state);
@@ -190,17 +185,10 @@ async function radianCommand(
   if (!argument || !["merge", "stop", "discard"].includes(subcommand)) {
     throw new RadianError("usage", RADIAN_USAGE);
   }
-  const env = workerEnvOf(state);
-  const worker = findWorker(workersFileOf(env), argument);
+  const { env, worker } = namedWorker(state, argument);
   if (subcommand === "merge") return mergeWithApproval(ctx, env, worker);
   if (subcommand === "discard") return discardWithApproval(ctx, env, worker);
   return stopWorker(env, worker);
-}
-
-export function statusReport(state: RadianState): string {
-  const view = requireView(state);
-  if (!view.project) return dashboardReport(listProjects(view.workspaceRoot));
-  return projectReport(projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
 }
 
 function toggleCalm(state: RadianState, setting: string | undefined): string {

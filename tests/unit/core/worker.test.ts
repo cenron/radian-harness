@@ -36,7 +36,7 @@ test("assertProjectName accepts simple names only", () => {
 });
 
 test("only running workers count toward the limit", () => {
-  const running: WorkerState[] = ["starting", "working", "idle", "question", "blocked"];
+  const running: WorkerState[] = ["starting", "working", "question", "blocked"];
   const finished: WorkerState[] = ["done", "failed", "exited", "stopped"];
   for (const state of running) assert.equal(countsTowardLimit({ state }), true, state);
   for (const state of finished) assert.equal(countsTowardLimit({ state }), false, state);

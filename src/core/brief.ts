@@ -41,8 +41,8 @@ export function renderBrief(input: BriefInput): string {
     "```",
     "",
     "Each line is `working|question|blocked|done|failed: <text>`. Write `question:` when you need",
-    "an answer, then wait; the answer is typed into this session. Write `done:` only after your",
-    "work is committed.",
+    "an answer, then wait; the answer is typed into this session. Write `done:` once the work is",
+    "finished and checked.",
     "",
   ].join("\n");
 }

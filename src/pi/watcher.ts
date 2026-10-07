@@ -15,6 +15,9 @@ const NEXT_STEP: Record<string, string> = {
   done: "Summarize the work for the user and offer the merge (radian_merge asks the user to approve).",
 };
 
+const CLOSED_NEXT_STEP = "Summarize its report (below) for the user; there is nothing to merge.";
+const MAX_REPORT_CHARS = 4000;
+
 /** Polls the selected project's workers and tells Pi about questions, results, and exits. */
 export function startWatcher(state: RadianState, ctx: ExtensionContext): () => void {
   const pollMs = workerEnvOf(state).config.harness.pollSeconds * 1000;
@@ -33,9 +36,6 @@ export function startWatcher(state: RadianState, ctx: ExtensionContext): () => v
   timer.unref();
   return () => clearInterval(timer);
 }
-
-const CLOSED_NEXT_STEP = "Summarize its report (below) for the user; there is nothing to merge.";
-const MAX_REPORT_CHARS = 4000;
 
 /** The message Pi receives about one worker's change, or undefined when Pi need not react. */
 export function describeChange(change: WorkerChange): string | undefined {

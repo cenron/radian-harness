@@ -3,7 +3,7 @@ import { RadianError } from "./errors.ts";
 export const ROLES = ["developer", "tester", "reviewer", "scout"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const MODES = ["plan", "build"] as const;
+const MODES = ["plan", "build"] as const;
 export type Mode = (typeof MODES)[number];
 
 export function parseRole(value: string): Role {

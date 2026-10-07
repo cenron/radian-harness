@@ -19,7 +19,7 @@ export interface DispatchConfig {
   profiles: Record<string, Profile>;
 }
 
-export const RUNTIME_EFFORTS: Record<Runtime, readonly string[]> = {
+const RUNTIME_EFFORTS: Record<Runtime, readonly string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: ["minimal", "low", "medium", "high", "xhigh"],
   pi: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],

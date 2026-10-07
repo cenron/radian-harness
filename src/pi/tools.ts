@@ -5,14 +5,20 @@ import { Type, type TSchema } from "typebox";
 import { RadianError } from "../core/errors.ts";
 import { ROLES, parseRole } from "../core/roles.ts";
 import { runReadOnlyGit } from "../io/git.ts";
-import { findWorker, listWorkers } from "../io/worker-store.ts";
+import { listWorkers } from "../io/worker-store.ts";
+import { isWaitingForUser } from "../workers/delivery.ts";
 import { dispatchWorker } from "../workers/dispatch.ts";
 import { sendToWorker, stopWorker } from "../workers/finish.ts";
 import { workersFileOf } from "../workers/worker-env.ts";
-import { statusReport } from "./commands.ts";
 import { discardWithApproval, mergeWithApproval } from "./dialogs.ts";
-import { currentMode, requireProject, workerEnvOf, type RadianState } from "./state.ts";
-import { workersReport } from "./status-view.ts";
+import {
+  currentMode,
+  namedWorker,
+  requireProject,
+  workerEnvOf,
+  type RadianState,
+} from "./state.ts";
+import { statusReport, workersReport } from "./status-view.ts";
 
 export const RADIAN_TOOL_NAMES = [
   "radian_status",
@@ -82,7 +88,7 @@ export function registerTools(state: RadianState): void {
         const request = { ...params, role: parseRole(params.role) };
         const worker = await dispatchWorker(workerEnvOf(state), request, currentMode(view));
         const started = `Started ${worker.name} (${worker.runtime} ${worker.model}, effort ${worker.effort}) in pane ${worker.pane} on branch ${worker.branch}.`;
-        if (worker.lastStatus?.startsWith("waiting:")) {
+        if (isWaitingForUser(worker)) {
           return `${started} Its agent is asking a startup question (for example, whether to trust the worktree folder). Ask the user to answer it in pane ${worker.pane}; Radian types in the task once the agent is ready.`;
         }
         if (worker.isTaskPending) {
@@ -102,8 +108,8 @@ export function registerTools(state: RadianState): void {
       description: "Type a message into a worker's session, for example to answer its question.",
       parameters: Type.Object({ worker: workerParameter, text: Type.String() }),
       run: async ({ worker, text }) => {
-        const env = workerEnvOf(state);
-        return sendToWorker(env, findWorker(workersFileOf(env), worker), text);
+        const named = namedWorker(state, worker);
+        return sendToWorker(named.env, named.worker, text);
       },
     }),
     tool({
@@ -111,8 +117,8 @@ export function registerTools(state: RadianState): void {
       description: "Close a worker's pane. Its worktree and branch are kept.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }) => {
-        const env = workerEnvOf(state);
-        return stopWorker(env, findWorker(workersFileOf(env), worker));
+        const named = namedWorker(state, worker);
+        return stopWorker(named.env, named.worker);
       },
     }),
     tool({
@@ -121,8 +127,8 @@ export function registerTools(state: RadianState): void {
         "Ask the user to approve merging a worker's branch into the target branch. Only the user's approval merges; report exactly what this tool returns.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }, ctx) => {
-        const env = workerEnvOf(state);
-        return mergeWithApproval(ctx, env, findWorker(workersFileOf(env), worker));
+        const named = namedWorker(state, worker);
+        return mergeWithApproval(ctx, named.env, named.worker);
       },
     }),
     tool({
@@ -131,8 +137,8 @@ export function registerTools(state: RadianState): void {
         "Ask the user to approve throwing a worker's work away: its pane, worktree, and branch are removed without merging. Use it for failed launches, rejected changes, or the losing side of a conflict. Only the user's approval discards; report exactly what this tool returns.",
       parameters: Type.Object({ worker: workerParameter }),
       run: async ({ worker }, ctx) => {
-        const env = workerEnvOf(state);
-        return discardWithApproval(ctx, env, findWorker(workersFileOf(env), worker));
+        const named = namedWorker(state, worker);
+        return discardWithApproval(ctx, named.env, named.worker);
       },
     }),
   ];

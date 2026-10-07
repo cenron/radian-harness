@@ -1,5 +1,4 @@
-export const STATUS_KINDS = ["working", "question", "blocked", "done", "failed"] as const;
-export type StatusKind = (typeof STATUS_KINDS)[number];
+export type StatusKind = "working" | "question" | "blocked" | "done" | "failed";
 
 export interface StatusEntry {
   kind: StatusKind | "note";

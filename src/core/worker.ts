@@ -3,15 +3,7 @@ import type { Runtime } from "./profiles.ts";
 import type { Role } from "./roles.ts";
 
 export type WorkerState =
-  | "starting"
-  | "working"
-  | "idle"
-  | "question"
-  | "blocked"
-  | "done"
-  | "failed"
-  | "exited"
-  | "stopped";
+  "starting" | "working" | "question" | "blocked" | "done" | "failed" | "exited" | "stopped";
 
 export interface WorkerRecord {
   name: string;
@@ -40,13 +32,7 @@ export interface WorkerRecord {
   createdAt: string;
 }
 
-const RUNNING_STATES: readonly WorkerState[] = [
-  "starting",
-  "working",
-  "idle",
-  "question",
-  "blocked",
-];
+const RUNNING_STATES: readonly WorkerState[] = ["starting", "working", "question", "blocked"];
 const CLOSED_STATES: readonly WorkerState[] = ["exited", "stopped"];
 const PROJECT_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const TITLE_LENGTH = 40;

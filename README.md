@@ -1,41 +1,60 @@
 # Radian
 
-**Talk to Pi, plan together, press Shift+Tab, and let real coding agents do the work in their own
-panes. Approve one merge when they are done.**
+[![CI](https://github.com/cenron/radian-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/cenron/radian-harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Overview
+**Plan with one agent, build with many.** Radian turns [Pi](https://pi.dev) into a coordinator
+that hands work to real coding agents (Claude Code, Codex, or Pi), each in its own terminal pane
+and git worktree, and merges their work only after you approve.
 
-Radian is a [Pi](https://pi.dev) extension that coordinates coding agents. Pi is the coordinator
-you chat with. Workers are the normal interactive sessions of Claude Code, Codex, or Pi, each in
-its own [Herdr](https://herdr.dev) pane and git worktree, so you can watch any of them and type to
-them directly. Radian creates the worktree and brief, starts the agent with the right model and
-effort, follows its status, and merges its branch after you approve.
+## Why Radian
 
-## Current version
+Coding agents are good at focused work, but juggling several of them by hand means juggling
+branches, terminals, prompts, and half-finished changes. Radian keeps the parts that need you
+(planning, answering questions, approving merges) in one conversation, and gives every worker a
+normal, visible session you can watch or type into at any time.
 
-**1.0.0**: the first deliberately small release. It replaces an earlier, much heavier design
-(approval gates, run store, sandboxing) with the bare workflow above.
+- **You stay in one chat.** Plan with Pi, then press Shift+Tab to start building.
+- **Workers are ordinary agent sessions.** No hidden subprocesses: each worker is the usual
+  interactive Claude Code, Codex, or Pi session in a [Herdr](https://herdr.dev) pane.
+- **Nothing lands without you.** Workers only change files. Radian commits each worker's changes
+  on its own branch, and nothing reaches your target branch until you choose **Merge**.
+- **Your subscriptions, not API bills.** Workers use your existing logins; API-key, custom
+  endpoint, and proxy variables are blanked for every worker.
 
-## At a glance
+## Features
 
-- **Plan** mode: chat, read the code, write plans to `.radian/planning/`, send scouts.
-- **Build** mode (Shift+Tab): dispatch developers, testers, reviewers, and scouts.
-- Up to 3 workers at once by default, configurable. Their panes fill a two-column grid to the
-  right of Pi: `1|3`, `2|4`, `5|6`.
-- Workers report through a plain status file: `working`, `question`, `blocked`, `done`,
-  `failed`.
-- Workers only change files. Radian commits a worker's changes on its branch when it reports
-  `done`, and merges only after you approve.
-- One dialog to merge, with Cancel as the default: fast-forward when possible, otherwise a merge
-  commit. On a conflict the merge is aborted and nothing changes.
-- Anthropic models run only through Claude Code. Workers use your subscription logins, never API
-  keys.
-- Each project has its own conversation, all in one Pi process.
+- **Plan and Build modes.** In Plan mode Pi talks, reads the code, writes plans, and may send
+  read-only scouts. Shift+Tab switches to Build mode, where it can dispatch any worker.
+- **Four roles.** Developers and testers change code; reviewers and scouts read and report.
+- **Parallel workers.** Up to 3 at once by default (configurable), arranged in a two-column grid
+  beside Pi:
+
+  ```text
+  Pi | 1 | 3
+     | 2 | 4
+     | 5 | 6
+  ```
+
+- **Live status.** Workers report `working`, `question`, `blocked`, `done`, or `failed`, and Pi
+  reacts: it answers questions it can, tells you about the rest, and offers the merge when a
+  worker is done.
+- **One-dialog merges.** Fast-forward when possible, a merge commit otherwise; a conflict is
+  aborted and reported, leaving your branch untouched.
+- **Projects.** One workspace holds many git repositories, each with its own conversation.
+- **Calm.** `/calm` collapses routine tool output so the conversation stays readable.
+
+## Requirements
+
+- macOS with git
+- Node.js 22.18 or newer
+- [Pi](https://pi.dev) (tested with 1.0.2)
+- [Herdr](https://herdr.dev) (tested with 0.9.1); Pi must run inside a Herdr pane
+- At least one worker runtime, logged in with your subscription:
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (tested with 2.1.285),
+  Codex CLI (tested with 0.160.1), or Pi itself
 
 ## Quick start
-
-You need macOS, Node.js 22.18 or newer, git, [Herdr](https://herdr.dev), Pi, and the CLIs you
-want as workers (Claude Code, Codex, Pi), each logged in.
 
 ```sh
 git clone https://github.com/cenron/radian-harness.git
@@ -45,7 +64,7 @@ mkdir -p ~/radian-workspace
 ./install.sh --workspace ~/radian-workspace
 ```
 
-The installer shows what it will change and asks before applying it. Then start Herdr, and in a
+The installer shows the files it will change and asks before it changes anything. Then, inside a
 Herdr pane:
 
 ```sh
@@ -53,38 +72,66 @@ cd ~/radian-workspace
 pi
 ```
 
-Radian is a project package, so Pi asks once whether to trust the workspace; trust it so Radian loads. Then, in Pi:
+Radian is a project package, so Pi asks once whether to trust the workspace; trust it so Radian
+loads. Then create a project and start talking:
 
 ```text
 /new-project demo
 ```
 
-## Usage
+## Using Radian
 
 1. **Plan.** Describe what you want. Pi reads the project, asks questions, and can write a plan
-   with `radian_write_doc`. A scout can explore for it.
-2. **Build.** Press Shift+Tab (or `/radian mode build`). Ask Pi to start the work; it dispatches
-   a developer, and a pane opens beside Pi with Claude Code (by default) working in its own
-   worktree.
+   to `.radian/planning/`. A scout can explore the code for it.
+2. **Build.** Press Shift+Tab. Ask Pi to start the work; it dispatches a developer, and a pane
+   opens beside Pi with the agent working in its own worktree.
 3. **Follow.** Pi tells you when a worker asks a question, is blocked, fails, or is done. Answer
-   through Pi, or type into the worker's pane yourself.
-4. **Merge.** When a worker is done, Pi summarizes it and asks to merge. You see the branch,
-   commit count, diff stat, and the worker's last status; choose **Merge**. The pane, worktree,
-   and branch are removed afterwards.
+   through Pi, or type into the worker's pane yourself. The first time an agent opens a new
+   folder it may ask you to trust it; answer in its pane and Radian sends the task right after.
+4. **Merge.** When a worker is done, Radian commits its changes on its branch and Pi offers the
+   merge. You see the branch, commits, diff stat, and the worker's summary; choose **Merge** or
+   **Cancel**. Afterwards the pane, worktree, and branch are removed.
 
-| Command                                                | What it does                                                             |
-| ------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `/projects [name]`                                     | List projects, or switch to one (its own conversation)                   |
-| `/workspace`                                           | Back to the workspace dashboard                                          |
-| `/new-project <name> [--branch <b>]`                   | Create a git repository in the workspace and select it                   |
-| `/add-project <path> --target refs/heads/<b>`          | Register an existing repository                                          |
-| `/delete-project <name>`                               | Cancel, remove from the workspace (keep files), or delete with the files |
-| `/radian status`                                       | The project, its mode, and its workers                                   |
-| `/radian mode plan\|build`, Shift+Tab                  | Switch mode                                                              |
-| `/calm [on\|off]`, `/radian calm on\|off`              | Toggle Calm: collapse successful tool output                             |
-| `/radian workers`                                      | List workers                                                             |
-| `/radian merge\|stop\|discard <worker>`                | Merge (with approval), close the pane, or throw the work away            |
-| `npm run workspace -- install\|update\|remove\|status` | Manage the binding (add `--workspace <dir>`)                             |
+### Roles
+
+| Role      | Default model              | What it does                                                                   |
+| --------- | -------------------------- | ------------------------------------------------------------------------------ |
+| developer | Claude Sonnet 5.5 (medium) | Implements the task and its tests                                              |
+| tester    | Claude Sonnet 5.5 (medium) | Writes and runs tests, in parallel with a developer or on its branch           |
+| reviewer  | Claude Sonnet 5.5 (medium) | Reviews a developer's branch and writes a report; closes itself when done      |
+| scout     | Claude Haiku 4.5 (low)     | Explores read-only and reports (allowed in Plan mode); closes itself when done |
+
+Other shipped profiles: `deep-review` (Claude Opus 5.5, high effort), `developer-codex` (Codex),
+and `developer-pi` (an OpenAI model through Pi). Pi uses them only when you ask.
+
+### Commands
+
+| Command                                       | What it does                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------ |
+| `/projects [name]`                            | List projects, or switch to one (each has its own conversation)          |
+| `/workspace`                                  | Back to the workspace dashboard                                          |
+| `/new-project <name> [--branch <b>]`          | Create a git repository in the workspace and select it                   |
+| `/add-project <path> --target refs/heads/<b>` | Register an existing repository                                          |
+| `/delete-project <name>`                      | Cancel, remove from the workspace (keep files), or delete with the files |
+| `/radian status`                              | The project, its mode, and its workers                                   |
+| `/radian mode plan\|build`, Shift+Tab         | Switch mode                                                              |
+| `/calm [on\|off]`                             | Toggle Calm                                                              |
+| `/radian workers`                             | List workers                                                             |
+| `/radian merge\|stop\|discard <worker>`       | Merge or discard (each asks first), or close the pane and keep the work  |
+
+### Coordinator tools
+
+Pi works through these tools; it has no shell and cannot edit project files.
+
+| Tool                              | Purpose                                                  |
+| --------------------------------- | -------------------------------------------------------- |
+| `radian_status`, `radian_workers` | Project, mode, and worker overview                       |
+| `read`, `ls`, `grep`, `find`      | Read the selected project (confined to it)               |
+| `radian_git`                      | Read-only `status`, `log`, `diff`, `show`                |
+| `radian_write_doc`                | Write plans to `.radian/planning/` (kept out of git)     |
+| `radian_dispatch`                 | Start a worker                                           |
+| `radian_send`, `radian_stop`      | Type into a worker's session; close its pane             |
+| `radian_merge`, `radian_discard`  | Ask you to approve merging or discarding a worker's work |
 
 ## How it works
 
@@ -93,7 +140,7 @@ you ─▶ Pi (coordinator) ── radian_dispatch ─▶ git worktree + brief.m
                                               │
                                               ▼
                                    Herdr pane: claude | codex | pi
-                                   (model and effort flags; prompt typed in)
+                                   (model and effort flags; task typed in)
                                               │ edits files, never commits
                                               │ appends "done: …" to its status file
                                               ▼
@@ -103,43 +150,58 @@ Pi ◀── watcher reads status + pane; at done, ─┘
  └─ radian_merge ─▶ [Cancel] [Merge] ─▶ git merge ─▶ pane, worktree, branch removed
 ```
 
-Pi never edits files or runs shell commands itself; its `bash`, `write`, and `edit` tools are off
-in a Radian workspace, and its read tools are confined to the selected project. More in
+Everything Radian knows lives in plain JSON and text files under the workspace's `.radian/`
+folder, so restarting Pi loses nothing. Details are in
 [docs/Architecture.md](docs/Architecture.md).
 
-## Project structure
+## Safety and billing
 
-```text
-extensions/radian.ts   Pi entry point
-src/core/              pure rules: roles, profiles, status lines, briefs, runtime flags
-src/io/                git, Herdr, config, workspace registry, worker records
-src/workers/           dispatch, poll, merge, discard, stop
-src/pi/                commands, tools, dialogs, sessions, watcher
-src/install/           the installer
-config/ roles/ skills/ shipped profiles, role prompts, coordinator skill
-```
-
-Every file is listed in [docs/ProjectStructure.md](docs/ProjectStructure.md).
+- **Approvals.** Merging and discarding always ask you first, with Cancel as the default.
+- **Coordinator limits.** Pi's `bash`, `write`, and `edit` tools are off in a Radian workspace,
+  and its read tools only see the selected project.
+- **Subscriptions only.** Anthropic models run only through Claude Code, and workers start with
+  API-key, custom-endpoint, and proxy variables blanked. Radian never switches a worker to another
+  runtime or model on its own.
+- **No sandbox.** Workers run with your user's permissions, files, and logins, as the agents do
+  when you start them yourself. Review what you merge.
 
 ## Configuration
 
-`config/harness.json`:
+`config/harness.json` sets the defaults:
 
 ```json
 { "version": 1, "maxWorkers": 3, "startMode": "plan", "calm": false, "pollSeconds": 3 }
 ```
 
-`config/dispatch.json` maps each role to a default profile and defines profiles:
+`config/dispatch.json` maps each role to a default profile and defines the profiles:
 
 ```json
 "developer": { "runtime": "claude", "model": "claude-sonnet-5-5", "effort": "medium" }
 ```
 
-Shipped profiles: `developer`, `tester`, `reviewer` (Claude Sonnet), `scout` (Claude Haiku),
-`deep-review` (Claude Opus, high effort), `developer-codex`, and `developer-pi`. Pi picks a
-non-default profile only when you ask for it. To change settings for one workspace, put partial
-files in `<workspace>/.radian/config/harness.json` or `dispatch.json`; profiles and roles merge
-by name.
+To change settings for one workspace, put partial files in
+`<workspace>/.radian/config/harness.json` or `dispatch.json`; profiles and roles merge by name.
+The installer can be run again at any time:
+
+```sh
+npm run workspace -- status --workspace ~/radian-workspace
+npm run workspace -- update --workspace ~/radian-workspace
+npm run workspace -- remove --workspace ~/radian-workspace
+```
+
+## Project structure
+
+```text
+extensions/radian.ts   Pi entry point
+src/core/              pure rules: roles, profiles, layout, status lines, briefs, runtime flags
+src/io/                git, Herdr, config, workspace registry, worker records
+src/workers/           dispatch, task delivery, polling, merge, discard, stop
+src/pi/                commands, tools, dialogs, sessions, watcher
+src/install/           the installer
+config/ roles/ skills/ shipped profiles, role prompts, coordinator skill
+```
+
+Every file is described in [docs/ProjectStructure.md](docs/ProjectStructure.md).
 
 ## Development
 
@@ -153,28 +215,38 @@ npm run test:integration
 npm run publication-check
 ```
 
-The integration tests run a real Pi over RPC with an offline fake model and a fake Herdr; no
-provider is contacted. The coding standards are in [docs/Principles.md](docs/Principles.md), and
-[AGENTS.md](AGENTS.md) is the working agreement for agents changing this repository.
+The integration tests drive a real Pi over RPC with an offline fake model and a fake Herdr; no
+model provider is contacted. Coding standards are in [docs/Principles.md](docs/Principles.md).
+
+## Contributing
+
+`main` holds released, stable code. All changes go through a branch and a pull request:
+
+1. Branch from `main` (`feature/<topic>` or `fix/<topic>`).
+2. For a bug, write a failing test first, then the fix.
+3. Run the development checks above; all must pass, with no `eslint-disable` comments.
+4. Open a pull request into `main`. CI runs typecheck, lint, format, unit tests, and the
+   publication scan.
+
+[AGENTS.md](AGENTS.md) holds the same working agreement for coding agents.
 
 ## Known limits
 
-- No OS-level isolation: workers run with your permissions, files, and logins. The coordinator
-  guard keeps Pi in its role; it is not a security boundary.
-- macOS and Herdr are required; Pi must run inside a Herdr pane to dispatch workers.
+- macOS and Herdr are required, and Pi must run inside a Herdr pane to dispatch workers.
 - Workers merge only into the project's checked-out target branch, which must be clean.
-- Radian manages git branches and worktrees only. Export templates, CI, deployment, and anything
-  else outside the repository are not managed.
-- Codex workers run in Codex's `workspace-write` sandbox for every role, because they must write
-  their status file outside the worktree.
-- Claude Code and Codex ask to trust each new folder once. Radian waits for you to answer in the
-  worker's pane and types the task in afterwards; it recognizes the prompts by their screen text,
-  so a runtime UI change can leave a worker waiting.
+- Pi follows the workers of the selected project; other projects' updates arrive when you switch
+  back to them.
+- Radian recognizes an agent's trust prompt and ready screen by their text, so a change in an
+  agent's interface can leave a worker waiting (it is never typed into at the wrong moment).
+- Codex workers run in Codex's `workspace-write` sandbox, which is one reason Radian, not the
+  worker, makes the commits.
+- Radian manages git branches and worktrees only; CI, deployment, and anything outside the
+  repository are up to you.
 
 ## Versions
 
-- **1.0.0**: rebuilt from scratch as the small Plan → Build → merge workflow.
+- **1.0.0** (stable): Plan → Build → merge with Claude Code, Codex, and Pi workers in Herdr panes.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)

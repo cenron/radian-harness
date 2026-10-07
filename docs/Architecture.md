@@ -89,7 +89,7 @@ write files or run external programs.
 - **Status.** Workers append free-form lines. They are parsed loosely (bullets, capitals, and
   dashes are fine; anything else is a note), and `statusLinesSeen` in `workers.json` records how
   many were reported, so a restart neither repeats nor loses an update.
-- **Limits.** `maxWorkers` (default 3) counts workers that are starting, working, idle, asking,
+- **Limits.** `maxWorkers` (default 3) counts workers that are starting, working, asking a question,
   or blocked. Only a scout may be dispatched in Plan mode.
 - **Ending.** Merge and discard (`radian_merge`, `radian_discard`, or `/radian merge|discard`)
   each ask the user first and then remove the pane, worktree, and branch.

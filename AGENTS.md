@@ -13,10 +13,14 @@ git worktrees. Read [docs/Architecture.md](docs/Architecture.md) first.
 
 ## Changes
 
+- `main` holds released, stable code (1.0.0 and later). Never commit to `main` directly and never
+  merge into it locally: work on a branch (`feature/<topic>` or `fix/<topic>`) cut from `main`,
+  push the branch, and open a pull request into `main`.
 - Fix a defect with a failing regression test first, then the fix.
 - Before you finish, run:
   `npm run typecheck && npm run lint && npm run format:check && npm test && npm run test:integration && npm run publication-check`.
-- Commit only when asked. Push only when asked. Never force-push, tag, or publish a release.
+- Commit, push, and open pull requests only when asked. Never force-push, tag, or publish a
+  release unless the user asks for that specific release.
 - Keep the repository free of personal data, secrets, and machine-specific paths;
   `npm run publication-check` scans for them.
 

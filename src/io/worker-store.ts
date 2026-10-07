@@ -22,11 +22,8 @@ export function findWorker(workersFile: string, name: string): WorkerRecord {
 }
 
 export function saveWorker(workersFile: string, worker: WorkerRecord): void {
-  const workers = listWorkers(workersFile);
-  const index = workers.findIndex((candidate) => candidate.name === worker.name);
-  if (index === -1) workers.push(worker);
-  else workers[index] = worker;
-  writeJsonFile(workersFile, { version: 1, workers });
+  if (replaceWorker(workersFile, worker)) return;
+  writeJsonFile(workersFile, { version: 1, workers: [...listWorkers(workersFile), worker] });
 }
 
 /** Updates a record only if it still exists, so a stale copy never revives a removed worker. */

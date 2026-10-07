@@ -9,6 +9,8 @@ import { promptAgent, readPaneText } from "../io/herdr.ts";
 import { replaceWorker } from "../io/worker-store.ts";
 import { filesOf, workersFileOf, type WorkerEnv } from "./worker-env.ts";
 
+const WAITING_PREFIX = "waiting:";
+
 /**
  * Types the task in once the agent shows its input, and never while it shows a startup
  * prompt: the Enter that submits the task would answer the prompt for the user.
@@ -20,7 +22,7 @@ export async function deliverWhenReady(
   const pane = requirePane(worker);
   const screen = readScreen(worker.runtime, await readPaneText(env.herdr, pane));
   if (screen === "ready") return { worker: await deliverTask(env, worker), isAwaitingUser: false };
-  if (screen === "asking" && !isMarkedWaiting(worker)) {
+  if (screen === "asking" && !isWaitingForUser(worker)) {
     return { worker: markWaiting(env, worker), isAwaitingUser: true };
   }
   return { worker, isAwaitingUser: false };
@@ -36,8 +38,6 @@ export function markWaiting(env: WorkerEnv, worker: WorkerRecord): WorkerRecord 
   });
 }
 
-const WAITING_PREFIX = "waiting:";
-
 async function deliverTask(env: WorkerEnv, worker: WorkerRecord): Promise<WorkerRecord> {
   const rolePrompt = readRolePrompt(env.harnessRoot, worker.role);
   await promptAgent(
@@ -49,7 +49,8 @@ async function deliverTask(env: WorkerEnv, worker: WorkerRecord): Promise<Worker
   return save(env, { ...rest, state: "working", isTaskPending: false });
 }
 
-function isMarkedWaiting(worker: WorkerRecord): boolean {
+/** The agent is showing a startup prompt that the user has to answer in its pane. */
+export function isWaitingForUser(worker: WorkerRecord): boolean {
   return worker.lastStatus?.startsWith(WAITING_PREFIX) ?? false;
 }
 
