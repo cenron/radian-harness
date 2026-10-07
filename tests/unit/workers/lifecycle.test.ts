@@ -120,7 +120,7 @@ test("stop closes the pane and keeps the worktree and branch", async () => {
 test("send types text into the worker's session", async () => {
   const { env, herdr, worker } = await dispatchedDeveloper();
   await sendToWorker(env, worker, "Use a.txt");
-  assert.deepEqual(herdr.calls.at(-1), ["agent", "prompt", worker.name, "Use a.txt"]);
+  assert.deepEqual(herdr.calls.at(-1), ["agent", "prompt", worker.pane, "Use a.txt"]);
   herdr.panes.clear();
   await assert.rejects(sendToWorker(env, worker, "hello"), /no open pane/);
 });

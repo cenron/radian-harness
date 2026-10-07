@@ -81,7 +81,7 @@ export async function sendToWorker(
   if (!worker.pane || !(await getPane(env.herdr, worker.pane))) {
     throw new RadianError("worker_closed", `${worker.name} has no open pane to send to.`);
   }
-  await promptAgent(env.herdr, worker.name, text);
+  await promptAgent(env.herdr, worker.pane, text);
   saveWorker(workersFileOf(env), { ...worker, state: "working" });
   return `Sent to ${worker.name}.`;
 }

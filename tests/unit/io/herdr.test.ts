@@ -6,6 +6,7 @@ import {
   getPane,
   parseCreatedPane,
   promptAgent,
+  readPaneText,
   renamePane,
   splitPane,
   startAgent,
@@ -45,7 +46,8 @@ test("renamePane, startAgent, promptAgent, and closePane use Herdr's command sha
     pane: "w9:p1",
     args: ["--model", "claude-sonnet-5-5"],
   });
-  await promptAgent(herdr.run, "demo-developer-1", "hello\n\nworld");
+  await promptAgent(herdr.run, "w9:p1", "hello\n\nworld");
+  await readPaneText(herdr.run, "w9:p1");
   await closePane(herdr.run, "w9:p1");
   assert.deepEqual(herdr.calls, [
     ["pane", "rename", "w9:p1", "developer Add login"],
@@ -63,7 +65,8 @@ test("renamePane, startAgent, promptAgent, and closePane use Herdr's command sha
       "--model",
       "claude-sonnet-5-5",
     ],
-    ["agent", "prompt", "demo-developer-1", "hello\n\nworld"],
+    ["agent", "prompt", "w9:p1", "hello\n\nworld"],
+    ["pane", "read", "w9:p1", "--source", "visible"],
     ["pane", "close", "w9:p1"],
   ]);
 });

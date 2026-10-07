@@ -1,6 +1,7 @@
 import { latestStatus, type StatusEntry } from "../core/status.ts";
 import { hasOpenPane, type WorkerRecord, type WorkerState } from "../core/worker.ts";
-import { getPane } from "../io/herdr.ts";
+import { showsStartupPrompt } from "../core/runtime-args.ts";
+import { getPane, readPaneText, type PaneInfo } from "../io/herdr.ts";
 import { readStatusEntries } from "../io/status-files.ts";
 import { saveWorker } from "../io/worker-store.ts";
 import { deliverTask } from "./dispatch.ts";
@@ -41,12 +42,22 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   if (latest) next.lastStatus = `${latest.kind}: ${latest.text}`;
   if (JSON.stringify(next) !== JSON.stringify(worker)) saveWorker(workersFileOf(env), next);
   // The user answered the agent's startup prompt, so the task can be typed in now.
-  if (next.isTaskPending && pane?.agentStatus === "idle") {
+  if (next.isTaskPending && (await isReadyForTask(env, next, pane))) {
     return { worker: await deliverTask(env, next), entries, hasExited, isClosed: false };
   }
   const report = await closeFinishedReader(env, next);
   if (report === undefined) return { worker: next, entries, hasExited, isClosed: false };
   return { worker: next, entries, hasExited, isClosed: true, report };
+}
+
+/** The user has answered the startup prompt: the agent is idle and the prompt is gone. */
+async function isReadyForTask(
+  env: WorkerEnv,
+  worker: WorkerRecord,
+  pane: PaneInfo | undefined,
+): Promise<boolean> {
+  if (!worker.pane || pane?.agentStatus !== "idle") return false;
+  return !showsStartupPrompt(await readPaneText(env.herdr, worker.pane));
 }
 
 function nextState(input: {

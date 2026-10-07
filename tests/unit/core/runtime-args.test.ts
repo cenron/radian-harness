@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Profile } from "../../../src/core/profiles.ts";
-import { SCRUBBED_ENV, runtimeArgs } from "../../../src/core/runtime-args.ts";
+import { SCRUBBED_ENV, runtimeArgs, showsStartupPrompt } from "../../../src/core/runtime-args.ts";
 
 const dirs = { workerDir: "/ws/.radian/projects/demo/workers/w1", gitCommonDir: "/ws/demo/.git" };
 const claude: Profile = {
@@ -102,4 +102,21 @@ test("SCRUBBED_ENV blanks API keys, endpoints, and proxies", () => {
   for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY", "HTTPS_PROXY"]) {
     assert.ok(SCRUBBED_ENV.includes(key), key);
   }
+});
+
+test("showsStartupPrompt recognises the trust prompts of Claude Code and Codex", () => {
+  assert.equal(
+    showsStartupPrompt(
+      "Quick safety check: Is this a project you created or one you trust?\n❯ No, exit\n  Yes, I trust this folder",
+    ),
+    true,
+  );
+  assert.equal(
+    showsStartupPrompt(
+      "Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue",
+    ),
+    true,
+  );
+  assert.equal(showsStartupPrompt("› Ask Codex to do anything"), false);
+  assert.equal(showsStartupPrompt('❯ Try "write a test for <filepath>"'), false);
 });

@@ -78,8 +78,13 @@ export async function startAgent(
   throw new RadianError("herdr_failed", `herdr agent start failed: ${failureDetail(result)}`);
 }
 
-export async function promptAgent(run: HerdrRunner, name: string, text: string): Promise<void> {
-  await runChecked(run, ["agent", "prompt", name, text]);
+/** Targets the pane: Herdr can drop an agent's name when the agent restarts after a prompt. */
+export async function promptAgent(run: HerdrRunner, pane: string, text: string): Promise<void> {
+  await runChecked(run, ["agent", "prompt", pane, text]);
+}
+
+export async function readPaneText(run: HerdrRunner, pane: string): Promise<string> {
+  return runChecked(run, ["pane", "read", pane, "--source", "visible"]);
 }
 
 /** Undefined when the pane no longer exists. */

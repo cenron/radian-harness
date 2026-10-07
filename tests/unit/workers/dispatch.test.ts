@@ -31,7 +31,8 @@ test("dispatch creates the worktree and brief, then launches the agent in a new 
   assert.match(brief, /Add a login form\./);
   assert.match(brief, new RegExp(`>> ${path.join(workerDir, "status")}`));
 
-  const [split, rename, start, prompt] = herdr.calls;
+  const [split, rename, start, screenCheck, prompt] = herdr.calls;
+  assert.deepEqual(screenCheck, ["pane", "read", "w9:p1", "--source", "visible"]);
   assert.deepEqual(split?.slice(0, 8), [
     "pane",
     "split",
@@ -47,7 +48,7 @@ test("dispatch creates the worktree and brief, then launches the agent in a new 
   assert.deepEqual(start?.slice(0, 5), ["agent", "start", worker.name, "--kind", "claude"]);
   assert.ok(start?.includes("claude-sonnet-5-5"));
   assert.ok(!start?.some((arg) => arg.includes("brief.md")), "no prompt on the command line");
-  assert.equal(prompt?.[2], worker.name);
+  assert.equal(prompt?.[2], worker.pane, "typed into the pane, which outlives the agent name");
   assert.match(prompt?.[3] ?? "", /You are a developer[\s\S]*Read and do the task in .*brief\.md$/);
   assert.deepEqual(listWorkers(workersFileOf(env)), [worker]);
 });
@@ -125,4 +126,23 @@ test("a startup prompt in the worker pane delays the task until the agent is rea
   assert.equal(delivered.worker.state, "working");
   const prompt = herdr.calls.find((call) => call[1] === "prompt");
   assert.match(prompt?.[3] ?? "", /Read and do the task in .*brief\.md$/);
+});
+
+test("a startup prompt Herdr does not report is found on the screen, and the task waits for it", async () => {
+  const { env, herdr } = await makeWorkerEnv();
+  herdr.screens.set(
+    "w9:p1",
+    "Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue",
+  );
+  const worker = await dispatchWorker(env, { ...request, profile: "developer-codex" }, "build");
+  assert.equal(worker.isTaskPending, true);
+  assert.ok(!herdr.calls.some((call) => call[1] === "prompt"));
+
+  const stillAsking = await pollWorker(env, worker);
+  assert.equal(stillAsking.worker.isTaskPending, true);
+
+  herdr.screens.set("w9:p1", "› Ask Codex to do anything");
+  const delivered = await pollWorker(env, stillAsking.worker);
+  assert.equal(delivered.worker.state, "working");
+  assert.ok(herdr.calls.some((call) => call[1] === "prompt" && call[2] === "w9:p1"));
 });

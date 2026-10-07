@@ -31,10 +31,10 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
     const calls = workspace.herdrCalls().filter((call) => call[1] !== "get");
     assert.deepEqual(
       calls.map((call) => call.slice(0, 2).join(" ")),
-      ["pane split", "pane rename", "agent start", "agent prompt"],
+      ["pane split", "pane rename", "agent start", "pane read", "agent prompt"],
     );
     assert.match(
-      calls[3]?.[3] ?? "",
+      calls[4]?.[3] ?? "",
       /^You are a developer[\s\S]*Read and do the task in .*brief\.md$/,
     );
 

@@ -10,6 +10,10 @@ export interface LaunchInput {
   gitCommonDir: string;
 }
 
+// Claude Code and Codex ask to trust a new folder before they accept input. Herdr reports
+// Claude's prompt as blocked but sees Codex's as idle, so the screen itself is checked.
+const STARTUP_PROMPT = /trust (this|project) folder|quick safety check/i;
+
 /** Variables that would move a worker off the user's subscription login onto API billing, a custom endpoint, or a proxy. */
 export const SCRUBBED_ENV: readonly string[] = [
   "ANTHROPIC_API_KEY",
@@ -109,4 +113,9 @@ function piArgs({ profile, role }: LaunchInput): string[] {
     "--no-skills",
     "--no-prompt-templates",
   ];
+}
+
+/** Whether the agent's screen shows a startup prompt the user must answer before the task. */
+export function showsStartupPrompt(screen: string): boolean {
+  return STARTUP_PROMPT.test(screen);
 }

@@ -47,7 +47,7 @@ function handle([group, command, target = ""]: string[]): unknown {
     return { result: {} };
   }
   if (group === "agent" && command === "prompt") {
-    const pane = Object.values(state.panes).find((candidate) => candidate.agent === target);
+    const pane = state.panes[target];
     if (!pane) return undefined;
     playWorker(args[3] ?? "");
     return { result: {} };

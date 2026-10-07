@@ -4,7 +4,7 @@ import { firstPrompt, renderBrief } from "../core/brief.ts";
 import { RadianError, errorMessage } from "../core/errors.ts";
 import { selectProfile, type Profile } from "../core/profiles.ts";
 import { assertRoleAllowedInMode, type Mode, type Role } from "../core/roles.ts";
-import { SCRUBBED_ENV, runtimeArgs } from "../core/runtime-args.ts";
+import { SCRUBBED_ENV, runtimeArgs, showsStartupPrompt } from "../core/runtime-args.ts";
 import {
   countsTowardLimit,
   nextWorkerName,
@@ -13,7 +13,7 @@ import {
   type WorkerRecord,
 } from "../core/worker.ts";
 import { addWorktree, gitCommonDir } from "../io/git.ts";
-import { promptAgent, renamePane, splitPane, startAgent } from "../io/herdr.ts";
+import { promptAgent, readPaneText, renamePane, splitPane, startAgent } from "../io/herdr.ts";
 import { writeBrief, type WorkerFiles } from "../io/status-files.ts";
 import { findWorker, listWorkers, saveWorker } from "../io/worker-store.ts";
 import { projectPaths } from "../io/workspace.ts";
@@ -73,7 +73,10 @@ async function launchWorker(
       gitCommonDir: await gitCommonDir(env.project.path),
     });
     const start = { name: worker.name, kind: launch.profile.runtime, pane, args };
-    if ((await startAgent(env.herdr, start)) === "ready") return await deliverTask(env, worker);
+    const isWaiting =
+      (await startAgent(env.herdr, start)) === "waiting" ||
+      showsStartupPrompt(await readPaneText(env.herdr, pane));
+    if (!isWaiting) return await deliverTask(env, worker);
     return update(env, {
       ...worker,
       isTaskPending: true,
@@ -92,7 +95,8 @@ async function launchWorker(
 /** Types the role prompt and the brief into the worker's session. */
 export async function deliverTask(env: WorkerEnv, worker: WorkerRecord): Promise<WorkerRecord> {
   const rolePrompt = readRolePrompt(env.harnessRoot, worker.role);
-  await promptAgent(env.herdr, worker.name, firstPrompt(rolePrompt, filesOf(env, worker).brief));
+  if (!worker.pane) throw new RadianError("no_pane", `${worker.name} has no pane to type into.`);
+  await promptAgent(env.herdr, worker.pane, firstPrompt(rolePrompt, filesOf(env, worker).brief));
   const { lastStatus: _waitingNote, ...rest } = worker;
   return update(env, { ...rest, state: "working", isTaskPending: false });
 }

@@ -7,6 +7,8 @@ export interface FakeHerdr {
   panes: Map<string, string>;
   /** Makes `agent start` report a startup prompt (such as folder trust), as real Herdr does. */
   options: { isStartupBlocked: boolean };
+  /** What `pane read` shows for a pane; empty by default. */
+  screens: Map<string, string>;
 }
 
 // The exact output Herdr 0.9.1 gives when the agent shows a prompt before it is ready.
@@ -23,6 +25,7 @@ export function createFakeHerdr(): FakeHerdr {
   const calls: string[][] = [];
   const panes = new Map<string, string>();
   const options = { isStartupBlocked: false };
+  const screens = new Map<string, string>();
   let paneCount = 0;
   const run: HerdrRunner = async (args) => {
     calls.push([...args]);
@@ -44,10 +47,13 @@ export function createFakeHerdr(): FakeHerdr {
       if (status === undefined) return { stdout: "", stderr: "pane not found", exitCode: 1 };
       return ok({ result: { pane: { pane_id: target, agent_status: status } } });
     }
+    if (group === "pane" && command === "read") {
+      return { stdout: screens.get(target ?? "") ?? "", stderr: "", exitCode: 0 };
+    }
     if (group === "pane" && command === "close") panes.delete(target ?? "");
     return ok({ result: {} });
   };
-  return { run, calls, panes, options };
+  return { run, calls, panes, options, screens };
 }
 
 function ok(value: unknown): HerdrResult {
