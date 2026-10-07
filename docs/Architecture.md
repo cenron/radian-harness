@@ -1,0 +1,98 @@
+# Architecture
+
+Radian is a Pi extension. Pi is the coordinator you talk to; workers are ordinary interactive
+Claude Code, Codex, or Pi sessions, each in its own Herdr pane and git worktree. Radian adds the
+glue: projects, Plan/Build modes, dispatch, status, and one approval before a merge.
+
+## The flow
+
+```text
+ you ──chat──▶ Pi (coordinator, workspace root)
+                │  Plan mode: talk, read, radian_write_doc, scouts only
+                │  Shift+Tab → Build mode
+                ▼
+          radian_dispatch {role, title, task, profile?, fromWorker?}
+                │ 1. cap check, profile (Anthropic models only on Claude Code)
+                │ 2. git worktree add -b radian/<worker>  (from target or fromWorker)
+                │ 3. write workers/<worker>/brief.md
+                │ 4. herdr pane split --cwd <worktree> --env ANTHROPIC_API_KEY= …
+                │    herdr agent start <worker> --kind claude|codex|pi -- <model/effort flags>
+                │    herdr agent prompt <worker> "<roles/<role>.md>\n\nRead and do the task in <brief>"
+                ▼
+       worker pane ── works, commits on radian/<worker>, appends to its status file:
+                │       working: … | question: … | blocked: … | done: … | failed: …
+                ▼
+       watcher (every pollSeconds) reads new status lines + `herdr pane get`
+                │ question/blocked/done/failed/exit → message to Pi (starts a turn)
+                ▼
+       Pi summarizes and calls radian_merge ──▶ dialog [Cancel] [Merge]
+                │ Merge: checkout clean and on target → git merge --ff-only, else --no-edit
+                │        conflict → git merge --abort, report, keep everything
+                ▼
+       success: close pane, remove worktree, delete branch
+```
+
+## Layers
+
+Dependencies point inward; see [ProjectStructure](ProjectStructure.md) for every file.
+
+- `src/core/` — pure rules: roles and modes, profiles and the Anthropic rule, worker naming,
+  status-line parsing, brief text, runtime flags.
+- `src/io/` — git, Herdr (through an injectable `HerdrRunner`), config loading, the workspace
+  registry, worker records, status files.
+- `src/workers/` — the lifecycle: `dispatchWorker`, `pollWorker`, `mergeWorker`,
+  `discardWorker`, `stopWorker`, `sendToWorker`.
+- `src/pi/` — everything that touches Pi: session handling, commands, tools, guard, confined read
+  tools, Calm, the mode editor, status view, and the watcher.
+- `src/install/` — the installer behind `install.sh` and `npm run workspace`.
+
+## Sessions and projects
+
+Pi always runs at the workspace root. Each project has its own Pi session, tagged with a
+`radian-project` custom entry; `.radian/projects/<project>/session.json` remembers the latest
+one. `/projects <name>` switches to it (`ctx.switchSession`) or starts it (`ctx.newSession`);
+`/workspace` starts an untagged session, the dashboard. Pi rebuilds the extension on each switch,
+so Radian keeps nothing important in memory: everything is re-read from disk on
+`session_start`. The user's model and thinking level are carried across a switch.
+
+For a selected project, Radian points the system prompt at the project (`cwd`, the project's
+context files such as `AGENTS.md`, and a `radian` section with the mode), activates only its own
+tools plus `read`/`ls`/`grep`/`find`, and replaces those four with versions rooted at the
+project that refuse paths outside it.
+
+## Coordinator limits
+
+Pi never edits project files or runs shell commands. `bash`, `write`, and `edit` are left out
+of the active tools and blocked by the `tool_call` guard as well. Planning documents go through
+`radian_write_doc` into `<project>/.radian/planning/`, which Radian adds to the repository's
+`.git/info/exclude` so the checkout stays clean for merges. Git inspection goes through
+`radian_git`, which allows only `status`, `log`, `diff`, and `show` and refuses options that
+write files or run external programs.
+
+## Workers
+
+- **Launch.** The pane opens beside Pi's pane with API-key, custom-endpoint, and proxy variables
+  blanked, so each runtime uses the user's subscription login. The runtime starts with model,
+  effort, and permission flags only (`src/core/runtime-args.ts`); the role prompt and brief are
+  typed in afterwards and never passed on the command line. Pi workers get `--no-approve
+--no-extensions` so they never load Radian and become coordinators.
+- **Status.** Workers append free-form lines. They are parsed loosely (bullets, capitals, and
+  dashes are fine; anything else is a note), and `statusLinesSeen` in `workers.json` records how
+  many were reported, so a restart neither repeats nor loses an update.
+- **Limits.** `maxWorkers` (default 3) counts workers that are starting, working, idle, asking,
+  or blocked. Only a scout may be dispatched in Plan mode.
+- **Ending.** Merge and discard each ask first and then remove the pane, worktree, and branch.
+  Stop closes the pane and keeps the worktree and branch, so the work can still be merged.
+  `/delete-project` is refused while any worker pane is open.
+
+## Configuration
+
+`config/harness.json` and `config/dispatch.json` ship with Radian; a workspace can override them
+in `.radian/config/`. Profiles name a runtime, model, effort, and (for Pi) a provider. The loader
+rejects unknown keys, unsupported efforts, Anthropic models on anything but Claude Code, and
+non-Anthropic models on Claude Code. Nothing falls back to another runtime or model on its own.
+
+## What Radian does not do
+
+There is no OS-level isolation of workers: they run with the user's permissions and logins. The
+guard keeps the coordinator honest; it is not a security boundary. Radian targets macOS with Herdr and git worktrees, and it does not manage export templates, CI, or anything outside the project's git repository.
