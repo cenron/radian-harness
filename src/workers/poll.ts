@@ -29,7 +29,7 @@ const FINISHED_STATES: readonly WorkerState[] = ["done", "failed"];
  */
 export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<WorkerChange> {
   // Dispatch owns a worker until it has typed the task or handed it over as pending.
-  if (worker.state === "starting" && !worker.isTaskPending) return unchanged(worker, [], false);
+  if (worker.state === "starting" && !worker.isTaskPending) return changeOf(worker, [], false);
   const allEntries = readStatusEntries(filesOf(env, worker).status);
   const entries = allEntries.slice(worker.statusLinesSeen);
   const pane =
@@ -47,16 +47,16 @@ export async function pollWorker(env: WorkerEnv, worker: WorkerRecord): Promise<
   if (next.isTaskPending && pane) {
     const delivery = await deliverWhenReady(env, next);
     return {
-      ...unchanged(delivery.worker, entries, hasExited),
+      ...changeOf(delivery.worker, entries, hasExited),
       isAwaitingUser: delivery.isAwaitingUser,
     };
   }
   const report = await closeFinishedReader(env, next);
-  if (report === undefined) return unchanged(next, entries, hasExited);
-  return { ...unchanged(next, entries, hasExited), isClosed: true, report };
+  if (report === undefined) return changeOf(next, entries, hasExited);
+  return { ...changeOf(next, entries, hasExited), isClosed: true, report };
 }
 
-function unchanged(worker: WorkerRecord, entries: StatusEntry[], hasExited: boolean): WorkerChange {
+function changeOf(worker: WorkerRecord, entries: StatusEntry[], hasExited: boolean): WorkerChange {
   return { worker, entries, hasExited, isClosed: false, isAwaitingUser: false };
 }
 
