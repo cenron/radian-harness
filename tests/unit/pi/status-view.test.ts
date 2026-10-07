@@ -5,6 +5,7 @@ import {
   dashboardReport,
   projectReport,
   projectStatusLine,
+  workerWidgetLines,
   workersReport,
 } from "../../../src/pi/status-view.ts";
 
@@ -59,4 +60,63 @@ test("the footer says how many workers are open and how many slots they use", ()
     line([withState("done"), withState("question"), withState("working")]),
     "Radian · demo · BUILD · 3 workers: 1 working, 1 asking, 1 done · 2/3 slots in use",
   );
+});
+
+test("the worker list under Pi is short: no project prefix, paths, or model, and a trimmed summary", () => {
+  const plain = (_color: string, text: string) => text;
+  const lines = workerWidgetLines(
+    [
+      {
+        ...worker,
+        name: "ascii-rpg-prototype-developer-1",
+        project: "ascii-rpg-prototype",
+        state: "done",
+        title: "Complete playable prototype",
+        lastStatus:
+          "done: WASD movement; screenshots at /opt/ws/.radian/projects/x/worktrees/y/docs/screenshots/a.png, tests pass and everything else in this long summary is fine",
+      },
+      {
+        ...worker,
+        name: "ascii-rpg-prototype-tester-1",
+        project: "ascii-rpg-prototype",
+        role: "tester",
+        state: "question",
+        title: "Validate",
+        lastStatus: "question: which Godot version?",
+      },
+    ] as WorkerRecord[],
+    plain,
+  );
+  assert.deepEqual(lines, [
+    "✓ developer-1  done    Complete playable prototype — WASD movement; screenshots at …/screenshots/a.png, tests pass and everything els…",
+    "? tester-1     asking  Validate — which Godot version?",
+  ]);
+  assert.ok(lines.every((line) => !line.includes("worktree") && !line.includes("claude-sonnet")));
+});
+
+test("each worker's state is colored: working accent, asking warning, done success, failed error", () => {
+  const tag = (color: string, text: string) => `<${color}>${text}`;
+  const line = (state: WorkerRecord["state"]) =>
+    workerWidgetLines([{ ...worker, project: "demo", state } as WorkerRecord], tag)[0] ?? "";
+  assert.match(line("working"), /^<accent>● developer-1/);
+  assert.match(line("question"), /^<warning>\? developer-1/);
+  assert.match(line("blocked"), /^<warning>! developer-1/);
+  assert.match(line("done"), /^<success>✓ developer-1/);
+  assert.match(line("failed"), /^<error>✗ developer-1/);
+  assert.match(line("stopped"), /^<muted>■ developer-1/);
+});
+
+test("each worker stays on one line: the summary shrinks to the pane width, or is left out", () => {
+  const plain = (_color: string, text: string) => text;
+  const long = {
+    ...worker,
+    project: "demo",
+    state: "done",
+    lastStatus: `done: ${"x".repeat(200)}`,
+  };
+  const [fitted] = workerWidgetLines([long as WorkerRecord], plain, 60);
+  assert.equal(fitted?.length, 60);
+  assert.ok(fitted?.endsWith("…"));
+  const [narrow] = workerWidgetLines([long as WorkerRecord], plain, 30);
+  assert.equal(narrow, "✓ developer-1  done  Add login");
 });

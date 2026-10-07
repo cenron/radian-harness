@@ -17,6 +17,24 @@ const STATE_ORDER: readonly WorkerState[] = [
   "stopped",
 ];
 const STATE_LABELS: Partial<Record<WorkerState, string>> = { question: "asking" };
+const SUMMARY_LENGTH = 80;
+const MIN_SUMMARY_LENGTH = 12;
+const WIDGET_MARGIN = 2;
+
+export type WidgetColor = "accent" | "warning" | "success" | "error" | "muted";
+/** Colors text for the terminal; tests pass a plain or tagging function instead. */
+export type Paint = (color: WidgetColor, text: string) => string;
+
+const STATE_STYLE: Record<WorkerState, { icon: string; color: WidgetColor }> = {
+  starting: { icon: "◌", color: "accent" },
+  working: { icon: "●", color: "accent" },
+  question: { icon: "?", color: "warning" },
+  blocked: { icon: "!", color: "warning" },
+  done: { icon: "✓", color: "success" },
+  failed: { icon: "✗", color: "error" },
+  exited: { icon: "✗", color: "error" },
+  stopped: { icon: "■", color: "muted" },
+};
 
 export interface ProjectStatus {
   project: Project;
@@ -51,10 +69,12 @@ export function projectStatusOf(
 function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
   if (!ctx.hasUI) return;
   ctx.ui.setStatus(STATUS_KEY, projectStatusLine(status));
-  ctx.ui.setWidget(
-    STATUS_KEY,
-    status.workers.length > 0 ? status.workers.map(workerLine) : undefined,
-  );
+  const paint: Paint =
+    ctx.mode === "tui" ? (color, text) => ctx.ui.theme.fg(color, text) : (_color, text) => text;
+  // Pi's own pane width, less the widget's indent, so each worker stays on one line.
+  const width = (process.stdout.columns ?? Number.POSITIVE_INFINITY) - WIDGET_MARGIN;
+  const lines = workerWidgetLines(status.workers, paint, width);
+  ctx.ui.setWidget(STATUS_KEY, lines.length > 0 ? lines : undefined);
 }
 
 function showDashboardStatus(ctx: ExtensionContext, projectCount: number): void {
@@ -80,6 +100,30 @@ export function projectStatusLine(status: ProjectStatus): string {
     .map((group) => `${group.count} ${group.label}`);
   const count = status.workers.length;
   return `${prefix} · ${count} worker${count === 1 ? "" : "s"}: ${byState.join(", ")} · ${slots}`;
+}
+
+/**
+ * The worker list under Pi, for people: one aligned line per worker with a colored state,
+ * its title, and a trimmed summary. Paths and model IDs stay in the radian_workers report.
+ */
+export function workerWidgetLines(
+  workers: readonly WorkerRecord[],
+  paint: Paint,
+  width = Number.POSITIVE_INFINITY,
+): string[] {
+  const names = workers.map(shortName);
+  const labels = workers.map((worker) => STATE_LABELS[worker.state] ?? worker.state);
+  const nameWidth = Math.max(0, ...names.map((name) => name.length));
+  const labelWidth = Math.max(0, ...labels.map((label) => label.length));
+  return workers.map((worker, index) => {
+    const style = STATE_STYLE[worker.state];
+    const name = (names[index] ?? "").padEnd(nameWidth);
+    const label = (labels[index] ?? "").padEnd(labelWidth);
+    const head = `${style.icon} ${name}  ${label}`;
+    const summary = summaryOf(worker, width - `${head}  ${worker.title} — `.length);
+    const detail = summary ? ` — ${paint("muted", summary)}` : "";
+    return `${paint(style.color, head)}  ${worker.title}${detail}`;
+  });
 }
 
 export function clearStatus(ctx: ExtensionContext): void {
@@ -123,4 +167,22 @@ function workerLine(worker: WorkerRecord): string {
   const agent = worker.agentStatus ? ` (agent ${worker.agentStatus})` : "";
   const last = worker.lastStatus ? ` — ${worker.lastStatus}` : "";
   return `${worker.name} [${worker.state}${agent}] ${worker.role}: ${worker.title} · ${worker.runtime} ${worker.model} · worktree ${worker.worktree}${last}`;
+}
+
+function shortName(worker: WorkerRecord): string {
+  const prefix = `${worker.project}-`;
+  return worker.name.startsWith(prefix) ? worker.name.slice(prefix.length) : worker.name;
+}
+
+/**
+ * The last status without its kind (the state shows it) and with long paths cut to their last
+ * two parts, shortened to fit `room` columns; left out when there is no useful room.
+ */
+function summaryOf(worker: WorkerRecord, room: number): string {
+  const text = (worker.lastStatus ?? "")
+    .replace(/^(working|question|blocked|done|failed|waiting):\s*/, "")
+    .replace(/\/(?:[^\s/]+\/)+([^\s/]+\/[^\s/]+)/g, "…/$1");
+  const limit = Math.min(SUMMARY_LENGTH, room - 1);
+  if (limit < MIN_SUMMARY_LENGTH) return "";
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
