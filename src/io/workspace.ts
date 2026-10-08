@@ -63,7 +63,7 @@ export async function createProject(
   if (existsSync(directory)) {
     throw new RadianError(
       "project_exists",
-      `${directory} already exists. Use /add-project to register it.`,
+      `${directory} already exists. Use /projects add to register it.`,
     );
   }
   mkdirSync(directory);

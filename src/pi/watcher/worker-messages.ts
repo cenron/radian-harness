@@ -1,13 +1,6 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../core/errors.ts";
-import { canEditCode } from "../core/roles.ts";
-import { FILE_LIST_LIMIT, listSome } from "../core/text.ts";
-import { hasOpenPane } from "../core/worker.ts";
-import { listWorkers } from "../io/worker-store.ts";
-import { pollWorker, type WorkerChange } from "../workers/poll.ts";
-import { workersFileOf } from "../workers/worker-env.ts";
-import { workerEnvOf, type RadianState } from "./state.ts";
-import { refreshStatus } from "./status-view.ts";
+import { canEditCode } from "#core/roles.ts";
+import { FILE_LIST_LIMIT, listSome } from "#core/text.ts";
+import type { WorkerChange } from "#workers/poll.ts";
 
 const NEXT_STEP: Record<string, string> = {
   question:
@@ -21,25 +14,6 @@ const CLOSED_READER_NEXT_STEP =
   "Summarize its report (below) for the user; there is nothing to merge.";
 const CLOSED_NEXT_STEP = "Tell the user what it reported; there is nothing to merge.";
 const MAX_REPORT_CHARS = 4000;
-
-/** Polls the selected project's workers and tells Pi about questions, results, and exits. */
-export function startWatcher(state: RadianState, ctx: ExtensionContext): () => void {
-  const pollMs = workerEnvOf(state).config.harness.pollSeconds * 1000;
-  let isPolling = false;
-  const timer = setInterval(async () => {
-    if (isPolling) return;
-    isPolling = true;
-    try {
-      await pollOnce(state, ctx);
-    } catch (error) {
-      ctx.ui.notify(`Radian could not check its workers: ${errorMessage(error)}`, "warning");
-    } finally {
-      isPolling = false;
-    }
-  }, pollMs);
-  timer.unref();
-  return () => clearInterval(timer);
-}
 
 /** The message Pi receives about one worker's change, or undefined when Pi need not react. */
 export function describeChange(change: WorkerChange): string | undefined {
@@ -88,23 +62,4 @@ function reportText(report: string | undefined): string {
   return report.length > MAX_REPORT_CHARS
     ? `${report.slice(0, MAX_REPORT_CHARS)}\n[report truncated]`
     : report;
-}
-
-async function pollOnce(state: RadianState, ctx: ExtensionContext): Promise<void> {
-  const env = workerEnvOf(state);
-  const messages: string[] = [];
-  for (const worker of listWorkers(workersFileOf(env)).filter(hasOpenPane)) {
-    const message = describeChange(await pollWorker(env, worker));
-    if (message) messages.push(message);
-  }
-  refreshStatus(ctx, state);
-  if (messages.length === 0) return;
-  state.pi.sendMessage(
-    {
-      customType: "radian-worker",
-      content: `Radian worker update:\n${messages.join("\n\n")}`,
-      display: true,
-    },
-    { triggerTurn: true, deliverAs: "followUp" },
-  );
 }

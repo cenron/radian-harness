@@ -51,10 +51,12 @@ Dependencies point inward; see [ProjectStructure](ProjectStructure.md) for every
 
 Pi always runs at the workspace root. Each project has its own Pi session, tagged with a
 `radian-project` custom entry; `.radian/projects/<project>/session.json` remembers the latest
-one. `/projects <name>` switches to it (`ctx.switchSession`) or starts it (`ctx.newSession`);
-`/workspace` starts an untagged session, the dashboard. Pi rebuilds the extension on each switch,
+one. `/projects select <name>` switches to it (`ctx.switchSession`) or starts it
+(`ctx.newSession`); `/workspace` starts an untagged session, the dashboard. `ProjectSession` in
+`src/pi/session/project-session.ts` does the switching. Pi rebuilds the extension on each switch,
 so Radian keeps nothing important in memory: everything is re-read from disk on
-`session_start`. The user's model and thinking level are carried across a switch.
+`session_start` into a fresh `State` (`src/pi/state.ts`). The user's model and thinking level
+are carried across a switch (`ModelCarry`, `src/pi/session/model-carry.ts`).
 
 For a selected project, Radian points the system prompt at the project (`cwd`, the project's
 context files such as `AGENTS.md`, and a `radian` section with the mode), activates only its own
@@ -103,7 +105,7 @@ write files or run external programs.
   changed nothing, or one whose work already reached the target through another worker) is
   closed without asking, since there is nothing to merge or lose; Pi gets its report or summary.
   Stop closes the pane and keeps the worktree and branch, so the work can still be merged.
-  `/delete-project` is refused while any worker pane is open.
+  `/projects delete` is refused while any worker pane is open.
 
 ## Configuration
 

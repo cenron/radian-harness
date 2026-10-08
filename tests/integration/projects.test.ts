@@ -10,13 +10,13 @@ test("projects keep separate conversations in one Pi process", async () => {
   const workspace = startWorkspace();
   const { pi } = workspace;
   try {
-    await pi.prompt("/new-project alpha");
+    await pi.prompt("/projects create alpha");
     await waitForNote(pi, /Project alpha selected/);
     await pi.prompt("remember alpha");
-    await pi.prompt("/new-project beta");
+    await pi.prompt("/projects create beta");
     await waitForNote(pi, /Project beta selected/);
     await pi.prompt("remember beta");
-    await pi.prompt("/projects alpha");
+    await pi.prompt("/projects select alpha");
     await pi.prompt("back in alpha");
 
     const requests = workspace.modelLog();
@@ -41,7 +41,7 @@ test("the guard blocks bash and reads stay inside the project", async () => {
   const workspace = startWorkspace();
   const { pi } = workspace;
   try {
-    await pi.prompt("/new-project alpha");
+    await pi.prompt("/projects create alpha");
     await waitForNote(pi, /Project alpha selected/);
     await pi.prompt('TOOL bash {"command":"ls"}');
     await pi.prompt('TOOL read {"path":"../.radian/projects.json"}');
@@ -70,22 +70,22 @@ test("the guard blocks bash and reads stay inside the project", async () => {
   }
 });
 
-test("/delete-project removes a project, keeping or deleting its files", async () => {
+test("/projects delete removes a project, keeping or deleting its files", async () => {
   const workspace = startWorkspace();
   const { pi, root } = workspace;
   try {
-    await pi.prompt("/new-project keep");
+    await pi.prompt("/projects create keep");
     await waitForNote(pi, /Project keep selected/);
-    await pi.prompt("/new-project gone");
+    await pi.prompt("/projects create gone");
     await waitForNote(pi, /Project gone selected/);
 
     chooseOption(pi, /keep files/);
-    await pi.prompt("/delete-project keep");
+    await pi.prompt("/projects delete keep");
     await waitForNote(pi, /Removed project keep/);
     assert.ok(existsSync(path.join(root, "keep", ".git")));
 
     chooseOption(pi, /Delete project and files/);
-    await pi.prompt("/delete-project gone");
+    await pi.prompt("/projects delete gone");
     await waitForNote(pi, /Workspace dashboard/);
     assert.equal(existsSync(path.join(root, "gone")), false);
     assert.deepEqual(listProjects(root), []);

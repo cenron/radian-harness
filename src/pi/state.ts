@@ -23,57 +23,59 @@ export interface View {
 }
 
 /** Radian's state for one Pi session. Pi rebuilds it whenever the session is replaced. */
-export interface RadianState {
-  pi: ExtensionAPI;
-  deps: RadianDeps;
-  view: View | undefined;
-  skillRoots: string[];
-  isCalm: boolean;
-  stopWatcher: (() => void) | undefined;
-}
+export class State {
+  readonly pi: ExtensionAPI;
+  readonly deps: RadianDeps;
 
-export function requireView(state: RadianState): View {
-  if (!state.view) {
-    throw new RadianError(
-      "no_workspace",
-      "Radian is not active here; start Pi in a Radian workspace.",
-    );
+  view: View | undefined = undefined;
+  skillRoots: string[] = [];
+  isCalm = false;
+
+  constructor(pi: ExtensionAPI, deps: RadianDeps) {
+    this.pi = pi;
+    this.deps = deps;
   }
-  return state.view;
-}
 
-export function requireProject(state: RadianState): View & { project: Project } {
-  const view = requireView(state);
-  if (!view.project) {
-    throw new RadianError(
-      "no_project",
-      "No project is selected. Use /projects to pick one or /new-project to create one.",
-    );
+  requireView(): View {
+    if (!this.view) {
+      throw new RadianError(
+        "no_workspace",
+        "Radian is not active here; start Pi in a Radian workspace.",
+      );
+    }
+    return this.view;
   }
-  return { ...view, project: view.project };
-}
 
-export function currentMode(view: View & { project: Project }): Mode {
-  return readMode(view.workspaceRoot, view.project.name, view.config.harness.startMode);
-}
+  requireProject(): View & { project: Project } {
+    const view = this.requireView();
+    if (!view.project) {
+      throw new RadianError(
+        "no_project",
+        "No project is selected. Use /projects select to pick one or /projects create to create one.",
+      );
+    }
+    return { ...view, project: view.project };
+  }
 
-export function workerEnvOf(state: RadianState): WorkerEnv {
-  const view = requireProject(state);
-  return {
-    workspaceRoot: view.workspaceRoot,
-    project: view.project,
-    config: view.config,
-    harnessRoot: state.deps.harnessRoot,
-    herdr: state.deps.herdr,
-    paneId: state.deps.paneId,
-  };
-}
+  currentMode(view: View & { project: Project }): Mode {
+    return readMode(view.workspaceRoot, view.project.name, view.config.harness.startMode);
+  }
 
-/** The selected project's worker environment and the worker with this name in it. */
-export function namedWorker(
-  state: RadianState,
-  name: string,
-): { env: WorkerEnv; worker: WorkerRecord } {
-  const env = workerEnvOf(state);
-  return { env, worker: findWorker(workersFileOf(env), name) };
+  workerEnvOf(): WorkerEnv {
+    const view = this.requireProject();
+    return {
+      workspaceRoot: view.workspaceRoot,
+      project: view.project,
+      config: view.config,
+      harnessRoot: this.deps.harnessRoot,
+      herdr: this.deps.herdr,
+      paneId: this.deps.paneId,
+    };
+  }
+
+  /** The selected project's worker environment and the worker with this name in it. */
+  namedWorker(name: string): { env: WorkerEnv; worker: WorkerRecord } {
+    const env = this.workerEnvOf();
+    return { env, worker: findWorker(workersFileOf(env), name) };
+  }
 }

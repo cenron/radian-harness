@@ -1,13 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { WorkerRecord } from "../../../src/core/worker.ts";
-import {
-  dashboardReport,
-  projectReport,
-  projectStatusLine,
-  workerWidgetLines,
-  workersReport,
-} from "../../../src/pi/status-view.ts";
+import { projectStatusLine, workerWidgetLines } from "../../../src/pi/status/footer.ts";
+import { dashboardReport, projectReport, workersReport } from "../../../src/pi/status/reports.ts";
 
 const project = { name: "demo", path: "/ws/demo", target: "main" };
 const worker = {
@@ -33,8 +28,8 @@ test("projectReport shows the project, mode, and workers", () => {
 });
 
 test("dashboard and empty reports guide the user", () => {
-  assert.match(dashboardReport([]), /\/new-project/);
-  assert.match(dashboardReport([project]), /- demo: \/ws\/demo[\s\S]*\/projects <name>/);
+  assert.match(dashboardReport([]), /\/projects create <name>/);
+  assert.match(dashboardReport([project]), /- demo: \/ws\/demo[\s\S]*\/projects select <name>/);
   assert.equal(workersReport([]), "No workers.");
 });
 

@@ -1,11 +1,6 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Mode } from "../core/roles.ts";
-import { countsTowardLimit, type WorkerRecord, type WorkerState } from "../core/worker.ts";
-import { listWorkers } from "../io/worker-store.ts";
-import { listProjects, projectPaths, readMode, type Project } from "../io/workspace.ts";
-import { requireView, type RadianState } from "./state.ts";
+import { countsTowardLimit, type WorkerRecord, type WorkerState } from "#core/worker.ts";
+import type { ProjectStatus } from "#pi/status/project-status.ts";
 
-const STATUS_KEY = "radian";
 const STATE_ORDER: readonly WorkerState[] = [
   "starting",
   "working",
@@ -20,7 +15,6 @@ const STATE_LABELS: Partial<Record<WorkerState, string>> = { question: "asking" 
 const SUMMARY_INDENT = "    ";
 const SUMMARY_LINES = 2;
 const MIN_SUMMARY_ROOM = 12;
-const WIDGET_MARGIN = 2;
 
 export type WidgetColor = "accent" | "warning" | "success" | "error" | "muted";
 /** Colors text for the terminal; tests pass a plain or tagging function instead. */
@@ -36,53 +30,6 @@ const STATE_STYLE: Record<WorkerState, { icon: string; color: WidgetColor }> = {
   exited: { icon: "✗", color: "error" },
   stopped: { icon: "■", color: "muted" },
 };
-
-export interface ProjectStatus {
-  project: Project;
-  mode: Mode;
-  workers: readonly WorkerRecord[];
-  maxWorkers: number;
-}
-
-export function refreshStatus(ctx: ExtensionContext, state: RadianState): void {
-  const view = state.view;
-  if (!view) return;
-  if (!view.project) {
-    showDashboardStatus(ctx, listProjects(view.workspaceRoot).length);
-    return;
-  }
-  showProjectStatus(ctx, projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
-}
-
-export function projectStatusOf(
-  workspaceRoot: string,
-  project: Project,
-  harness: { startMode: Mode; maxWorkers: number },
-): ProjectStatus {
-  return {
-    project,
-    mode: readMode(workspaceRoot, project.name, harness.startMode),
-    workers: listWorkers(projectPaths(workspaceRoot, project.name).workersFile),
-    maxWorkers: harness.maxWorkers,
-  };
-}
-
-function showProjectStatus(ctx: ExtensionContext, status: ProjectStatus): void {
-  if (!ctx.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, projectStatusLine(status));
-  const paint: Paint =
-    ctx.mode === "tui" ? (color, text) => ctx.ui.theme.fg(color, text) : (_color, text) => text;
-  // Pi's own pane width, less the widget's indent, so summaries wrap instead of running off.
-  const width = (process.stdout.columns ?? Number.POSITIVE_INFINITY) - WIDGET_MARGIN;
-  const lines = workerWidgetLines(status.workers, paint, width);
-  ctx.ui.setWidget(STATUS_KEY, lines.length > 0 ? lines : undefined);
-}
-
-function showDashboardStatus(ctx: ExtensionContext, projectCount: number): void {
-  if (!ctx.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, `Radian · workspace · ${projectCount} project(s)`);
-  ctx.ui.setWidget(STATUS_KEY, undefined);
-}
 
 /**
  * The footer: every open worker by state, and how many of the limit's slots are in use. A done
@@ -127,49 +74,6 @@ export function workerWidgetLines(
       ...summary.map((line) => `${SUMMARY_INDENT}${paint("muted", line)}`),
     ];
   });
-}
-
-export function clearStatus(ctx: ExtensionContext): void {
-  if (!ctx.hasUI) return;
-  ctx.ui.setStatus(STATUS_KEY, undefined);
-  ctx.ui.setWidget(STATUS_KEY, undefined);
-}
-
-/** What /radian status and radian_status show: the selected project, or the dashboard. */
-export function statusReport(state: RadianState): string {
-  const view = requireView(state);
-  if (!view.project) return dashboardReport(listProjects(view.workspaceRoot));
-  return projectReport(projectStatusOf(view.workspaceRoot, view.project, view.config.harness));
-}
-
-export function projectReport(status: ProjectStatus): string {
-  const { project } = status;
-  return [
-    `Project ${project.name} at ${project.path} (target ${project.target})`,
-    `Mode: ${status.mode.toUpperCase()}`,
-    workersReport(status.workers),
-  ].join("\n");
-}
-
-export function dashboardReport(projects: readonly Project[]): string {
-  if (projects.length === 0) return "No projects yet. Create one with /new-project <name>.";
-  const lines = projects.map(
-    (project) => `- ${project.name}: ${project.path} (target ${project.target})`,
-  );
-  return ["No project selected. Projects:", ...lines, "Select one with /projects <name>."].join(
-    "\n",
-  );
-}
-
-export function workersReport(workers: readonly WorkerRecord[]): string {
-  if (workers.length === 0) return "No workers.";
-  return ["Workers:", ...workers.map((worker) => `- ${workerLine(worker)}`)].join("\n");
-}
-
-function workerLine(worker: WorkerRecord): string {
-  const agent = worker.agentStatus ? ` (agent ${worker.agentStatus})` : "";
-  const last = worker.lastStatus ? ` — ${worker.lastStatus}` : "";
-  return `${worker.name} [${worker.state}${agent}] ${worker.role}: ${worker.title} · ${worker.runtime} ${worker.model} · worktree ${worker.worktree}${last}`;
 }
 
 function shortName(worker: WorkerRecord): string {

@@ -1,5 +1,7 @@
 # Finder metadata is local, not a project artifact.
 .DS_Store
+# Editor settings are per user.
+.idea/
 # Local dependency installs and generated outputs.
 node_modules/
 *.tgz

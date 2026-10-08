@@ -3,7 +3,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { makeTempDir } from "../../helpers/git-fixtures.ts";
-import { confinePath } from "../../../src/pi/read-tools.ts";
+import { confinePath } from "../../../src/pi/tools/read-tools.ts";
 
 function makeScope() {
   const root = makeTempDir();

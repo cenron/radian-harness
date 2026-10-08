@@ -2,19 +2,22 @@ import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createFakePi } from "../../helpers/fake-pi.ts";
 import { git } from "../../helpers/git-fixtures.ts";
 import { actAsWorker, makeWorkerEnv } from "../../helpers/worker-fixtures.ts";
 import { listWorkers } from "../../../src/io/worker-store.ts";
 import { readWorkerTools } from "../../../src/io/worker-tools.ts";
-import { RADIAN_TOOL_NAMES, registerTools } from "../../../src/pi/tools.ts";
+import { State } from "../../../src/pi/state.ts";
+import { StatusView } from "../../../src/pi/status/status-view.ts";
+import { RADIAN_TOOL_NAMES, registerTools } from "../../../src/pi/tools/index.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
 import { workersFileOf } from "../../../src/workers/worker-env.ts";
 
 async function setup() {
   const { env } = await makeWorkerEnv();
   const fake = createFakePi(env);
-  registerTools(fake.state);
+  registerTools({ state: fake.state, status: fake.status });
   const worker = await dispatchWorker(
     env,
     { role: "developer", title: "A", task: "Add a." },
@@ -26,6 +29,18 @@ async function setup() {
 
 test("radian_discard is one of the coordinator's tools", () => {
   assert.ok(RADIAN_TOOL_NAMES.includes("radian_discard"));
+});
+
+test("registerTools registers exactly the tools in RADIAN_TOOL_NAMES", async () => {
+  const { env } = await makeWorkerEnv();
+  const registered: string[] = [];
+  const pi = {
+    registerTool: (tool: ToolDefinition) => registered.push(tool.name),
+  } as unknown as ExtensionAPI;
+  const deps = { harnessRoot: env.harnessRoot, herdr: env.herdr, paneId: env.paneId };
+  const state = new State(pi, deps);
+  registerTools({ state, status: new StatusView(state) });
+  assert.deepEqual(registered.sort(), [...RADIAN_TOOL_NAMES].sort());
 });
 
 test("radian_discard asks first, with Cancel as the default, and keeps the work when cancelled", async () => {

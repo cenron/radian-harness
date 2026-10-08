@@ -7,7 +7,9 @@ import {
   createReadToolDefinition,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { RadianError } from "../core/errors.ts";
+import { RadianError } from "#core/errors.ts";
+import { projectPaths } from "#io/workspace.ts";
+import type { State } from "#pi/state.ts";
 
 export interface ReadScope {
   root: string;
@@ -24,11 +26,33 @@ const CREATORS = {
   find: createFindToolDefinition,
 };
 
+/** Replaces Pi's read, ls, grep, and find with versions confined to the selected project. */
+export function registerReadTools({ state }: { state: State }): void {
+  for (const tool of createConfinedReadTools(() => readScope(state), process.cwd()))
+    state.pi.registerTool(tool);
+}
+
+/**
+ * The selected project, plus its workers' worktrees and files (brief, status, report), so Pi can
+ * review a worker's work before offering a merge. All of it is read-only for Pi.
+ */
+function readScope(state: State): ReadScope {
+  const view = state.view;
+  if (!view?.project) {
+    return { root: view?.workspaceRoot ?? process.cwd(), extraRoots: state.skillRoots };
+  }
+  const paths = projectPaths(view.workspaceRoot, view.project.name);
+  return {
+    root: view.project.path,
+    extraRoots: [...state.skillRoots, paths.worktreesDir, paths.workersDir],
+  };
+}
+
 /**
  * Pi resolves its own read tools against the workspace root, so Radian replaces them
  * with the same tools rooted at the selected project and refuses paths that leave it.
  */
-export function createConfinedReadTools(
+function createConfinedReadTools(
   scopeNow: () => ReadScope,
   templateRoot: string,
 ): ToolDefinition[] {

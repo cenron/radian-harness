@@ -4,8 +4,11 @@
   "private": true,
   "description": "A Pi extension that coordinates Claude Code, Codex, and Pi workers in Herdr panes and git worktrees.",
   "license": "MIT",
+  "author": "Cenron",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "agentic-engineering",
+    "multi-agent-harness"
   ],
   "type": "module",
   "engines": {
@@ -21,6 +24,12 @@
     "extensions/",
     "skills/"
   ],
+  "imports": {
+    "#core/*": "./src/core/*",
+    "#io/*": "./src/io/*",
+    "#pi/*": "./src/pi/*",
+    "#workers/*": "./src/workers/*"
+  },
   "pi": {
     "extensions": [
       "./extensions/radian.ts"

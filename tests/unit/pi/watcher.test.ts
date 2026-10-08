@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { WorkerRecord } from "../../../src/core/worker.ts";
-import { describeChange } from "../../../src/pi/watcher.ts";
+import { describeChange } from "../../../src/pi/watcher/worker-messages.ts";
 
 const worker = {
   name: "demo-developer-1",
