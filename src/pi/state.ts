@@ -30,7 +30,6 @@ export class State {
   view: View | undefined = undefined;
   skillRoots: string[] = [];
   isCalm = false;
-  stopWatcher: (() => void) | undefined = undefined;
 
   constructor(pi: ExtensionAPI, deps: RadianDeps) {
     this.pi = pi;

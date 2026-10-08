@@ -53,10 +53,10 @@ Pi always runs at the workspace root. Each project has its own Pi session, tagge
 `radian-project` custom entry; `.radian/projects/<project>/session.json` remembers the latest
 one. `/projects select <name>` switches to it (`ctx.switchSession`) or starts it
 (`ctx.newSession`); `/workspace` starts an untagged session, the dashboard. `ProjectSession` in
-`src/pi/project-session.ts` does the switching. Pi rebuilds the extension on each switch,
+`src/pi/session/project-session.ts` does the switching. Pi rebuilds the extension on each switch,
 so Radian keeps nothing important in memory: everything is re-read from disk on
 `session_start` into a fresh `State` (`src/pi/state.ts`). The user's model and thinking level
-are carried across a switch.
+are carried across a switch (`ModelCarry`, `src/pi/session/model-carry.ts`).
 
 For a selected project, Radian points the system prompt at the project (`cwd`, the project's
 context files such as `AGENTS.md`, and a `radian` section with the mode), activates only its own

@@ -1,13 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { WorkerRecord } from "../../../src/core/worker.ts";
-import {
-  dashboardReport,
-  projectReport,
-  projectStatusLine,
-  workerWidgetLines,
-  workersReport,
-} from "../../../src/pi/status-view.ts";
+import { projectStatusLine, workerWidgetLines } from "../../../src/pi/status/footer.ts";
+import { dashboardReport, projectReport, workersReport } from "../../../src/pi/status/reports.ts";
 
 const project = { name: "demo", path: "/ws/demo", target: "main" };
 const worker = {

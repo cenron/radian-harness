@@ -32,10 +32,14 @@ radian-harness/
 │   │   ├── poll.ts             New status lines, pane state, task delivery, commit at done
 │   │   └── finish.ts           Describe, merge, discard, stop, send, close if nothing to merge
 │   ├── pi/                     Pi integration; may import everything above
-│   │   ├── register.ts         RegisterRadian: tools, commands, session events, system prompt
+│   │   ├── register.ts         RegisterRadian: builds the parts below and connects them to Pi
 │   │   ├── state.ts            State: per-session state, the current view, WorkerEnv construction
-│   │   ├── project-session.ts  ProjectSession: workspace detection, per-project sessions, model
-│   │   │                       carry-over
+│   │   ├── session/
+│   │   │   ├── project-session.ts  ProjectSession: which project a session belongs to; switching
+│   │   │   ├── model-carry.ts  ModelCarry: keeps the model and thinking level across a switch
+│   │   │   ├── session-lifecycle.ts  SessionLifecycle: session start (tools, editor, watcher,
+│   │   │   │                   footer) and end
+│   │   │   └── system-prompt.ts  SystemPrompt: Radian's section of Pi's system prompt
 │   │   ├── commands/           Slash commands, one file per command
 │   │   │   ├── index.ts        registerCommands(): registers each command; errors become notices
 │   │   │   ├── types.ts        CommandDefinition and CommandDependencies
@@ -43,14 +47,31 @@ radian-harness/
 │   │   │   ├── workspace.ts    /workspace
 │   │   │   ├── radian.ts       /radian status|mode|calm|workers|merge|stop|discard|tools; Shift+Tab
 │   │   │   └── calm.ts         /calm
-│   │   ├── tools.ts            radian_status, _write_doc, _git, _dispatch, _workers, _send,
-│   │   │                       _stop, _merge, _discard
-│   │   ├── read-tools.ts       read/ls/grep/find confined to the selected project
+│   │   ├── tools/              Coordinator tools, one file per tool or close-knit group
+│   │   │   ├── index.ts        registerTools() and RADIAN_TOOL_NAMES
+│   │   │   ├── types.ts        ToolDependencies
+│   │   │   ├── tool.ts         tool(): plain-text results; errors become failed tool results
+│   │   │   ├── read-tools.ts   registerReadTools(): read/ls/grep/find confined to the project
+│   │   │   ├── status.ts       radian_status
+│   │   │   ├── write-doc.ts    radian_write_doc
+│   │   │   ├── git.ts          radian_git
+│   │   │   ├── dispatch.ts     radian_dispatch
+│   │   │   ├── workers.ts      radian_workers, _send, _stop, _merge, _discard
+│   │   │   └── allow-tool.ts   radian_allow_tool
 │   │   ├── guard.ts            Blocks Pi's bash, write, and edit
 │   │   ├── dialogs.ts          Project picker, delete dialog, merge and discard approvals
-│   │   ├── watcher.ts          Poll loop; sends worker updates to Pi as follow-up messages
-│   │   ├── status-view.ts      Footer status, worker widget, text reports
-│   │   ├── mode-editor.ts      Shift+Tab toggles Plan/Build
+│   │   ├── watcher/
+│   │   │   ├── watcher.ts      Watcher: the poll loop; sends worker updates to Pi as follow-ups
+│   │   │   └── worker-messages.ts  describeChange(): what Pi is told about a worker's change
+│   │   ├── status/
+│   │   │   ├── status-view.ts  StatusView: refreshes the footer and widget; status and workers
+│   │   │   │                   reports
+│   │   │   ├── project-status.ts   A project's mode and workers, read from disk
+│   │   │   ├── footer.ts       Footer line and worker widget lines (pure)
+│   │   │   └── reports.ts      Project, dashboard, and workers text reports (pure)
+│   │   ├── mode/
+│   │   │   ├── project-mode.ts ProjectMode: sets (/radian mode) and toggles (Shift+Tab) Plan/Build
+│   │   │   └── mode-editor.ts  Pi's editor with Shift+Tab claimed for the toggle
 │   │   └── calm.ts             Calm renderer and the ui.json preference
 │   └── install/                Imports core only
 │       ├── installer.ts        Plan/apply install, update, remove; read install status
@@ -133,8 +154,11 @@ files.
   3. Give the command a doc comment with its usage, and list it in the README's command table and
      in `skills/radian-coordinator/SKILL.md`.
 - **A coordinator tool.**
-  1. Add a `tool({...})` entry in `registerTools` (`src/pi/tools.ts`) with a TypeBox schema.
-  2. Add its name to `RADIAN_TOOL_NAMES`, so `register.ts` activates it for projects.
+  1. Add a file in `src/pi/tools/` (or a factory to the file of its group) exporting a function
+     that takes `ToolDependencies` and returns `tool({...})` with a TypeBox schema. Give it a doc
+     comment saying what it does.
+  2. Add it to `createTools` and its name to `RADIAN_TOOL_NAMES` in `src/pi/tools/index.ts`, so
+     `register.ts` activates it for projects. A test checks that the two lists match.
   3. Describe it in the coordinator skill.
 - **A runtime.**
   1. Add it to `RUNTIMES` and `RUNTIME_EFFORTS` in `src/core/profiles.ts`.

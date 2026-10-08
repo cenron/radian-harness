@@ -9,24 +9,31 @@ import { listWorkers } from "../../../src/io/worker-store.ts";
 import { listProjects, readMode } from "../../../src/io/workspace.ts";
 import { addWorkerTool, readWorkerTools } from "../../../src/io/worker-tools.ts";
 import { readCalm } from "../../../src/pi/calm.ts";
-import { toggleMode } from "../../../src/pi/commands/radian.ts";
 import { registerCommands } from "../../../src/pi/commands/index.ts";
-import { ProjectSession } from "../../../src/pi/project-session.ts";
+import { ProjectMode } from "../../../src/pi/mode/project-mode.ts";
+import { ModelCarry } from "../../../src/pi/session/model-carry.ts";
+import { ProjectSession } from "../../../src/pi/session/project-session.ts";
 import { dispatchWorker } from "../../../src/workers/dispatch.ts";
 import { workersFileOf } from "../../../src/workers/worker-env.ts";
 
 async function setup() {
   const { env, herdr } = await makeWorkerEnv();
   const fake = createFakePi(env);
-  registerCommands({ state: fake.state, session: new ProjectSession(fake.state.pi) });
-  return { env, herdr, fake };
+  const mode = new ProjectMode(fake.state, fake.status);
+  registerCommands({
+    state: fake.state,
+    session: new ProjectSession(env.harnessRoot, new ModelCarry(fake.state.pi)),
+    status: fake.status,
+    mode,
+  });
+  return { env, herdr, fake, mode };
 }
 
 test("/radian mode and Shift+Tab switch between Plan and Build", async () => {
-  const { env, fake } = await setup();
+  const { env, fake, mode } = await setup();
   assert.match((await fake.run("/radian mode build")) ?? "", /Mode: BUILD/);
   assert.equal(readMode(env.workspaceRoot, "demo", "plan"), "build");
-  toggleMode(fake.state, fake.ctx);
+  mode.toggle(fake.ctx);
   assert.equal(readMode(env.workspaceRoot, "demo", "plan"), "plan");
   assert.match((await fake.run("/radian mode ship")) ?? "", /plan or build/);
 });

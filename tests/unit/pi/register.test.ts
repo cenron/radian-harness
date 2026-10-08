@@ -57,7 +57,7 @@ test("a session with no project selected starts the dashboard without a watcher 
   assert.ok(activeTools.at(-1)?.includes("radian_status"));
   assert.ok(!activeTools.at(-1)?.includes("radian_dispatch"));
   assert.deepEqual(editors, []);
-  assert.equal(radian.state.stopWatcher, undefined);
+  assert.equal(radian.watcher.isRunning, false);
 });
 
 test("a session with a project selected gets the mode editor and the worker watcher", async () => {
@@ -66,8 +66,8 @@ test("a session with a project selected gets the mode editor and the worker watc
   assert.equal(radian.state.view?.project?.name, "demo");
   assert.ok(activeTools.at(-1)?.includes("radian_dispatch"));
   assert.equal(editors.length, 1);
-  assert.notEqual(radian.state.stopWatcher, undefined);
+  assert.equal(radian.watcher.isRunning, true);
   endSession();
-  assert.equal(radian.state.stopWatcher, undefined);
+  assert.equal(radian.watcher.isRunning, false);
   assert.equal(editors.at(-1), undefined, "the mode editor is removed when the session ends");
 });

@@ -1,15 +1,10 @@
 import { type CommandDefinition, type CommandDependencies } from "#pi/commands/types.ts";
-import { refreshStatus, statusReport, workersReport } from "#pi/status-view.ts";
 import { RadianError } from "#core/errors.ts";
-import { type Mode, parseMode } from "#core/roles.ts";
-import { listWorkers } from "#io/worker-store.ts";
-import { workersFileOf } from "#workers/worker-env.ts";
+import { parseMode } from "#core/roles.ts";
 import { discardWithApproval, mergeWithApproval } from "#pi/dialogs.ts";
 import { stopWorker } from "#workers/finish.ts";
 import { readWorkerTools, removeWorkerTool } from "#io/worker-tools.ts";
 import type { State } from "#pi/state.ts";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { writeMode } from "#io/workspace.ts";
 import { setCalm } from "#pi/commands/calm.ts";
 
 const RADIAN_USAGE =
@@ -27,7 +22,7 @@ const RADIAN_USAGE =
  * - `/radian stop <worker>`: close a worker's pane, keeping its worktree and branch.
  * - `/radian tools [remove <tool>]`: list the MCP tools approved for workers, or remove one.
  */
-export function radianCommand({ state }: CommandDependencies): CommandDefinition {
+export function radianCommand({ state, status, mode }: CommandDependencies): CommandDefinition {
   return {
     name: "radian",
     description:
@@ -37,11 +32,11 @@ export function radianCommand({ state }: CommandDependencies): CommandDefinition
 
       switch (subcommand) {
         case "status":
-          return statusReport(state);
+          return status.report();
 
         case "mode":
           if (!argument) throw new RadianError("usage", RADIAN_USAGE);
-          return setMode(state, ctx, parseMode(argument));
+          return mode.set(ctx, parseMode(argument));
 
         case "calm":
           if (argument !== "on" && argument !== "off") throw new RadianError("usage", RADIAN_USAGE);
@@ -51,7 +46,7 @@ export function radianCommand({ state }: CommandDependencies): CommandDefinition
           return workerToolsCommand(state, args.slice(1));
 
         case "workers":
-          return workersReport(listWorkers(workersFileOf(state.workerEnvOf())));
+          return status.workersReport();
 
         case "merge":
         case "discard":
@@ -90,19 +85,4 @@ function workerToolsCommand(state: State, args: string[]): string {
     `Tools approved for workers in ${project.name}:`,
     ...tools.map((name) => `- ${name}`),
   ].join("\n");
-}
-
-/** Shift+Tab in the editor: switches the selected project between Plan and Build. */
-export function toggleMode(state: State, ctx: ExtensionContext): void {
-  const next = state.currentMode(state.requireProject()) === "plan" ? "build" : "plan";
-  ctx.ui.notify(setMode(state, ctx, next), "info");
-}
-
-function setMode(state: State, ctx: ExtensionContext, mode: Mode): string {
-  const view = state.requireProject();
-
-  writeMode(view.workspaceRoot, view.project.name, mode);
-  refreshStatus(ctx, state);
-
-  return `Mode: ${mode.toUpperCase()}${mode === "build" ? " (workers may now change code)" : ""}.`;
 }

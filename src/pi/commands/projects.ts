@@ -8,7 +8,7 @@ import {
   projectPaths,
 } from "#io/workspace.ts";
 import { chooseDeleteAction, chooseProject } from "#pi/dialogs.ts";
-import { dashboardReport } from "#pi/status-view.ts";
+import { dashboardReport } from "#pi/status/reports.ts";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { RadianError } from "#core/errors.ts";
 import { listWorkers } from "#io/worker-store.ts";
