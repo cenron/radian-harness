@@ -17,13 +17,14 @@ import { getPane } from "#io/herdr.ts";
 import type { State } from "#pi/state.ts";
 
 const PROJECTS_USAGE =
-  "Usage: /projects [list] | select [name] | create <name> [--branch <branch>] | add <path> --target refs/heads/<branch> | delete <name>";
+  "Usage: /projects [list] | select [name] | new-session | create <name> [--branch <branch>] | add <path> --target refs/heads/<branch> | delete <name>";
 
 /**
  * `/projects`: manages the workspace's projects.
  *
  * - `/projects` or `/projects list`: list the projects.
  * - `/projects select [name]`: switch to a project; without a name, pick one from a list.
+ * - `/projects new-session`: start a fresh conversation for the selected project.
  * - `/projects create <name> [--branch <branch>]`: create a git repository and select it.
  * - `/projects add <path> --target refs/heads/<branch>`: register an existing repository.
  * - `/projects delete <name>`: remove a project, keeping or deleting its files.
@@ -32,7 +33,7 @@ export function projectCommand(deps: CommandDependencies): CommandDefinition {
   return {
     name: "projects",
     description:
-      "List, select, create, add, or delete projects: /projects [list] | select [name] | create <name> [--branch <branch>] | add <path> --target refs/heads/<branch> | delete <name>",
+      "List, select, create, add, or delete projects: /projects [list] | select [name] | new-session | create <name> [--branch <branch>] | add <path> --target refs/heads/<branch> | delete <name>",
 
     async action(args, ctx) {
       const [subcommand = "list", ...rest] = args;
@@ -42,6 +43,8 @@ export function projectCommand(deps: CommandDependencies): CommandDefinition {
           return listProjectsReport(deps);
         case "select":
           return selectProject(deps, rest[0], ctx);
+        case "new-session":
+          return newSession(deps, ctx);
         case "create":
           return newProject(rest, deps, ctx);
         case "add":
@@ -82,6 +85,15 @@ async function selectProject(
     workspaceRoot: view.workspaceRoot,
     project,
   });
+}
+
+/** `/projects new-session`: a fresh, empty conversation for the selected project. */
+async function newSession(
+  { state, session }: CommandDependencies,
+  ctx: ExtensionCommandContext,
+): Promise<undefined> {
+  await session.startFresh(ctx, { project: state.requireProject().project });
+  return undefined;
 }
 
 /**

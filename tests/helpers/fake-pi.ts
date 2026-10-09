@@ -8,7 +8,15 @@ import { State } from "../../src/pi/state.ts";
 import { StatusView } from "../../src/pi/status/status-view.ts";
 import type { WorkerEnv } from "../../src/workers/worker-env.ts";
 
+type NewSessionOptions = Parameters<ExtensionCommandContext["newSession"]>[0];
+
 type Handler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+
+/** A session started with `ctx.newSession`: the custom entries its setup wrote, and its prompts. */
+export interface FakeSession {
+  entries: Array<{ customType: string; data: unknown }>;
+  prompts: string[];
+}
 
 export interface FakePi {
   state: State;
@@ -16,6 +24,12 @@ export interface FakePi {
   ctx: ExtensionCommandContext;
   notes: string[];
   sessions: string[];
+  /** Every `newSession`, in order, with what its setup and `withSession` did. */
+  newSessions: FakeSession[];
+  /** Messages Radian sent as the user, such as a dispatched slash command. */
+  userMessages: Array<{ text: string; options: unknown }>;
+  /** Custom instructions of every `ctx.compact` call. */
+  compactions: Array<string | undefined>;
   /** The option the next `select` dialog picks; undefined cancels it. */
   answer: { pick: (options: string[]) => string | undefined };
   run: (command: string) => Promise<string | undefined>;
@@ -29,12 +43,16 @@ export function createFakePi(env: WorkerEnv): FakePi {
   const tools = new Map<string, ToolDefinition>();
   const notes: string[] = [];
   const sessions: string[] = [];
+  const newSessions: FakeSession[] = [];
+  const userMessages: FakePi["userMessages"] = [];
+  const compactions: FakePi["compactions"] = [];
   const answer: FakePi["answer"] = { pick: () => undefined };
   const pi = {
     registerCommand: (name: string, options: { handler: Handler }) =>
       handlers.set(name, options.handler),
     registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool),
     getThinkingLevel: () => "medium",
+    sendUserMessage: (text: string, options: unknown) => userMessages.push({ text, options }),
   } as unknown as ExtensionAPI;
   const ctx = {
     hasUI: true,
@@ -48,7 +66,22 @@ export function createFakePi(env: WorkerEnv): FakePi {
       setStatus: () => undefined,
       setWidget: () => undefined,
     },
-    newSession: async () => (sessions.push("new"), { cancelled: false }),
+    compact: (options?: { customInstructions?: string }) =>
+      compactions.push(options?.customInstructions),
+    newSession: async (options?: NewSessionOptions) => {
+      sessions.push("new");
+      const session: FakeSession = { entries: [], prompts: [] };
+      newSessions.push(session);
+      await options?.setup?.({
+        appendCustomEntry: (customType: string, data: unknown) =>
+          session.entries.push({ customType, data }),
+      } as never);
+      await options?.withSession?.({
+        ui: { notify: (message: string) => notes.push(message) },
+        sendUserMessage: async (text: string) => session.prompts.push(text),
+      } as never);
+      return { cancelled: false };
+    },
     switchSession: async (file: string) => (sessions.push(file), { cancelled: false }),
   } as unknown as ExtensionCommandContext;
   const state = new State(pi, {
@@ -75,5 +108,17 @@ export function createFakePi(env: WorkerEnv): FakePi {
     );
     return result.content.map((part) => ("text" in part ? part.text : "")).join("");
   };
-  return { state, status: new StatusView(state), ctx, notes, sessions, answer, run, callTool };
+  return {
+    state,
+    status: new StatusView(state),
+    ctx,
+    notes,
+    sessions,
+    newSessions,
+    userMessages,
+    compactions,
+    answer,
+    run,
+    callTool,
+  };
 }

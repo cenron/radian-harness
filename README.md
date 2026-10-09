@@ -113,12 +113,14 @@ and `developer-pi` (an OpenAI model through Pi). Pi uses them only when you ask.
 | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `/projects`                                    | List projects                                                                         |
 | `/projects select [name]`                      | Switch to a project (each has its own conversation); without a name, pick from a list |
+| `/projects new-session`                        | Start a fresh, empty conversation for the selected project                            |
 | `/workspace`                                   | Back to the workspace dashboard                                                       |
 | `/projects create <name> [--branch <b>]`       | Create a git repository in the workspace and select it                                |
 | `/projects add <path> --target refs/heads/<b>` | Register an existing repository and select it                                         |
 | `/projects delete <name>`                      | Cancel, remove from the workspace (keep files), or delete with the files              |
 | `/radian status`                               | The project, its mode, and its workers                                                |
-| `/radian mode plan\|build`, Shift+Tab          | Switch mode                                                                           |
+| `/radian mode plan\|build`, Shift+Tab          | Switch mode; leaving Plan after a plan offers build here, clear and build, or compact |
+| `/radian build --fresh`                        | Switch to Build in a fresh session that starts with the plan                          |
 | `/calm [on\|off]`                              | Toggle Calm                                                                           |
 | `/radian workers`                              | List workers                                                                          |
 | `/radian merge\|stop\|discard <worker>`        | Merge or discard (each asks first), or close the pane and keep the work               |

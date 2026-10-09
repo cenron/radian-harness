@@ -1,4 +1,8 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type CommandDefinition, type CommandDependencies } from "#pi/commands/types.ts";
+import { planHandoff } from "#pi/session/handoff.ts";
 import { RadianError } from "#core/errors.ts";
 import { parseMode } from "#core/roles.ts";
 import { discardWithApproval, mergeWithApproval } from "#pi/dialogs.ts";
@@ -8,13 +12,15 @@ import type { State } from "#pi/state.ts";
 import { setCalm } from "#pi/commands/calm.ts";
 
 const RADIAN_USAGE =
-  "Usage: /radian status | mode plan|build | calm on|off | workers | merge <worker> | stop <worker> | discard <worker> | tools [remove <tool>]";
+  "Usage: /radian status | mode plan|build | build --fresh | calm on|off | workers | merge <worker> | stop <worker> | discard <worker> | tools [remove <tool>]";
 
 /**
  * `/radian`: reports on and controls the selected project.
  *
  * - `/radian` or `/radian status`: the project, its mode, and its workers.
- * - `/radian mode plan|build`: set the mode; Build lets workers change code.
+ * - `/radian mode plan|build`: set the mode; Build lets workers change code. Leaving Plan after
+ *   writing a plan asks whether to build here, start fresh from the plan, or compact first.
+ * - `/radian build --fresh`: switch to Build in a fresh session whose first prompt is the plan.
  * - `/radian calm on|off`: collapse the successful tool output or show it.
  * - `/radian workers`: list the project's workers.
  * - `/radian merge <worker>`: merge a worker's work after the user approves.
@@ -22,11 +28,12 @@ const RADIAN_USAGE =
  * - `/radian stop <worker>`: close a worker's pane, keeping its worktree and branch.
  * - `/radian tools [remove <tool>]`: list the MCP tools approved for workers, or remove one.
  */
-export function radianCommand({ state, status, mode }: CommandDependencies): CommandDefinition {
+export function radianCommand(deps: CommandDependencies): CommandDefinition {
+  const { state, status, mode } = deps;
   return {
     name: "radian",
     description:
-      "Radian: status, mode plan|build, calm on|off, workers, merge|stop|discard <worker>, tools [remove <tool>]",
+      "Radian: status, mode plan|build, build --fresh, calm on|off, workers, merge|stop|discard <worker>, tools [remove <tool>]",
     action: async (args, ctx) => {
       const [subcommand = "status", argument] = args;
 
@@ -36,7 +43,11 @@ export function radianCommand({ state, status, mode }: CommandDependencies): Com
 
         case "mode":
           if (!argument) throw new RadianError("usage", RADIAN_USAGE);
-          return mode.set(ctx, parseMode(argument));
+          return mode.change(ctx, parseMode(argument));
+
+        case "build":
+          if (argument !== "--fresh") throw new RadianError("usage", RADIAN_USAGE);
+          return buildFresh(deps, ctx);
 
         case "calm":
           if (argument !== "on" && argument !== "off") throw new RadianError("usage", RADIAN_USAGE);
@@ -64,6 +75,25 @@ export function radianCommand({ state, status, mode }: CommandDependencies): Com
       }
     },
   };
+}
+
+/** Switches to Build in a new session for the project whose first prompt is this session's plan. */
+async function buildFresh(
+  { state, session, mode }: CommandDependencies,
+  ctx: ExtensionCommandContext,
+): Promise<undefined> {
+  const { project } = state.requireProject();
+  const plan = state.lastPlan;
+  if (!plan) {
+    throw new RadianError(
+      "no_plan",
+      "No plan was written in this session. Write one with radian_write_doc, or use /projects new-session.",
+    );
+  }
+  const planText = readFileSync(path.join(project.path, plan), "utf8");
+  mode.set(ctx, "build");
+  await session.startFresh(ctx, { project, firstPrompt: planHandoff(plan, planText) });
+  return undefined;
 }
 
 /** Lists the MCP tools approved for the project's workers, or removes one. */

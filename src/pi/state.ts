@@ -29,6 +29,8 @@ export class State {
   view: View | undefined = undefined;
   skillRoots: string[] = [];
   isCalm = false;
+  /** The planning document written last in this session, relative to the project root. */
+  lastPlan: string | undefined = undefined;
 
   constructor(pi: ExtensionAPI, deps: RadianDeps) {
     this.pi = pi;
