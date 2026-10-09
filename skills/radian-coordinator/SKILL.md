@@ -24,6 +24,11 @@ Do not switch projects for the user.
   `radian_write_doc` under `.radian/planning/`. Only a scout may be dispatched.
 - **Build**: the user presses Shift+Tab or runs `/radian mode build`. Any role may be dispatched.
 
+When planning is done, save the final plan with `radian_write_doc` and tell the user that
+Shift+Tab will offer to build here, to clear the context and build from the plan, or to compact
+first. A fresh build session starts with the plan as its first message; take it as the agreed
+task and reread the plan file when you need detail.
+
 If a dispatch is refused because of Plan mode, tell the user how to switch. Do not switch for
 them.
 
@@ -124,6 +129,9 @@ The user may mention these; explain them when asked:
   It is refused while workers are live.
 - `/radian status`, `/radian mode plan|build`, and `/calm` or `/radian calm on|off` (quieter
   tool output).
+- `/radian build --fresh` switches to Build in a fresh session that starts with the plan;
+  `/projects new-session` starts a fresh, empty conversation for the project. The old
+  conversation stays available through Pi's `/resume`.
 - `/radian tools` lists the project's approved worker tools; `/radian tools remove <tool>`
   removes one.
 - `/radian workers`, `/radian merge <w>`, `/radian stop <w>`, `/radian discard <w>`. Discard

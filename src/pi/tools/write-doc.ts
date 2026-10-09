@@ -35,5 +35,6 @@ function writeDoc(state: State, relative: string, content: string): string {
   const file = path.join(state.requireProject().project.path, PLANNING_DIR, normalized);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content);
-  return `Wrote ${path.join(PLANNING_DIR, normalized)}.`;
+  state.lastPlan = path.join(PLANNING_DIR, normalized);
+  return `Wrote ${state.lastPlan}.`;
 }

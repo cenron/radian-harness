@@ -41,6 +41,7 @@ radian-harness/
 │   │   ├── state.ts            State: per-session state, the current view, WorkerEnv construction
 │   │   ├── session/
 │   │   │   ├── project-session.ts  ProjectSession: which project a session belongs to; switching
+│   │   │   ├── handoff.ts      The first prompt of a fresh build session: the plan
 │   │   │   ├── model-carry.ts  ModelCarry: keeps the model and thinking level across a switch
 │   │   │   ├── session-lifecycle.ts  SessionLifecycle: session start (tools, editor, watcher,
 │   │   │   │                   footer) and end

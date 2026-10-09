@@ -59,6 +59,13 @@ so Radian keeps nothing important in memory: everything is re-read from disk on
 `session_start` into a fresh `State` (`src/pi/state.ts`). The user's model and thinking level
 are carried across a switch (`ModelCarry`, `src/pi/session/model-carry.ts`).
 
+Planning fills the context, so leaving Plan after a `radian_write_doc` plan asks how to start
+building: in the same conversation, in a fresh session, or after compacting. The fresh option
+runs `/radian build --fresh` (only a command may replace the session): a new session tagged with
+the project whose first message hands over the plan (`src/pi/session/handoff.ts`), so the model
+sees only the plan. `/projects new-session` starts a fresh, empty one. Either way the old session
+stays available through `/resume`, and `session.json` follows the new one.
+
 For a selected project, Radian points the system prompt at the project (`cwd`, the project's
 context files such as `AGENTS.md`, and a `radian` section with the mode), activates only its own
 tools plus `read`/`ls`/`grep`/`find`, and replaces those four with versions rooted at the

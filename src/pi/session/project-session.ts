@@ -11,6 +11,11 @@ import type { ModelCarry } from "#pi/session/model-carry.ts";
 // process at the workspace root; selecting a project replaces the session.
 const PROJECT_TAG = "radian-project";
 
+/** Runs in the new session with a fresh context bound to it; the old context is invalid by then. */
+type WithSession = NonNullable<
+  NonNullable<Parameters<ExtensionCommandContext["newSession"]>[0]>["withSession"]
+>;
+
 /** Which project a Pi session belongs to, and switching between project sessions. */
 export class ProjectSession {
   private readonly harnessRoot: string;
@@ -50,11 +55,23 @@ export class ProjectSession {
       return;
     }
 
-    await ctx.newSession({
-      setup: async (sessionManager) => {
-        sessionManager.appendCustomEntry(PROJECT_TAG, { project: input.project.name });
-      },
-      withSession,
+    await this.newProjectSession(ctx, input.project, withSession);
+  }
+
+  /**
+   * Starts a new, empty session for the selected project, so its context is fresh. The old
+   * session stays available through Pi's /resume. `firstPrompt` becomes the new session's
+   * first message, for example the plan handed over from planning.
+   */
+  async startFresh(
+    ctx: ExtensionCommandContext,
+    input: { project: Project; firstPrompt?: string },
+  ): Promise<void> {
+    this.assertIdle(ctx);
+    this.carry.save(ctx);
+    await this.newProjectSession(ctx, input.project, async (next) => {
+      next.ui.notify(`Fresh session for ${input.project.name}.`, "info");
+      if (input.firstPrompt) await next.sendUserMessage(input.firstPrompt);
     });
   }
 
@@ -66,6 +83,19 @@ export class ProjectSession {
     await ctx.newSession({
       withSession: async (next) =>
         next.ui.notify("Workspace dashboard. /projects lists projects.", "info"),
+    });
+  }
+
+  private async newProjectSession(
+    ctx: ExtensionCommandContext,
+    project: Project,
+    withSession: WithSession,
+  ): Promise<void> {
+    await ctx.newSession({
+      setup: async (sessionManager) => {
+        sessionManager.appendCustomEntry(PROJECT_TAG, { project: project.name });
+      },
+      withSession,
     });
   }
 

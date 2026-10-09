@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { listProjects } from "../../src/io/workspace.ts";
@@ -36,6 +36,55 @@ test("projects keep separate conversations in one Pi process", async () => {
     await pi.close();
   }
 });
+
+test("after planning, clearing context builds from the plan in a fresh project session", async () => {
+  const workspace = startWorkspace();
+  const { pi, root } = workspace;
+  try {
+    await pi.prompt("/projects create alpha");
+    await waitForNote(pi, /Project alpha selected/);
+    await pi.prompt("exploring the login options at length");
+    const plan = { path: "login-plan.md", content: "# Login plan\n\nBuild the login form." };
+    await pi.prompt(`TOOL radian_write_doc ${JSON.stringify(plan)}`);
+    const sessionFile = path.join(root, ".radian", "projects", "alpha", "session.json");
+    const planningSession = readFileSync(sessionFile, "utf8");
+
+    chooseOption(pi, /^Clear context/);
+    await pi.prompt("/radian mode build");
+    await waitForNote(pi, /Fresh session for alpha/);
+    const handoff = await waitForRequest(workspace, (said) =>
+      said[0]?.startsWith("Implementation handoff"),
+    );
+
+    assert.equal(handoff.length, 1, `the model sees only the handoff: ${handoff.join(" | ")}`);
+    assert.match(handoff[0] ?? "", /\.radian\/planning\/login-plan\.md/);
+    assert.match(handoff[0] ?? "", /Build the login form\./);
+    assert.match(workspace.modelLog().at(-1)?.systemPrompt ?? "", /Mode: BUILD/);
+    assert.notEqual(
+      readFileSync(sessionFile, "utf8"),
+      planningSession,
+      "the project now resumes the fresh session",
+    );
+  } finally {
+    await pi.close();
+  }
+});
+
+/** Polls the model log until a request's transcript matches; returns that transcript's texts. */
+async function waitForRequest(
+  workspace: ReturnType<typeof startWorkspace>,
+  matches: (said: string[]) => boolean | undefined,
+): Promise<string[]> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const found = workspace
+      .modelLog()
+      .map((request) => request.transcript.map((message) => message.text))
+      .find((said) => matches(said));
+    if (found) return found;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("The model never received the expected request.");
+}
 
 test("the guard blocks bash and reads stay inside the project", async () => {
   const workspace = startWorkspace();
