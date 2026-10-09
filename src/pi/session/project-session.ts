@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { RadianError } from "#core/errors.ts";
-import { loadConfig } from "#io/config.ts";
-import { readJsonFile, writeJsonFile } from "#io/json-file.ts";
+import { loadConfig } from "#core/config.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 import { isWorkspaceRoot, listProjects, projectPaths, type Project } from "#io/workspace.ts";
 import type { View } from "#pi/state.ts";
 import type { ModelCarry } from "#pi/session/model-carry.ts";

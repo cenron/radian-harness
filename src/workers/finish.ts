@@ -1,7 +1,8 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { RadianError } from "../core/errors.ts";
-import { FILE_LIST_LIMIT, listSome } from "../core/text.ts";
+import { FILE_LIST_LIMIT } from "../core/constants.ts";
+import { listSome } from "../core/utils/text.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import {
   branchExists,

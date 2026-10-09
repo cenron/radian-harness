@@ -37,10 +37,11 @@ glue: projects, Plan/Build modes, dispatch, status, and one approval before a me
 
 Dependencies point inward; see [ProjectStructure](ProjectStructure.md) for every file.
 
-- `src/core/` — pure rules: roles and modes, profiles and the Anthropic rule, worker naming,
-  status-line parsing, brief text, runtime flags.
-- `src/io/` — git, Herdr (through an injectable `HerdrRunner`), config loading, the workspace
-  registry, worker records, status files.
+- `src/core/` — Radian's definitions and rules: roles and modes, profiles and the Anthropic rule,
+  config loading, worker naming, status-line parsing, brief text, runtime flags. Portable
+  helpers (JSON files, error text, short lists, a tool guard) live in `src/core/utils/`.
+- `src/io/` — git, Herdr (through an injectable `HerdrRunner`), the workspace registry, worker
+  records, status files.
 - `src/workers/` — the lifecycle: `dispatchWorker`, `pollWorker`, `mergeWorker`,
   `discardWorker`, `stopWorker`, `sendToWorker`.
 - `src/pi/` — everything that touches Pi: session handling, commands, tools, guard, confined read

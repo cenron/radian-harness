@@ -1,10 +1,6 @@
 import { RadianError } from "./errors.ts";
-
-export const ROLES = ["developer", "tester", "reviewer", "scout"] as const;
-export type Role = (typeof ROLES)[number];
-
-const MODES = ["plan", "build"] as const;
-export type Mode = (typeof MODES)[number];
+import { type Role, ROLES } from "#core/constants.ts";
+import { MODES, type Mode } from "#core/types.ts";
 
 export function parseRole(value: string): Role {
   const role = ROLES.find((candidate) => candidate === value);

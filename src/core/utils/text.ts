@@ -1,6 +1,3 @@
-/** How many files Radian names before it says "and N more". */
-export const FILE_LIST_LIMIT = 10;
-
 /** "a, b, c, and 2 more": the first `limit` items, then a count of the rest. */
 export function listSome(items: readonly string[], limit: number): string {
   const listed = items.slice(0, limit).join(", ");

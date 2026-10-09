@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { firstPrompt } from "../core/brief.ts";
 import { RadianError } from "../core/errors.ts";
-import type { Role } from "../core/roles.ts";
+import type { Role } from "../core/constants.ts";
 import { readScreen } from "../core/runtime-args.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import { promptAgent, readPaneText } from "../io/herdr.ts";

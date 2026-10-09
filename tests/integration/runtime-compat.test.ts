@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
-import type { Profile, Runtime } from "../../src/core/profiles.ts";
+import type { Runtime } from "../../src/core/constants.ts";
+import type { Profile } from "../../src/core/types.ts";
 import { runtimeArgs } from "../../src/core/runtime-args.ts";
 
 const PROFILES: Record<Runtime, Profile> = {

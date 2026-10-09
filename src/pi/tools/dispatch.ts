@@ -1,5 +1,6 @@
 import { Type } from "typebox";
-import { ROLES, parseRole } from "#core/roles.ts";
+import { ROLES } from "#core/constants.ts";
+import { parseRole } from "#core/roles.ts";
 import { isWaitingForUser } from "#workers/delivery.ts";
 import { dispatchWorker } from "#workers/dispatch.ts";
 import { tool } from "#pi/tools/tool.ts";

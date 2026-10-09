@@ -3,7 +3,7 @@ import type {
   ExtensionCommandContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { loadConfig } from "../../src/io/config.ts";
+import { loadConfig } from "#core/config.ts";
 import { State } from "../../src/pi/state.ts";
 import { StatusView } from "../../src/pi/status/status-view.ts";
 import type { WorkerEnv } from "../../src/workers/worker-env.ts";

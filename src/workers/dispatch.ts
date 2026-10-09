@@ -1,9 +1,12 @@
 import path from "node:path";
 import { renderBrief } from "../core/brief.ts";
 import { placeNextPane } from "../core/layout.ts";
-import { RadianError, errorMessage } from "../core/errors.ts";
-import { selectProfile, type Profile } from "../core/profiles.ts";
-import { assertRoleAllowedInMode, type Mode, type Role } from "../core/roles.ts";
+import { RadianError } from "../core/errors.ts";
+import { errorMessage } from "../core/utils/errors.ts";
+import { selectProfile } from "../core/profiles.ts";
+import type { Role } from "../core/constants.ts";
+import { assertRoleAllowedInMode } from "../core/roles.ts";
+import type { Mode, Profile } from "../core/types.ts";
 import { SCRUBBED_ENV, runtimeArgs } from "../core/runtime-args.ts";
 import {
   countsTowardLimit,

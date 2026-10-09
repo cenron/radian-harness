@@ -1,10 +1,11 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { RadianError } from "../core/errors.ts";
-import { parseMode, type Mode } from "../core/roles.ts";
+import { parseMode } from "../core/roles.ts";
+import type { Mode } from "../core/types.ts";
 import { assertProjectName } from "../core/worker.ts";
 import { branchExists, initRepository, isRepository, runGit } from "./git.ts";
-import { readJsonFile, writeJsonFile } from "./json-file.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 
 export interface Project {
   name: string;

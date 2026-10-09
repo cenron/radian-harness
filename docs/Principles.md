@@ -59,14 +59,14 @@ details live in helpers below it, and public functions come before their helpers
 Each module has one responsibility. I/O, logic, and presentation live in separate layers, and
 dependencies point inward.
 
-| Layer          | May import                             | Holds                                                |
-| -------------- | -------------------------------------- | ---------------------------------------------------- |
-| `src/core/`    | nothing in `src/`                      | pure rules: roles, profiles, status parsing, briefs  |
-| `src/io/`      | `core`                                 | git, Herdr, config files, workspace and worker state |
-| `src/workers/` | `core`, `io`                           | dispatch, poll, merge, stop, discard, send           |
-| `src/install/` | `core`                                 | binding Radian into a workspace                      |
-| `src/pi/`      | `core`, `io`, `workers`, the Pi SDK    | commands, tools, dialogs, status view, watcher       |
-| `extensions/`  | `src/pi`, `src/io` (to build the deps) | the Pi package entry                                 |
+| Layer          | May import                             | Holds                                          |
+| -------------- | -------------------------------------- | ---------------------------------------------- |
+| `src/core/`    | nothing else in `src/`                 | definitions and rules: roles, profiles, config |
+| `src/io/`      | `core`                                 | git, Herdr, workspace and worker state         |
+| `src/workers/` | `core`, `io`                           | dispatch, poll, merge, stop, discard, send     |
+| `src/install/` | `core`                                 | binding Radian into a workspace                |
+| `src/pi/`      | `core`, `io`, `workers`, the Pi SDK    | commands, tools, dialogs, status view, watcher |
+| `extensions/`  | `src/pi`, `src/io` (to build the deps) | the Pi package entry                           |
 
 Outside effects that tests replace are passed in as plain functions. `src/io/herdr.ts`:
 
@@ -109,7 +109,7 @@ clearer message, or it says why nothing is lost. `src/io/git.ts`:
 ```
 
 Invalid state is an error, not something silently replaced. `readJsonFile` in
-`src/io/json-file.ts` returns the fallback only when the file is missing. Invalid JSON throws
+`src/core/utils/json.ts` returns the fallback only when the file is missing. Invalid JSON throws
 `invalid_json`.
 
 ## Comments
@@ -143,7 +143,7 @@ restate the code, commented-out code, and stale TODOs are deleted.
 Radian uses the simplest solution that works, with no speculative options or layers.
 
 - **State on disk.** All state is plain JSON or text, written by `writeJsonFile` in
-  `src/io/json-file.ts` through a temporary file and a rename. A restart reads the same files,
+  `src/core/utils/json.ts` through a temporary file and a rename. A restart reads the same files,
   so it changes nothing.
 - **Worker progress.** Workers report by appending lines to a `status` file, and
   `src/core/status.ts` parses those lines loosely. There is no result schema.

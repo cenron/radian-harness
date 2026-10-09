@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { listSome } from "../../../src/core/text.ts";
+import { listSome } from "../../../../src/core/utils/text.ts";
 
 test("listSome joins short lists and counts what it leaves out", () => {
   assert.equal(listSome([], 3), "");

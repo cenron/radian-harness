@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "#core/errors.ts";
+import { errorMessage } from "#core/utils/errors.ts";
 import { hasOpenPane } from "#core/worker.ts";
 import { listWorkers } from "#io/worker-store.ts";
 import { pollWorker } from "#workers/poll.ts";

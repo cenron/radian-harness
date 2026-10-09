@@ -4,9 +4,8 @@ import {
   assertProfileAllowed,
   isAnthropicModel,
   selectProfile,
-  type DispatchConfig,
-  type Profile,
 } from "../../../src/core/profiles.ts";
+import type { DispatchConfig, Profile } from "../../../src/core/types.ts";
 
 const claude: Profile = {
   name: "developer",

@@ -1,5 +1,6 @@
 import { canEditCode } from "#core/roles.ts";
-import { FILE_LIST_LIMIT, listSome } from "#core/text.ts";
+import { FILE_LIST_LIMIT } from "#core/constants.ts";
+import { listSome } from "#core/utils/text.ts";
 import type { WorkerChange } from "#workers/poll.ts";
 
 const NEXT_STEP: Record<string, string> = {

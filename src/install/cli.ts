@@ -2,7 +2,8 @@ import path from "node:path";
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { RadianError, errorMessage } from "../core/errors.ts";
+import { RadianError } from "../core/errors.ts";
+import { errorMessage } from "../core/utils/errors.ts";
 import type { InstallPlan, InstallStatus } from "./installer.ts";
 import { applyPlan, planInstall, planRemove, planUpdate, readInstallStatus } from "./installer.ts";
 

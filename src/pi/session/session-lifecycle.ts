@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "#core/errors.ts";
+import { errorMessage } from "#core/utils/errors.ts";
 import { readCalm } from "#pi/calm.ts";
 import { modeEditorFactory } from "#pi/mode/mode-editor.ts";
 import type { ProjectMode } from "#pi/mode/project-mode.ts";

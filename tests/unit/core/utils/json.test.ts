@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { makeTempDir } from "../../helpers/git-fixtures.ts";
-import { readJsonFile, writeJsonFile } from "../../../src/io/json-file.ts";
+import { makeTempDir } from "../../../helpers/git-fixtures.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 
 test("readJsonFile returns the fallback for a missing file", () => {
   assert.deepEqual(readJsonFile(path.join(makeTempDir(), "none.json"), { a: 1 }), { a: 1 });

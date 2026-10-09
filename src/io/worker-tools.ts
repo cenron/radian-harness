@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readJsonFile, writeJsonFile } from "./json-file.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 
 interface WorkerToolsFile {
   version: 1;

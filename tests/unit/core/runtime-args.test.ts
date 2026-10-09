@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Profile } from "../../../src/core/profiles.ts";
+import type { Profile } from "../../../src/core/types.ts";
 import {
   SCRUBBED_ENV,
   assertWorkerToolName,

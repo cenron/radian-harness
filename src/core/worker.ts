@@ -1,6 +1,5 @@
 import { RadianError } from "./errors.ts";
-import type { Runtime } from "./profiles.ts";
-import type { Role } from "./roles.ts";
+import type { Role, Runtime } from "./constants.ts";
 
 export type WorkerState =
   "starting" | "working" | "question" | "blocked" | "done" | "failed" | "exited" | "stopped";
