@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { readJsonFile, writeJsonFile } from "../io/json-file.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 
 /**
  * Calm collapses successful tool results to one line; errors, partial output, and

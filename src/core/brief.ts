@@ -1,5 +1,5 @@
-import type { Runtime } from "./profiles.ts";
-import { canEditCode, type Role } from "./roles.ts";
+import type { Role, Runtime } from "./constants.ts";
+import { canEditCode } from "./roles.ts";
 
 export interface BriefInput {
   workerName: string;

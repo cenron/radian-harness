@@ -1,6 +1,6 @@
 import { RadianError } from "../core/errors.ts";
 import type { WorkerRecord } from "../core/worker.ts";
-import { readJsonFile, writeJsonFile } from "./json-file.ts";
+import { readJsonFile, writeJsonFile } from "#core/utils/json.ts";
 
 interface WorkerFile {
   version: 1;

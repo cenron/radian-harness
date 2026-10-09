@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { git, makeRepository, makeTempDir } from "../../helpers/git-fixtures.ts";
-import { writeJsonFile } from "../../../src/io/json-file.ts";
+import { writeJsonFile } from "#core/utils/json.ts";
 import {
   addProject,
   createProject,

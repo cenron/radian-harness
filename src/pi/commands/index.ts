@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "#core/errors.ts";
+import { errorMessage } from "#core/utils/errors.ts";
 import type { CommandDefinition, CommandDependencies } from "#pi/commands/types.ts";
 import { workspaceCommand } from "#pi/commands/workspace.ts";
 import { projectCommand } from "#pi/commands/projects.ts";

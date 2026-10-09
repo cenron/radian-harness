@@ -6,25 +6,30 @@
 radian-harness/
 ├── extensions/radian.ts        Pi package entry: wires the real Herdr runner and this checkout
 ├── src/
-│   ├── core/                   Pure rules; imports nothing else from src/
-│   │   ├── errors.ts           RadianError(code, message) and errorMessage()
-│   │   ├── roles.ts            The four roles, Plan/Build modes, which roles each mode allows
-│   │   ├── profiles.ts         Runtimes, efforts, profile selection, the Anthropic-on-Claude rule
+│   ├── core/                   Radian's definitions and rules; imports nothing else from src/
+│   │   ├── constants.ts        Runtimes, roles, efforts, Anthropic markers, file-list limit
+│   │   ├── types.ts            Mode, Profile, and the config types
+│   │   ├── errors.ts           RadianError(code, message)
+│   │   ├── config.ts           Loads and validates config/*.json plus workspace overrides
+│   │   ├── roles.ts            Role and mode parsing, which roles each mode allows
+│   │   ├── profiles.ts         Profile selection, the Anthropic-on-Claude rule
 │   │   ├── worker.ts           Worker record and states, names, branches, pane labels
 │   │   ├── brief.ts            The brief text and the first prompt typed into a worker
 │   │   ├── status.ts           Loose parsing of `working|question|blocked|done|failed:` lines
 │   │   ├── layout.ts           Where each worker pane goes in the grid beside the coordinator
-│   │   ├── text.ts             Short lists for messages ("a, b, and 2 more")
-│   │   └── runtime-args.ts     Command-line flags per runtime; blanked API-key/proxy variables
+│   │   ├── runtime-args.ts     Command-line flags per runtime; blanked API-key/proxy variables
+│   │   └── utils/              Portable helpers that would work in any program
+│   │       ├── json.ts         JSON read with fallback; write through a temporary file
+│   │       ├── errors.ts       errorMessage(), isNodeError()
+│   │       ├── text.ts         listSome(): "a, b, and 2 more"
+│   │       └── tool-guard.ts   createToolGuard(): refuses listed tools, each with a reason
 │   ├── io/                     Files, git, and Herdr; imports core only
 │   │   ├── git.ts              Worktrees, branches, merge with abort on conflict, read-only git
 │   │   ├── herdr.ts            Pane split/rename/get/close, agent start/prompt, HerdrRunner
-│   │   ├── config.ts           Loads and validates config/*.json plus workspace overrides
 │   │   ├── workspace.ts        Workspace marker, project registry, project paths, mode file
 │   │   ├── worker-store.ts     Reads and writes workers.json
 │   │   ├── status-files.ts     Brief, status, and report files of one worker
-│   │   ├── worker-tools.ts     MCP tools the user approved for a project's workers
-│   │   └── json-file.ts        JSON read with fallback; write through a temporary file
+│   │   └── worker-tools.ts     MCP tools the user approved for a project's workers
 │   ├── workers/                Worker lifecycle; imports core and io
 │   │   ├── worker-env.ts       WorkerEnv: the project, config, Herdr runner, and Pi's pane
 │   │   ├── dispatch.ts         Cap check, profile, worktree, brief, grid pane, agent start
@@ -58,7 +63,7 @@ radian-harness/
 │   │   │   ├── dispatch.ts     radian_dispatch
 │   │   │   ├── workers.ts      radian_workers, _send, _stop, _merge, _discard
 │   │   │   └── allow-tool.ts   radian_allow_tool
-│   │   ├── guard.ts            Blocks Pi's bash, write, and edit
+│   │   ├── guard.ts            Radian's guard policy: blocks Pi's bash, write, and edit
 │   │   ├── dialogs.ts          Project picker, delete dialog, merge and discard approvals
 │   │   ├── watcher/
 │   │   │   ├── watcher.ts      Watcher: the poll loop; sends worker updates to Pi as follow-ups
@@ -102,7 +107,9 @@ radian-harness/
 
 Dependencies point inward:
 
-- `core` imports nothing from `src/`.
+- `core` imports nothing else from `src/`. It holds Radian's definitions and rules, and may read
+  and write files. `core/utils/` holds portable helpers: code that would work unchanged in any
+  other program, with no Radian rules and nothing from Pi.
 - `io` imports `core`, and `install` imports `core`.
 - `workers` imports `core` and `io`.
 - `pi` imports any of these and is the only layer that touches Pi's API.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guardToolCall } from "../../../src/pi/guard.ts";
+import { guardToolCall } from "#pi/guard.ts";
 
 test("the guard blocks bash, write, and edit with a reason", () => {
   for (const tool of ["bash", "write", "edit"]) {

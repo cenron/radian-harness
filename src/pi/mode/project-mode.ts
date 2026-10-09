@@ -1,8 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Mode } from "#core/roles.ts";
 import { writeMode } from "#io/workspace.ts";
 import type { State } from "#pi/state.ts";
 import type { StatusView } from "#pi/status/status-view.ts";
+import type { Mode } from "#core/types.ts";
 
 /** The selected project's Plan/Build mode, set by `/radian mode` and toggled by Shift+Tab. */
 export class ProjectMode {

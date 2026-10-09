@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RadianError } from "../core/errors.ts";
-import type { Mode } from "../core/roles.ts";
-import type { RadianConfig } from "../io/config.ts";
+import type { Mode, RadianConfig } from "../core/types.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import type { HerdrRunner } from "../io/herdr.ts";
 import { findWorker } from "../io/worker-store.ts";

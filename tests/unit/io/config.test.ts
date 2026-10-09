@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import { makeTempDir } from "../../helpers/git-fixtures.ts";
-import { loadConfig } from "../../../src/io/config.ts";
-import { writeJsonFile } from "../../../src/io/json-file.ts";
+import { loadConfig } from "#core/config.ts";
+import { writeJsonFile } from "#core/utils/json.ts";
 
 const harnessJson = { version: 1, maxWorkers: 3, startMode: "plan", calm: false, pollSeconds: 3 };
 const dispatchJson = {

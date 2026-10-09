@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyPlan, planInstall } from "../../../src/install/installer.ts";
-import { writeJsonFile } from "../../../src/io/json-file.ts";
+import { writeJsonFile } from "#core/utils/json.ts";
 import { HARNESS_ROOT } from "../../helpers/worker-fixtures.ts";
 import { makeTempDir } from "../../helpers/git-fixtures.ts";
 import { startPi, type PiProcess } from "./pi-rpc.ts";

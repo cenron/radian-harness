@@ -1,33 +1,6 @@
 import { RadianError } from "./errors.ts";
-import type { Role } from "./roles.ts";
-
-export const RUNTIMES = ["claude", "codex", "pi"] as const;
-export type Runtime = (typeof RUNTIMES)[number];
-
-export interface Profile {
-  name: string;
-  runtime: Runtime;
-  /** Pi needs a provider to find the model; Claude Code and Codex each have one fixed provider. */
-  provider?: string;
-  model: string;
-  effort: string;
-  description?: string;
-}
-
-export interface DispatchConfig {
-  roles: Record<Role, string>;
-  profiles: Record<string, Profile>;
-}
-
-const RUNTIME_EFFORTS: Record<Runtime, readonly string[]> = {
-  claude: ["low", "medium", "high", "xhigh", "max"],
-  codex: ["minimal", "low", "medium", "high", "xhigh"],
-  pi: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
-};
-
-// Matched against both provider and model so a renamed provider or a bare alias
-// such as "opus" cannot route an Anthropic model around Claude Code.
-const ANTHROPIC_MARKERS = /(anthropic|claude|opus|sonnet|haiku|fable|bedrock|vertex)/i;
+import { ANTHROPIC_MARKERS, type Role, RUNTIME_EFFORTS } from "./constants.ts";
+import type { DispatchConfig, Profile } from "#core/types.ts";
 
 export function selectProfile(config: DispatchConfig, role: Role, requested?: string): Profile {
   const name = requested ?? config.roles[role];

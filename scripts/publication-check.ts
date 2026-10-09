@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { errorMessage } from "../src/core/errors.ts";
+import { errorMessage } from "../src/core/utils/errors.ts";
 import { parseDenylist, scanLine } from "./publication-rules.ts";
 import type { LineFinding } from "./publication-rules.ts";
 

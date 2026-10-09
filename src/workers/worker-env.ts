@@ -1,5 +1,5 @@
 import type { WorkerRecord } from "../core/worker.ts";
-import type { RadianConfig } from "../io/config.ts";
+import type { RadianConfig } from "#core/types.ts";
 import type { HerdrRunner } from "../io/herdr.ts";
 import { workerFiles, type WorkerFiles } from "../io/status-files.ts";
 import { projectPaths, type Project } from "../io/workspace.ts";

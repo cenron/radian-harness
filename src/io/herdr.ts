@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { RadianError } from "../core/errors.ts";
-import type { Runtime } from "../core/profiles.ts";
+import type { Runtime } from "../core/constants.ts";
 
 export interface HerdrResult {
   stdout: string;

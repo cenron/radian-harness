@@ -1,4 +1,4 @@
-import type { Mode } from "#core/roles.ts";
+import type { Mode } from "#core/types.ts";
 import type { WorkerRecord } from "#core/worker.ts";
 import { listWorkers } from "#io/worker-store.ts";
 import { projectPaths, readMode, type Project } from "#io/workspace.ts";
