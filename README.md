@@ -262,6 +262,10 @@ model provider is contacted. Coding standards are in [docs/Principles.md](docs/P
 
 ## Versions
 
+- **1.2.0**: after planning, Shift+Tab offers to build here, clear the context and build from
+  the saved plan, or compact first; `/projects new-session` starts a fresh conversation; project
+  commands moved under `/projects` (`create`, `add`, `delete`, `select`); a cleaner, modular
+  codebase.
 - **1.1.0**: Pi asks you to approve MCP tools per project (`radian_allow_tool`, `/radian tools`);
   a worker with nothing of its own to merge closes itself; Pi can read a worker's files before a
   merge and sees which files Radian committed; a refused merge names the uncommitted files and
