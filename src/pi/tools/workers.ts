@@ -47,11 +47,11 @@ export function mergeTool({ state }: ToolDependencies) {
   return tool({
     name: "radian_merge",
     description:
-      "Ask the user to approve merging a worker's branch into the target branch. Only the user's approval merges; report exactly what this tool returns.",
+      "Ask the user to approve merging a worker's branch into the target branch. Only the user's approval merges, or, when auto-merge is on, the dialog's countdown running out without an answer; report exactly what this tool returns.",
     parameters: Type.Object({ worker: workerParameter }),
     run: async ({ worker }, ctx) => {
       const named = state.namedWorker(worker);
-      return mergeWithApproval(ctx, named.env, named.worker);
+      return mergeWithApproval(ctx, named.env, named.worker, state.autoMergeSeconds());
     },
   });
 }

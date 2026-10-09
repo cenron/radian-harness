@@ -8,11 +8,13 @@ import { parseMode } from "#core/roles.ts";
 import { discardWithApproval, mergeWithApproval } from "#pi/dialogs.ts";
 import { stopWorker } from "#workers/finish.ts";
 import { readWorkerTools, removeWorkerTool } from "#io/worker-tools.ts";
+import { writeAutoMerge } from "#io/workspace.ts";
+import { DEFAULT_AUTO_MERGE_SECONDS } from "#core/constants.ts";
 import type { State } from "#pi/state.ts";
 import { setCalm } from "#pi/commands/calm.ts";
 
 const RADIAN_USAGE =
-  "Usage: /radian status | mode plan|build | build --fresh | calm on|off | workers | merge <worker> | stop <worker> | discard <worker> | tools [remove <tool>]";
+  "Usage: /radian status | mode plan|build | build --fresh | automerge on|off|<seconds> | calm on|off | workers | merge <worker> | stop <worker> | discard <worker> | tools [remove <tool>]";
 
 /**
  * `/radian`: reports on and controls the selected project.
@@ -21,6 +23,8 @@ const RADIAN_USAGE =
  * - `/radian mode plan|build`: set the mode; Build lets workers change code. Leaving Plan after
  *   writing a plan asks whether to build here, start fresh from the plan, or compact first.
  * - `/radian build --fresh`: switch to Build in a fresh session whose first prompt is the plan.
+ * - `/radian automerge on|off|<seconds>`: let an unanswered merge dialog merge after a countdown
+ *   (`on` is 60s), so finished work lands while the user is away. No argument shows the setting.
  * - `/radian calm on|off`: collapse the successful tool output or show it.
  * - `/radian workers`: list the project's workers.
  * - `/radian merge <worker>`: merge a worker's work after the user approves.
@@ -33,7 +37,7 @@ export function radianCommand(deps: CommandDependencies): CommandDefinition {
   return {
     name: "radian",
     description:
-      "Radian: status, mode plan|build, build --fresh, calm on|off, workers, merge|stop|discard <worker>, tools [remove <tool>]",
+      "Radian: status, mode plan|build, build --fresh, automerge on|off|<seconds>, calm on|off, workers, merge|stop|discard <worker>, tools [remove <tool>]",
     action: async (args, ctx) => {
       const [subcommand = "status", argument] = args;
 
@@ -48,6 +52,9 @@ export function radianCommand(deps: CommandDependencies): CommandDefinition {
         case "build":
           if (argument !== "--fresh") throw new RadianError("usage", RADIAN_USAGE);
           return buildFresh(deps, ctx);
+
+        case "automerge":
+          return setAutoMerge(deps, ctx, argument);
 
         case "calm":
           if (argument !== "on" && argument !== "off") throw new RadianError("usage", RADIAN_USAGE);
@@ -94,6 +101,34 @@ async function buildFresh(
   mode.set(ctx, "build");
   await session.startFresh(ctx, { project, firstPrompt: planHandoff(plan, planText) });
   return undefined;
+}
+
+/** How long an unanswered merge dialog waits before it merges; shows the setting without one. */
+function setAutoMerge(
+  { state, status }: CommandDependencies,
+  ctx: ExtensionCommandContext,
+  setting: string | undefined,
+): string {
+  if (setting === undefined) return autoMergeMessage(state.autoMergeSeconds());
+  const seconds = parseAutoMerge(setting);
+  const { workspaceRoot, project } = state.requireProject();
+  writeAutoMerge(workspaceRoot, project.name, seconds);
+  status.refresh(ctx);
+  return autoMergeMessage(seconds);
+}
+
+function parseAutoMerge(setting: string): number {
+  if (setting === "on") return DEFAULT_AUTO_MERGE_SECONDS;
+  if (setting === "off") return 0;
+  const seconds = Number(setting);
+  if (Number.isInteger(seconds) && seconds > 0) return seconds;
+  throw new RadianError("usage", "Usage: /radian automerge on|off|<seconds>");
+}
+
+function autoMergeMessage(seconds: number): string {
+  return seconds > 0
+    ? `Auto-merge on: an unanswered merge dialog merges after ${seconds}s. Esc still cancels.`
+    : "Auto-merge off: merges wait for your answer.";
 }
 
 /** Lists the MCP tools approved for the project's workers, or removes one. */

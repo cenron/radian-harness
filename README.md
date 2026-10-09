@@ -124,6 +124,7 @@ and `developer-pi` (an OpenAI model through Pi). Pi uses them only when you ask.
 | `/calm [on\|off]`                              | Toggle Calm                                                                           |
 | `/radian workers`                              | List workers                                                                          |
 | `/radian merge\|stop\|discard <worker>`        | Merge or discard (each asks first), or close the pane and keep the work               |
+| `/radian automerge on\|off\|<seconds>`         | An unanswered merge dialog merges after the countdown (`on` = 60s); Esc cancels       |
 | `/radian tools [remove <tool>]`                | List the MCP tools approved for the project's workers, or remove one                  |
 
 ### Coordinator tools
@@ -187,7 +188,14 @@ afterwards; `/radian tools` lists them and `/radian tools remove <tool>` takes o
 `config/harness.json` sets the defaults:
 
 ```json
-{ "version": 1, "maxWorkers": 3, "startMode": "plan", "calm": false, "pollSeconds": 3 }
+{
+  "version": 1,
+  "maxWorkers": 3,
+  "startMode": "plan",
+  "calm": false,
+  "pollSeconds": 3,
+  "autoMergeSeconds": 60
+}
 ```
 
 `config/dispatch.json` maps each role to a default profile and defines the profiles:
@@ -198,6 +206,10 @@ afterwards; `/radian tools` lists them and `/radian tools remove <tool>` takes o
 
 To change settings for one workspace, put partial files in
 `<workspace>/.radian/config/harness.json` or `dispatch.json`; profiles and roles merge by name.
+
+`autoMergeSeconds` (default 60) is the countdown before an unanswered merge dialog merges on its
+own, so work can land while you are away; `0` waits for your answer. `/radian automerge
+on|off|<seconds>` changes it for one project.
 The installer can be run again at any time:
 
 ```sh

@@ -10,8 +10,11 @@ export interface RpcRecord {
   [key: string]: unknown;
 }
 
-/** Answers a dialog request; return undefined to cancel it. */
-export type DialogAnswer = (request: RpcRecord) => Record<string, unknown> | undefined;
+/**
+ * Answers a dialog request; return undefined to cancel it, or null to leave it unanswered so a
+ * dialog with a timeout resolves on its own, as when the user is away.
+ */
+export type DialogAnswer = (request: RpcRecord) => Record<string, unknown> | undefined | null;
 
 export interface PiProcess {
   records: RpcRecord[];
@@ -68,11 +71,10 @@ export function startPi(options: {
       record.type === "extension_ui_request" &&
       ["select", "confirm", "input", "editor"].includes(String(record.method))
     ) {
-      send({
-        type: "extension_ui_response",
-        id: record.id,
-        ...(answer(record) ?? { cancelled: true }),
-      });
+      const reply = answer(record);
+      if (reply !== null) {
+        send({ type: "extension_ui_response", id: record.id, ...(reply ?? { cancelled: true }) });
+      }
     }
     for (const waiter of waiters.filter((candidate) => candidate.match(record))) {
       waiters = waiters.filter((candidate) => candidate !== waiter);

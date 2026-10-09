@@ -108,7 +108,11 @@ write files or run external programs.
 - **Limits.** `maxWorkers` (default 3) counts workers that are starting, working, asking a question,
   or blocked. Only a scout may be dispatched in Plan mode.
 - **Ending.** Merge and discard (`radian_merge`, `radian_discard`, or `/radian merge|discard`)
-  each ask the user first and then remove the pane, worktree, and branch.
+  each ask the user first and then remove the pane, worktree, and branch. Auto-merge is on by
+  default (`autoMergeSeconds`, 60s; `/radian automerge` changes it per project): the merge dialog
+  counts down and merges if nobody answers, so finished work lands while the user is away; Esc
+  still cancels.
+  Discards and tool approvals always wait for an answer.
   A worker that reports `done` with no commits of its own (a scout or reviewer, a developer that
   changed nothing, or one whose work already reached the target through another worker) is
   closed without asking, since there is nothing to merge or lose; Pi gets its report or summary.

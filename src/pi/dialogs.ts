@@ -13,6 +13,9 @@ import type { WorkerEnv } from "../workers/worker-env.ts";
 export type DeleteChoice = "keep-files" | "delete-files";
 
 const CANCEL = "Cancel";
+// Pi resolves both Esc and a timeout as "no choice"; a no-choice answer this close to the end of
+// the countdown is the timeout.
+const TIMEOUT_MARGIN_MS = 250;
 const KEEP_FILES = "Remove from workspace (keep files)";
 const DELETE_FILES = "Delete project and files";
 
@@ -39,19 +42,31 @@ export async function chooseDeleteAction(
   return undefined;
 }
 
-/** The one approval before a merge; Cancel is first so Enter never merges by accident. */
+/**
+ * The one approval before a merge; Cancel is first so Enter never merges by accident. With
+ * `autoMergeSeconds` above 0 the dialog counts down and merges if nobody answers, so work can
+ * land while the user is away; Esc still cancels.
+ */
 export async function mergeWithApproval(
   ctx: ExtensionContext,
   env: WorkerEnv,
   worker: WorkerRecord,
+  autoMergeSeconds = 0,
 ): Promise<string> {
   // Checked again by mergeWorker; checking first means the user is never asked in vain.
   await assertReadyToMerge(env);
-  const isApproved = await approve(ctx, {
-    title: `Merge into ${env.project.target}?\n\n${await describeWorker(env, worker)}`,
+  const countdown =
+    autoMergeSeconds > 0 ? `\n\nMerges on its own in ${autoMergeSeconds}s unless you cancel.` : "";
+  const answer = await askWithCountdown(ctx, {
+    title: `Merge into ${env.project.target}?\n\n${await describeWorker(env, worker)}${countdown}`,
     action: "Merge",
+    timeoutMs: autoMergeSeconds * 1000,
   });
-  return isApproved ? mergeWorker(env, worker) : `Merge of ${worker.name} cancelled by the user.`;
+  if (answer === "cancelled") return `Merge of ${worker.name} cancelled by the user.`;
+  const merged = await mergeWorker(env, worker);
+  return answer === "timed-out"
+    ? `${merged} Merged automatically after ${autoMergeSeconds}s with no answer.`
+    : merged;
 }
 
 export async function discardWithApproval(
@@ -85,6 +100,23 @@ async function approve(
 ): Promise<boolean> {
   requireDialogs(ctx);
   return (await ctx.ui.select(dialog.title, [CANCEL, dialog.action])) === dialog.action;
+}
+
+/** Like `approve`, but with `timeoutMs` above 0 an unanswered dialog counts as approval. */
+async function askWithCountdown(
+  ctx: ExtensionContext,
+  dialog: { title: string; action: string; timeoutMs: number },
+): Promise<"approved" | "cancelled" | "timed-out"> {
+  if (dialog.timeoutMs <= 0) return (await approve(ctx, dialog)) ? "approved" : "cancelled";
+  requireDialogs(ctx);
+  const started = Date.now();
+  const choice = await ctx.ui.select(dialog.title, [CANCEL, dialog.action], {
+    timeout: dialog.timeoutMs,
+  });
+  if (choice === dialog.action) return "approved";
+  const isTimeout =
+    choice === undefined && Date.now() - started >= dialog.timeoutMs - TIMEOUT_MARGIN_MS;
+  return isTimeout ? "timed-out" : "cancelled";
 }
 
 function requireDialogs(ctx: ExtensionContext): void {

@@ -14,5 +14,8 @@ export const RUNTIME_EFFORTS: Record<Runtime, readonly string[]> = {
 // such as "opus" cannot route an Anthropic model around Claude Code.
 export const ANTHROPIC_MARKERS = /(anthropic|claude|opus|sonnet|haiku|fable|bedrock|vertex)/i;
 
+/** The countdown `/radian automerge on` sets: long enough to cancel, short enough not to stall. */
+export const DEFAULT_AUTO_MERGE_SECONDS = 60;
+
 /** How many files Radian names before it says "and N more". */
 export const FILE_LIST_LIMIT = 10;

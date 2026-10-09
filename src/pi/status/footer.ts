@@ -38,7 +38,8 @@ const STATE_STYLE: Record<WorkerState, { icon: string; color: WidgetColor }> = {
 export function projectStatusLine(status: ProjectStatus): string {
   const inUse = status.workers.filter(countsTowardLimit).length;
   const slots = `${inUse}/${status.maxWorkers} slots in use`;
-  const prefix = `Radian · ${status.project.name} · ${status.mode.toUpperCase()}`;
+  const autoMerge = status.autoMergeSeconds ? ` · AUTO-MERGE ${status.autoMergeSeconds}s` : "";
+  const prefix = `Radian · ${status.project.name} · ${status.mode.toUpperCase()}${autoMerge}`;
   if (status.workers.length === 0) return `${prefix} · no workers · ${slots}`;
   const byState = STATE_ORDER.map((state) => ({
     label: STATE_LABELS[state] ?? state,

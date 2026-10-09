@@ -84,7 +84,7 @@ radian-harness/
 │       └── cli.ts              `npm run workspace -- install|update|remove|status`
 ├── install.sh                  Checks for node, then runs the installer CLI's install
 ├── config/
-│   ├── harness.json            maxWorkers, startMode, calm, pollSeconds
+│   ├── harness.json            maxWorkers, startMode, calm, pollSeconds, autoMergeSeconds
 │   └── dispatch.json           Role → default profile; profiles (runtime, model, effort)
 ├── roles/                      First message typed into each worker, one file per role
 │   └── developer.md, tester.md, reviewer.md, scout.md
@@ -136,6 +136,7 @@ files.
 │   │   └── dispatch.json         Profiles override by name, roles by role
 │   └── projects/<project>/
 │       ├── mode.json             plan or build
+│       ├── auto-merge.json       Seconds before an unanswered merge dialog merges; 0 waits
 │       ├── session.json          The project's Pi session file
 │       ├── workers.json          Worker records (state, pane, branch, status lines seen)
 │       ├── workers/<worker>/

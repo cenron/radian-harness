@@ -4,7 +4,7 @@ import type { Mode, RadianConfig } from "../core/types.ts";
 import type { WorkerRecord } from "../core/worker.ts";
 import type { HerdrRunner } from "../io/herdr.ts";
 import { findWorker } from "../io/worker-store.ts";
-import { readMode, type Project } from "../io/workspace.ts";
+import { readAutoMerge, readMode, type Project } from "../io/workspace.ts";
 import { workersFileOf, type WorkerEnv } from "../workers/worker-env.ts";
 
 export interface RadianDeps {
@@ -60,6 +60,16 @@ export class State {
 
   currentMode(view: View & { project: Project }): Mode {
     return readMode(view.workspaceRoot, view.project.name, view.config.harness.startMode);
+  }
+
+  /** The selected project's auto-merge countdown in seconds; 0 means merges wait for an answer. */
+  autoMergeSeconds(): number {
+    const view = this.requireProject();
+    return readAutoMerge(
+      view.workspaceRoot,
+      view.project.name,
+      view.config.harness.autoMergeSeconds,
+    );
   }
 
   workerEnvOf(): WorkerEnv {
