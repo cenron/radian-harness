@@ -34,6 +34,7 @@ export function projectPaths(workspaceRoot: string, project: string) {
     worktreesDir,
     workersFile: path.join(stateDir, "workers.json"),
     modeFile: path.join(stateDir, "mode.json"),
+    autoMergeFile: path.join(stateDir, "auto-merge.json"),
     sessionFile: path.join(stateDir, "session.json"),
     workerDir: (worker: string) => path.join(workersDir, worker),
     worktree: (worker: string) => path.join(worktreesDir, worker),
@@ -113,6 +114,19 @@ export function readMode(workspaceRoot: string, project: string, startMode: Mode
 
 export function writeMode(workspaceRoot: string, project: string, mode: Mode): void {
   writeJsonFile(projectPaths(workspaceRoot, project).modeFile, { mode });
+}
+
+/** Seconds before the merge dialog merges on its own; 0 (off) waits for an answer. */
+export function readAutoMerge(workspaceRoot: string, project: string, fallback: number): number {
+  const stored = readJsonFile<{ seconds?: number }>(
+    projectPaths(workspaceRoot, project).autoMergeFile,
+    {},
+  );
+  return typeof stored.seconds === "number" ? stored.seconds : fallback;
+}
+
+export function writeAutoMerge(workspaceRoot: string, project: string, seconds: number): void {
+  writeJsonFile(projectPaths(workspaceRoot, project).autoMergeFile, { seconds });
 }
 
 async function register(workspaceRoot: string, project: Project): Promise<Project> {

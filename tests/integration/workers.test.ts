@@ -86,6 +86,43 @@ test("a dispatched worker reports done, Pi is told, and the approved merge lands
   }
 });
 
+test("with auto-merge on, a merge nobody answers lands when the countdown ends", async () => {
+  const workspace = startWorkspace();
+  const { pi, root } = workspace;
+  try {
+    await pi.prompt("/projects create demo");
+    await waitForNote(pi, /Project demo selected/);
+    await pi.prompt("/radian mode build");
+    await pi.prompt("/radian automerge 1");
+    await waitForNote(pi, /Auto-merge on: an unanswered merge dialog merges after 1s/);
+    await pi.prompt(`TOOL radian_dispatch ${dispatch}`);
+    await pi.wait(() =>
+      workspace
+        .modelLog()
+        .some((request) =>
+          request.transcript.some((message) => /demo-developer-1 .* done:/.test(message.text)),
+        ),
+    );
+
+    pi.answerDialogs(() => null);
+    await pi.prompt('TOOL radian_merge {"worker":"demo-developer-1"}');
+    const dialog = pi.records.find(
+      (record) => record.type === "extension_ui_request" && record.method === "select",
+    );
+    assert.equal(dialog?.timeout, 1000);
+    const merged = workspace.modelLog().at(-1)?.transcript.at(-1)?.text ?? "";
+    assert.match(merged, /Merged radian\/demo-developer-1 into main/);
+    assert.match(merged, /Merged automatically after 1s with no answer/);
+    const project = path.join(root, "demo");
+    assert.equal(
+      execFileSync("git", ["log", "-1", "--format=%s"], { cwd: project, encoding: "utf8" }).trim(),
+      "Add work",
+    );
+  } finally {
+    await pi.close();
+  }
+});
+
 test("a cancelled merge changes nothing, and /projects delete refuses while the worker runs", async () => {
   const workspace = startWorkspace();
   const { pi, root } = workspace;

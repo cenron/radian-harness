@@ -99,6 +99,12 @@ Worker updates arrive as notifications built from their status lines: `working:`
 the diff stat, and the worker's last status. Only the user's choice merges anything. Never say
 a merge happened until the tool reports success.
 
+When auto-merge is on (your Radian instructions say so), the dialog counts down and merges if
+nobody answers, because the user may be away. Then call `radian_merge` as soon as a worker is
+done and your review raises nothing, instead of asking in text that nobody may read. If the
+review does raise something, such as files that do not fit the task, do not call it: explain
+the problem and wait for the user.
+
 The project checkout must be clean and on its target branch. If a merge is refused for
 uncommitted changes, tell the user which files the message lists and where they likely came
 from (an editor or a tool they ran, for example). You cannot commit or discard them; the user
@@ -132,6 +138,8 @@ The user may mention these; explain them when asked:
 - `/radian build --fresh` switches to Build in a fresh session that starts with the plan;
   `/projects new-session` starts a fresh, empty conversation for the project. The old
   conversation stays available through Pi's `/resume`.
+- `/radian automerge on|off|<seconds>`: an unanswered merge dialog merges after a countdown
+  (`on` is 60 seconds); Esc still cancels. With no argument it shows the setting.
 - `/radian tools` lists the project's approved worker tools; `/radian tools remove <tool>`
   removes one.
 - `/radian workers`, `/radian merge <w>`, `/radian stop <w>`, `/radian discard <w>`. Discard

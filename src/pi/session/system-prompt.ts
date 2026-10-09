@@ -28,9 +28,15 @@ export class SystemPrompt {
     const project = view.project;
     options.cwd = project.path;
     options.contextFiles = loadProjectContextFiles({ cwd: project.path, agentDir: getAgentDir() });
+    const autoMergeSeconds = this.state.autoMergeSeconds();
     options.sections.radian = [
       `Radian project ${project.name} at ${project.path}; workers merge into ${project.target}.`,
       `Mode: ${this.state.currentMode({ ...view, project }).toUpperCase()}.`,
+      ...(autoMergeSeconds > 0
+        ? [
+            `Auto-merge is on: an unanswered merge dialog merges after ${autoMergeSeconds}s, and the user may be away. Once a worker is done and its review raises nothing, call radian_merge right away instead of asking in text.`,
+          ]
+        : []),
       "You coordinate and never edit files or run commands yourself; follow the radian-coordinator skill.",
     ].join(" ");
   }

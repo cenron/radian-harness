@@ -4,9 +4,13 @@ import type { ProjectStatus } from "#pi/status/project-status.ts";
 
 export function projectReport(status: ProjectStatus): string {
   const { project } = status;
+  const autoMerge = status.autoMergeSeconds
+    ? [`Auto-merge: an unanswered merge dialog merges after ${status.autoMergeSeconds}s`]
+    : [];
   return [
     `Project ${project.name} at ${project.path} (target ${project.target})`,
     `Mode: ${status.mode.toUpperCase()}`,
+    ...autoMerge,
     workersReport(status.workers),
   ].join("\n");
 }

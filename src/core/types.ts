@@ -18,6 +18,8 @@ export interface HarnessConfig {
   startMode: Mode;
   calm: boolean;
   pollSeconds: number;
+  /** Seconds the merge dialog waits before merging on its own; 0 waits for an answer. */
+  autoMergeSeconds: number;
 }
 
 export interface DispatchConfig {

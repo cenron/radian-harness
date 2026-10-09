@@ -30,8 +30,13 @@ export interface FakePi {
   userMessages: Array<{ text: string; options: unknown }>;
   /** Custom instructions of every `ctx.compact` call. */
   compactions: Array<string | undefined>;
-  /** The option the next `select` dialog picks; undefined cancels it. */
-  answer: { pick: (options: string[]) => string | undefined };
+  /**
+   * The option the next `select` dialog picks; undefined cancels it at once. With `waits`, a
+   * dialog that has a timeout gets no answer and resolves when the timeout runs out.
+   */
+  answer: { pick: (options: string[]) => string | undefined; waits?: boolean };
+  /** Every `select` dialog shown, with its timeout in milliseconds when it had one. */
+  dialogs: Array<{ title: string; options: string[]; timeout?: number }>;
   run: (command: string) => Promise<string | undefined>;
   /** Calls a registered tool as the model would and returns its text. */
   callTool: (name: string, params: Record<string, unknown>) => Promise<string>;
@@ -47,6 +52,7 @@ export function createFakePi(env: WorkerEnv): FakePi {
   const userMessages: FakePi["userMessages"] = [];
   const compactions: FakePi["compactions"] = [];
   const answer: FakePi["answer"] = { pick: () => undefined };
+  const dialogs: FakePi["dialogs"] = [];
   const pi = {
     registerCommand: (name: string, options: { handler: Handler }) =>
       handlers.set(name, options.handler),
@@ -62,7 +68,12 @@ export function createFakePi(env: WorkerEnv): FakePi {
     hasPendingMessages: () => false,
     ui: {
       notify: (message: string) => notes.push(message),
-      select: async (_title: string, options: string[]) => answer.pick(options),
+      select: async (title: string, options: string[], opts?: { timeout?: number }) => {
+        dialogs.push({ title, options, timeout: opts?.timeout });
+        if (!answer.waits || !opts?.timeout) return answer.pick(options);
+        await new Promise((resolve) => setTimeout(resolve, opts.timeout));
+        return undefined;
+      },
       setStatus: () => undefined,
       setWidget: () => undefined,
     },
@@ -118,6 +129,7 @@ export function createFakePi(env: WorkerEnv): FakePi {
     userMessages,
     compactions,
     answer,
+    dialogs,
     run,
     callTool,
   };

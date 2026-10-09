@@ -42,12 +42,18 @@ function loadHarness(globalFile: string, localFile: string): HarnessConfig {
     throw invalid(where, "pollSeconds must be a positive number");
   }
 
+  const autoMergeSeconds = merged.autoMergeSeconds ?? 0;
+  if (typeof autoMergeSeconds !== "number" || autoMergeSeconds < 0) {
+    throw invalid(where, "autoMergeSeconds must be 0 (off) or a positive number of seconds");
+  }
+
   if (typeof merged.calm !== "boolean") throw invalid(where, "calm must be true or false");
   if (typeof merged.startMode !== "string") throw invalid(where, "startMode must be plan or build");
 
   return {
     maxWorkers: maxWorkers as number,
     pollSeconds,
+    autoMergeSeconds,
     calm: merged.calm,
     startMode: parseStartMode(merged.startMode, where),
   };
